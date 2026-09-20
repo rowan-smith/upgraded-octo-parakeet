@@ -1,5 +1,17 @@
 ﻿# Modular Software Delivery Platform
 
+## Licensing
+
+ForgeDeck follows GitLab-style open-core source separation:
+
+- **Community Edition (CE)** — everything outside [`/ee`](ee/): [AGPL-3.0-only](licenses/AGPL-3.0.txt)
+- **Enterprise Edition (EE)** — everything under [`/ee`](ee/): [EE License](ee/LICENSE) (proprietary, source-available, sellable)
+
+Default builds are CE. EE: `dotnet run --project src/Platform.Api -p:IncludeEE=true`.  
+`FOSS_ONLY=1` forces CE. See [LICENSE.md](LICENSE.md).
+
+Runtime EE capability activation still needs a signed entitlement file; that is separate from copyright licensing.
+
 ## Implementation status
 
 The current .NET 10 modular monolith implements Core, native Git, Review, Pipelines, a GitHub source-provider adapter, capability discovery, RBAC checks, correlated audit, versioned domain events, and the dynamic web shell.

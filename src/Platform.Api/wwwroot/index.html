@@ -6,29 +6,34 @@
   <meta name="description" content="ForgeDeck — a modular software delivery platform.">
   <title>ForgeDeck · Atlas</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=core-foundation-1">
 </head>
 <body>
   <div id="app" class="app-shell" aria-busy="true">
-    <aside class="sidebar">
+    <aside class="sidebar" id="appSidebar">
       <div class="brand"><span class="brand-mark">F</span><span>ForgeDeck</span></div>
       <button class="context-card" id="contextButton" aria-label="Switch project">
-        <span class="context-avatar">A</span>
-        <span><small>Northstar Labs</small><strong>Atlas</strong></span>
+        <span class="context-avatar" id="projectAvatar">A</span>
+        <span><small id="orgLabel">Organisation</small><strong id="projectLabel">Project</strong></span>
         <span class="chevron">⌄</span>
       </button>
       <nav id="primaryNav" aria-label="Project navigation"></nav>
       <div class="sidebar-footer">
-        <button class="nav-item" data-route="/audit"><span class="nav-icon">◫</span>Audit log</button>
-        <button class="nav-item" data-route="/modules"><span class="nav-icon">◇</span>Modules</button>
-        <div class="user"><span class="avatar">MC</span><span><strong>Maya Chen</strong><small>Platform admin</small></span><span class="online" aria-label="Online"></span></div>
+        <button type="button" class="nav-item" data-route="/people"><span class="nav-icon">◎</span>People</button>
+        <button type="button" class="nav-item" data-route="/audit"><span class="nav-icon">◫</span>Audit log</button>
+        <button type="button" class="nav-item" data-route="/modules"><span class="nav-icon">◇</span>Modules</button>
+        <button type="button" class="user" id="userMenu" aria-label="User menu">
+          <span class="avatar" id="userAvatar">?</span>
+          <span><strong id="userName">User</strong><small id="userHandle">@user</small></span>
+          <span class="online" aria-label="Online"></span>
+        </button>
       </div>
     </aside>
 
     <main class="workspace">
       <header class="topbar">
         <button class="mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button>
-        <div class="breadcrumbs" id="breadcrumbs">Atlas <span>/</span> Review <span>/</span> Change #142</div>
+        <div class="breadcrumbs" id="breadcrumbs">ForgeDeck</div>
         <div class="top-actions">
           <button class="icon-button" id="commandButton" aria-label="Open command menu">⌘</button>
           <button class="icon-button" aria-label="Notifications">♢<span class="notification-dot"></span></button>
@@ -40,6 +45,6 @@
 
   <dialog id="modal" class="modal"><form method="dialog" id="modalForm"><div id="modalBody"></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=core-foundation-1" defer></script>
 </body>
 </html>

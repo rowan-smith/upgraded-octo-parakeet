@@ -18,7 +18,9 @@ public sealed class GitModule : IPlatformModule
     {
         services.AddSingleton<IGitRepositoryStore, InMemoryGitRepositoryStore>();
         services.AddSingleton<GitRepositoryService>();
-        services.AddSingleton<ISourceProvider, NativeGitSourceProvider>();
+        services.AddSingleton<NativeGitSourceProvider>();
+        services.AddSingleton<ISourceProvider>(sp => sp.GetRequiredService<NativeGitSourceProvider>());
+        services.AddSingleton<IChangeSourceProvider>(sp => sp.GetRequiredService<NativeGitSourceProvider>());
     }
     public void MapEndpoints(IEndpointRouteBuilder endpoints) => endpoints.MapGitEndpoints();
 }

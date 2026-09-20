@@ -22,14 +22,14 @@ public static class GitEndpoints
     }
     private static IResult CreateRepository(CreateRepositoryRequest request, HttpContext context, GitRepositoryService service, PermissionAuthorizer authorizer, IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "git.repository.create")) return Results.Forbid();
+        if (!authorizer.Has(context, "git.repository.create")) return PermissionAuthorizer.Forbidden();
         try { var repository = service.Create(request.Name); audit.Write("git", "git.repository.created", repository.Id.ToString()); return Results.Created($"/api/git/repositories/{repository.Id}", repository); }
         catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
         catch (InvalidOperationException exception) { return Results.Conflict(new { error = exception.Message }); }
     }
     private static async Task<IResult> Push(Guid id, PushRequest request, HttpContext context, GitRepositoryService service, PermissionAuthorizer authorizer, IAuditWriter audit, CancellationToken token)
     {
-        if (!authorizer.Has(context, "git.repository.push")) return Results.Forbid();
+        if (!authorizer.Has(context, "git.repository.push")) return PermissionAuthorizer.Forbidden();
         var commit = await service.PushAsync(id, request.Branch, request.Message, "Maya Chen", token);
         if (commit is null) return Results.NotFound(); audit.Write("git", "git.push.received", id.ToString(), new { request.Branch, commit.Sha }); return Results.Ok(commit);
     }

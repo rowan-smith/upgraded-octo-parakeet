@@ -1,0 +1,18 @@
+ForgeDeck
+=========
+
+Copyright (c) 2026 ForgeDeck contributors.
+
+Licensing (open core)
+---------------------
+
+- Community Edition (CE): all files outside /ee — GNU AGPL v3.0 only.
+  See LICENSE and licenses/AGPL-3.0.txt.
+
+- Enterprise Edition (EE): all files under /ee — ForgeDeck EE License
+  (proprietary, source-available). See ee/LICENSE.
+
+This matches the GitLab CE/EE source-separation model: consumer FOSS outside
+/ee, commercial source under /ee.
+
+Third-party dependencies remain under their own licenses.

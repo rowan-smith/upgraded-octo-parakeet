@@ -3,11 +3,12 @@ using Platform.Contracts.Events;
 
 namespace Modules.Pipelines.Application;
 
-public sealed class ChangeOpenedPipelineTrigger(PipelineService pipelines, IPipelineRepository repository) : IEventHandler<ChangeOpened>
+public sealed class ChangeOpenedPipelineTrigger(PipelineService pipelines, IPipelineStore store) : IEventHandler<ChangeOpened>
 {
-    public async Task HandleAsync(ChangeOpened domainEvent, CancellationToken cancellationToken = default)
+    public Task HandleAsync(ChangeOpened domainEvent, CancellationToken cancellationToken = default)
     {
-        foreach (var definition in repository.ListDefinitions().Where(definition => definition.Triggers.Contains(PipelineTrigger.ChangeOpened)))
-            await pipelines.RunAsync(definition.Id, PipelineTrigger.ChangeOpened, domainEvent.SourceBranch, domainEvent.ChangeId, domainEvent.CommitSha, cancellationToken);
+        foreach (var definition in store.ListDefinitions().Where(d => d.Enabled && d.Triggers.Contains(PipelineTrigger.ChangeOpened)))
+            pipelines.StartRun(definition.Id, PipelineTrigger.ChangeOpened, domainEvent.SourceBranch, domainEvent.CommitSha, domainEvent.ChangeId, domainEvent.RepositoryUrl);
+        return Task.CompletedTask;
     }
 }

@@ -5,13 +5,22 @@
     <Project Path="src/Modules.Git/Modules.Git.csproj" />
     <Project Path="src/Modules.Pipelines/Modules.Pipelines.csproj" />
     <Project Path="src/Modules.Review/Modules.Review.csproj" />
+    <Project Path="src/PipelineRunner/PipelineRunner.csproj" />
     <Project Path="src/Platform.Api/Platform.Api.csproj" />
     <Project Path="src/Platform.Contracts/Platform.Contracts.csproj" />
     <Project Path="src/Platform.Core/Platform.Core.csproj" />
     <Project Path="src/Platform.Web/Platform.Web.csproj" />
   </Folder>
+  <Folder Name="/ee/">
+    <Project Path="ee/Modules.Review.Commercial/Modules.Review.Commercial.csproj" />
+  </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Tests.E2E/Tests.E2E.csproj" />
+    <Project Path="tests/Tests.E2E.Playwright/Tests.E2E.Playwright.csproj" />
     <Project Path="tests/Tests.Integration/Tests.Integration.csproj" />
     <Project Path="tests/Tests.Unit/Tests.Unit.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/LicenceSigner/LicenceSigner.csproj" />
   </Folder>
 </Solution>

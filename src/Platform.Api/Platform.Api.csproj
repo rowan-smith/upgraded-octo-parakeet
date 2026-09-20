@@ -1,5 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- GitLab-style: CE by default. IncludeEE=true ships /ee. FOSS_ONLY=1 forces CE. -->
+    <IncludeEE Condition="'$(FOSS_ONLY)' == 'true' or '$(FOSS_ONLY)' == '1'">false</IncludeEE>
+    <IncludeEE Condition="'$(IncludeEE)' == '' and ('$(IncludeCommercial)' == 'true')">true</IncludeEE>
+    <IncludeEE Condition="'$(IncludeEE)' == ''">false</IncludeEE>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Platform.Contracts\Platform.Contracts.csproj" />
     <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
@@ -11,10 +21,8 @@
     <ProjectReference Include="..\Modules.Git\Modules.Git.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-  </PropertyGroup>
+  <ItemGroup Condition="'$(IncludeEE)' == 'true'">
+    <ProjectReference Include="..\..\ee\Modules.Review.Commercial\Modules.Review.Commercial.csproj" />
+  </ItemGroup>
 
 </Project>

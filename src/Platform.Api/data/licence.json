@@ -1,0 +1,13 @@
+{
+  "organisationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "issuedAt": "2026-09-20T00:00:00+00:00",
+  "modules": {
+    "review": {
+      "edition": "Commercial",
+      "capabilities": [
+        "Review.MultiApproval"
+      ]
+    }
+  },
+  "signature": "v4eGhzcwH33hYSawUIeW2G\u002B2YNPxhNGaVbopOwceFiZxVfO3Ypa/lPKHKT82oFWM5TxAEbLBppgGe9rv40iDZZ8c4A5CKd6hBfcomBy6R\u002BCoHKZR5XzoMGnBdInd8Thnb6lYvpSYiogfP00H3gts9Hl8XktN1X/i6Y\u002BXDTbdaFFZxsscqov4pvM9U5G36LGI4J\u002B5RJLTX/eCvVoD6TKXVi/V6qxdEg0HKLs6dK0WIJ1/AkMq3S3\u002BrBV24t3P0\u002B1gaits2AWKCDaF9JZc3xnkKRo6p1uxz2NAZmptCp4lWppMRDAccrwxp3smpuiwXWYUx/VuhieBKELfjux9zzhBiA=="
+}

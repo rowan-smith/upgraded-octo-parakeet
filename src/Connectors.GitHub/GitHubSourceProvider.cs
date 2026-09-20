@@ -23,9 +23,20 @@ public sealed class GitHubSourceProvider(GitHubApiClient api) : ISourceProvider,
         foreach (var value in document.RootElement.EnumerateArray())
         {
             var name = value.GetProperty("name").GetString()!;
+            string? headMessage = null;
+            if (value.TryGetProperty("commit", out var tip)
+                && tip.TryGetProperty("commit", out var nested)
+                && nested.TryGetProperty("message", out var messageProp))
+                headMessage = messageProp.GetString();
+
             var commit = (await GetCommitsAsync(id, name, token)).FirstOrDefault();
-            branches.Add(new(name, value.GetProperty("commit").GetProperty("sha").GetString()!, commit?.Author ?? "Unknown",
-                commit?.AuthoredAt ?? DateTimeOffset.MinValue, name == repository.DefaultBranch));
+            branches.Add(new(
+                name,
+                value.GetProperty("commit").GetProperty("sha").GetString()!,
+                commit?.Author ?? "Unknown",
+                commit?.AuthoredAt ?? DateTimeOffset.MinValue,
+                name == repository.DefaultBranch,
+                headMessage ?? commit?.Message));
         }
         return branches;
     }
@@ -34,6 +45,12 @@ public sealed class GitHubSourceProvider(GitHubApiClient api) : ISourceProvider,
     {
         using var document = await api.GetAsync($"{RepoPath(id)}/commits?sha={Uri.EscapeDataString(branch)}&per_page=50", token);
         return document.RootElement.EnumerateArray().Select(value => GitHubMapping.Commit(value, branch)).ToArray();
+    }
+
+    public async Task<SourceCommit> GetCommitAsync(RepositoryId id, string commitSha, CancellationToken token = default)
+    {
+        using var document = await api.GetAsync($"{RepoPath(id)}/commits/{Uri.EscapeDataString(commitSha)}", token);
+        return GitHubMapping.Commit(document.RootElement, commitSha);
     }
 
     public async Task<SourceTree> GetTreeAsync(RepositoryId id, string reference, string? path, CancellationToken token = default)

@@ -33,8 +33,14 @@ public sealed class Change
     public string? MergeCommitSha { get; set; }
     public string CommitSha => HeadCommit;
     public IReadOnlyList<Approval> Approvals => Reviews.Where(review => review.State == "Approved").Select(review => new Approval(review.Id, review.Reviewer, review.CreatedAt)).ToArray();
-    public ApprovalPolicyResult MergePolicy => new SingleApprovalPolicy().Evaluate(this);
-    public bool CanMerge => Status is not ("Merged" or "Closed") && MergePolicy.Satisfied;
+    public ApprovalPolicyResult MergePolicy => EvaluatePolicy();
+    public bool CanMerge => CanMergeWith();
+
+    public ApprovalPolicyResult EvaluatePolicy(IApprovalPolicy? policy = null) =>
+        (policy ?? new SingleApprovalPolicy()).Evaluate(this);
+
+    public bool CanMergeWith(IApprovalPolicy? policy = null) =>
+        Status is not ("Merged" or "Closed") && EvaluatePolicy(policy).Satisfied;
 
     public static Change FromExternal(Guid projectId, SourceRepository repository, ExternalChange external)
     {
@@ -58,6 +64,24 @@ public sealed class Change
         Apply(() => Comments.Add(comment)); Record("CommentAdded", author, file is null ? "General comment added." : $"Inline comment added on {file}:{line}."); return comment;
     }
 
+    public ChangeComment EditComment(Guid commentId, string actor, string body)
+    {
+        var index = Comments.FindIndex(comment => comment.Id == commentId);
+        if (index < 0) throw new InvalidOperationException("Comment was not found.");
+        if (!Comments[index].Author.Equals(actor, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Only the author can edit this comment.");
+        Apply(() => Comments[index] = Comments[index] with { Body = body, EditedAt = DateTimeOffset.UtcNow });
+        Record("CommentEdited", actor, "Comment edited.");
+        return Comments[index];
+    }
+
+    public void DeleteComment(Guid commentId, string actor)
+    {
+        var comment = Comments.FirstOrDefault(value => value.Id == commentId) ?? throw new InvalidOperationException("Comment was not found.");
+        if (!comment.Author.Equals(actor, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Only the author can delete this comment.");
+        Apply(() => Comments.RemoveAll(value => value.Id == commentId || value.ParentId == commentId));
+        Record("CommentDeleted", actor, "Comment deleted.");
+    }
+
     public void SetDiscussionResolution(Guid discussionId, string actor, bool resolved)
     {
         var matches = Comments.Where(comment => comment.DiscussionId == discussionId).ToArray();
@@ -79,7 +103,7 @@ public sealed class Change
         Record("ReviewerRemoved", actor, $"{name} was removed as reviewer.");
     }
 
-    public void SubmitReview(string reviewer, string state, string? body)
+    public void SubmitReview(string reviewer, string state, string? body, IApprovalPolicy? policy = null)
     {
         if (state is not ("Comment" or "Approved" or "ChangesRequested")) throw new ArgumentException("Review state must be Comment, Approved, or ChangesRequested.");
         Apply(() =>
@@ -88,14 +112,14 @@ public sealed class Change
             var index = Reviewers.FindIndex(value => value.Name.Equals(reviewer, StringComparison.OrdinalIgnoreCase));
             if (index >= 0) Reviewers[index] = Reviewers[index] with { Status = state };
             if (!string.IsNullOrWhiteSpace(body)) Comments.Add(new(Guid.NewGuid(), Guid.NewGuid(), null, reviewer, body, DateTimeOffset.UtcNow, null, null, null, HeadCommit));
-            var policy = new SingleApprovalPolicy().Evaluate(this);
-            Status = state == "ChangesRequested" ? "Changes Requested" : policy.HasApproval && !policy.HasBlockingReview ? "Approved" : Status;
+            var evaluated = EvaluatePolicy(policy);
+            Status = state == "ChangesRequested" ? "Changes Requested" : evaluated.HasApproval && !evaluated.HasBlockingReview ? "Approved" : Status;
         });
         Record(state, reviewer, state == "Approved" ? "Review approved." : state == "ChangesRequested" ? "Changes requested." : "Review submitted.");
     }
 
-    public void Approve(string reviewer) => SubmitReview(reviewer, "Approved", null);
-    public void RequestChanges(string reviewer, string body) => SubmitReview(reviewer, "ChangesRequested", body);
+    public void Approve(string reviewer, IApprovalPolicy? policy = null) => SubmitReview(reviewer, "Approved", null, policy);
+    public void RequestChanges(string reviewer, string body, IApprovalPolicy? policy = null) => SubmitReview(reviewer, "ChangesRequested", body, policy);
 
     public void Synchronize(ExternalChange external)
     {
@@ -104,20 +128,33 @@ public sealed class Change
         {
             Title = external.Title; Description = external.Description; SourceBranch = external.SourceBranch; TargetBranch = external.TargetBranch;
             HeadCommit = external.HeadCommit; BaseCommit = external.BaseCommit; ProviderMergeable = external.IsMergeable; LastSynchronizedAt = DateTimeOffset.UtcNow;
-            MergedAt = external.MergedAt; ClosedAt = external.ClosedAt; Status = external.Status;
+            MergedAt = external.MergedAt; ClosedAt = external.ClosedAt;
+            if (external.Status is "Merged" or "Closed") Status = external.Status;
+            else if (Status is not ("Approved" or "Changes Requested")) Status = external.Status;
             if (external.Diff is not null) { Files.Clear(); Files.AddRange(external.Diff.Files); }
+            if (newCommits)
+            {
+                for (var index = 0; index < Comments.Count; index++)
+                {
+                    var comment = Comments[index];
+                    if (comment.File is not null && comment.CommitSha is not null &&
+                        !comment.CommitSha.Equals(external.HeadCommit, StringComparison.OrdinalIgnoreCase))
+                        Comments[index] = comment with { Outdated = true };
+                }
+            }
         });
         if (newCommits) Record("CommitsUpdated", external.Author, "New commits detected from source provider.");
     }
 
-    public void MarkMerged(string actor, string? commitSha)
+    public void MarkMerged(string actor, string? commitSha, IApprovalPolicy? policy = null)
     {
-        if (!CanMerge) throw new InvalidOperationException("One approval, no active changes-requested review, and a mergeable source branch are required.");
+        if (!CanMergeWith(policy)) throw new InvalidOperationException("Approval policy is not satisfied for merge.");
         Apply(() => { Status = "Merged"; MergedAt = DateTimeOffset.UtcNow; MergeCommitSha = commitSha; }); Record("ChangeMerged", actor, $"Merged into {TargetBranch}.");
     }
 
     public void MarkClosed(string actor) { Apply(() => { Status = "Closed"; ClosedAt = DateTimeOffset.UtcNow; }); Record("ChangeClosed", actor, "Change closed without merge."); }
 
     private void Record(string type, string actor, string detail) => Activity.Add(new(Guid.NewGuid(), type, actor, detail, DateTimeOffset.UtcNow));
+    public void RecordActivity(string type, string actor, string detail) => Apply(() => Record(type, actor, detail));
     private void Apply(Action mutation) { mutation(); UpdatedAt = DateTimeOffset.UtcNow; }
 }

@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <Authors>ForgeDeck contributors</Authors>
+    <Copyright>Copyright (c) 2026 ForgeDeck contributors</Copyright>
+    <!-- CE default. Projects under /ee set ForgeDeckCommercial=true to opt out. -->
+    <PackageLicenseExpression Condition="'$(ForgeDeckCommercial)' != 'true'">AGPL-3.0-only</PackageLicenseExpression>
+  </PropertyGroup>
+</Project>

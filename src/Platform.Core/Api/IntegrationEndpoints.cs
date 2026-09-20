@@ -18,7 +18,7 @@ public static class IntegrationEndpoints
 
     private static IResult SetGitHubCredential(GitHubCredentialRequest request, HttpContext context, IProviderCredentialStore credentials, PermissionAuthorizer authorizer, IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "core.integration.manage")) return Results.Forbid();
+        if (!authorizer.Has(context, "core.integration.manage")) return PermissionAuthorizer.Forbidden();
         if (string.IsNullOrWhiteSpace(request.Token)) return Results.BadRequest(new { error = "A GitHub personal access token is required." });
         credentials.Set("github", request.Token); audit.Write("core", "core.integration.credential.updated", "github");
         return Results.Ok(new { provider = "github", configured = true });
@@ -26,7 +26,7 @@ public static class IntegrationEndpoints
 
     private static IResult DeleteGitHubCredential(HttpContext context, IProviderCredentialStore credentials, PermissionAuthorizer authorizer, IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "core.integration.manage")) return Results.Forbid();
+        if (!authorizer.Has(context, "core.integration.manage")) return PermissionAuthorizer.Forbidden();
         credentials.Delete("github"); audit.Write("core", "core.integration.credential.deleted", "github");
         return Results.NoContent();
     }

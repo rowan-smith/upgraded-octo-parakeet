@@ -2026,6 +2026,13 @@ Review can be disabled cleanly.
 The platform can review and merge development of itself.
 ```
 
+## Implementation status (ForgeDeck)
+
+As of the current tree, Phase 1 product criteria are implemented for local dogfood:
+
+- GitHub provider + local repository association, browse (files/branches/commits), Change create/import, diff, comments, reviewers, approve/request-changes, merge/close, refresh (on-load + periodic), SQLite persistence, durable `core_audit`, module disablement.
+- Remaining polish: syntax-highlighted file viewer; fuller automated GitHub mutate smoke (opt-in via `FORGEDECK_GITHUB_SMOKE_MUTATE=1`).
+
 ---
 
 # 62. Explicit deferrals to Phase 2

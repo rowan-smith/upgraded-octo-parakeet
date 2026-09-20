@@ -5,3 +5,4 @@ public sealed record CreateChangeRequest(Guid RepositoryConnectionId, string Sou
 public sealed record CommentRequest(string Body, string? File = null, string? Side = null, int? Line = null, string? CommitSha = null, Guid? ParentId = null);
 public sealed record ReviewerRequest(string Name);
 public sealed record ReviewRequest(string State, string? Body = null);
+public sealed record PolicyRequest(int MinimumApprovals);

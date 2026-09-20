@@ -10,7 +10,7 @@ public sealed record SourceRepository(string Provider, string Owner, string Name
     public RepositoryId Id => new(Provider, Owner, Name);
 }
 
-public sealed record SourceBranch(string Name, string HeadSha, string Author, DateTimeOffset UpdatedAt, bool IsDefault);
+public sealed record SourceBranch(string Name, string HeadSha, string Author, DateTimeOffset UpdatedAt, bool IsDefault, string? HeadMessage = null);
 public sealed record SourceCommit(string Sha, string Message, string Author, DateTimeOffset AuthoredAt, string Reference);
 public sealed record SourceTree(string Reference, string Path, IReadOnlyList<SourceTreeEntry> Entries);
 public sealed record SourceTreeEntry(string Path, string Name, string Kind, long Size, string Sha);
@@ -42,6 +42,8 @@ public interface ISourceProvider
         throw new NotSupportedException($"Provider '{Id}' does not support branch browsing.");
     Task<IReadOnlyList<SourceCommit>> GetCommitsAsync(RepositoryId repositoryId, string branch, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"Provider '{Id}' does not support commit browsing.");
+    Task<SourceCommit> GetCommitAsync(RepositoryId repositoryId, string commitSha, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException($"Provider '{Id}' does not support commit lookup.");
     Task<SourceTree> GetTreeAsync(RepositoryId repositoryId, string reference, string? path, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"Provider '{Id}' does not support tree browsing.");
     Task<SourceFile> GetFileAsync(RepositoryId repositoryId, string reference, string path, CancellationToken cancellationToken = default) =>

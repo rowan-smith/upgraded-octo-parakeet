@@ -13,6 +13,8 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <!-- Override transitive 2.1.11 (GHSA-2m69-gcr7-jv3q / CVE-2025-6965) until Microsoft.Data.Sqlite ships a fixed bundle. -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
   </ItemGroup>
 
 </Project>

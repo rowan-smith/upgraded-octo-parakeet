@@ -2972,6 +2972,14 @@ Pipelines can be disabled without breaking Review.
 The platform can review, test, and merge development of itself.
 ```
 
+## Implementation status (ForgeDeck)
+
+Control plane + local runner are implemented and modular (events + `ICheckProvider`; no Review↔Pipelines project references).
+
+**In place:** runner register/heartbeat/revoke, cancel with ack, isolated workspace + SHA checkout, definition CRUD, manual runs with repository URL, ChangeOpened/Updated/Push triggers, supersede, TRX + artifacts (upload/download), Checks + RequiredChecks merge gate, live run polling UI, `ArtifactReference`, Simulated vs Runner modes (`Development` defaults to Runner).
+
+**Dogfood notes:** start Platform.Api before PipelineRunner; use a fresh registration token; set GitHub credential for private clones. Opt-in smokes: `FORGEDECK_DOCKER_SMOKE=1`, `FORGEDECK_GITHUB_SMOKE=1` (+ `_MUTATE=1` for write path).
+
 ---
 
 # 96. Explicit deferral to Phase 3

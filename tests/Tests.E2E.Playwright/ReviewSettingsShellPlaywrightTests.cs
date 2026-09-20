@@ -1,0 +1,283 @@
+using Microsoft.Playwright;
+
+namespace Tests.E2E.Playwright;
+
+[Collection("playwright")]
+public sealed class ReviewPlaywrightTests(PlaywrightBrowserFixture browser)
+{
+    [Fact]
+    public async Task Changes_page_exposes_filters_and_actions()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenChangesAsync(page);
+        await Assertions.Expect(page.Locator("#refreshChanges")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#discoverButton")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#importButton")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#statusFilter")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#authorFilter")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#reviewerFilter")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Review");
+    }
+
+    [Fact]
+    public async Task Changes_filters_update_list_without_errors()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenChangesAsync(page);
+        await page.Locator("#statusFilter").SelectOptionAsync(new SelectOptionValue { Label = "Open" });
+        await page.Locator("#authorFilter").FillAsync("nobody-matching");
+        await Assertions.Expect(page.Locator("#changeList .empty")).ToBeVisibleAsync();
+
+        await page.Locator("#authorFilter").FillAsync("");
+        await page.Locator("#statusFilter").SelectOptionAsync(new SelectOptionValue { Label = "All statuses" });
+        await Ui.ClickAsync(page.Locator("#refreshChanges"));
+        await Ui.ExpectToastAsync(page, "Changes refreshed");
+    }
+
+    [Fact]
+    public async Task Import_change_modal_opens_with_repository_context()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenChangesAsync(page);
+        await Ui.ClickAsync(page.Locator("#importButton"));
+        await Ui.ExpectModalOpenAsync(page, "Import GitHub pull request");
+        await Assertions.Expect(page.Locator("#modal[open] #externalId")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#modal[open]")).ToContainTextAsync("rowan-smith");
+        await page.Locator("#modal[open] button[value='cancel']").ClickAsync();
+        await Ui.ExpectModalClosedAsync(page);
+    }
+
+    [Fact]
+    public async Task Import_invalid_pr_number_shows_error_toast()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenChangesAsync(page);
+        await Ui.ClickAsync(page.Locator("#importButton"));
+        await page.Locator("#modal[open] #externalId").FillAsync("99999999");
+        await page.Locator("#modal[open] button[value='submit']").ClickAsync();
+        await Assertions.Expect(page.Locator("#toast.error")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 20000 });
+    }
+
+    [Fact]
+    public async Task Review_queue_renders_three_sections()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenQueueAsync(page);
+        await Assertions.Expect(page.Locator(".queue-section")).ToHaveCountAsync(3);
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Waiting for me");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Authored by me");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Recently reviewed");
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Review queue");
+    }
+
+    [Fact]
+    public async Task Branches_page_lists_source_branches()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.NavigateAsync(page, "/source-branches");
+        await Ui.ExpectVisible(page, "h1", "Branches");
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Branches");
+        // Seeded GitHub connection may yield branches or an empty/error state depending on network;
+        // the page shell must still render.
+        await Assertions.Expect(page.Locator("#content")).ToBeVisibleAsync();
+    }
+}
+
+[Collection("playwright")]
+public sealed class SettingsPlaywrightTests(PlaywrightBrowserFixture browser)
+{
+    [Fact]
+    public async Task Settings_shows_local_and_source_sections()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenSettingsAsync(page);
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Local repository");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Source repositories");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("GitHub credential");
+        await Assertions.Expect(page.Locator("#connectRepository")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#credentialButton")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("rowan-smith/upgraded-octo-parakeet");
+    }
+
+    [Fact]
+    public async Task Connect_repository_modal_opens_with_default_url()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenSettingsAsync(page);
+        await Ui.ClickAsync(page.Locator("#connectRepository"));
+        await Assertions.Expect(page.Locator(".modal-content h2")).ToHaveTextAsync("Connect repository");
+        await Assertions.Expect(page.Locator("#repositoryUrl")).ToHaveValueAsync("https://github.com/rowan-smith/upgraded-octo-parakeet");
+        await page.Locator("button[value='cancel']").ClickAsync();
+    }
+
+    [Fact]
+    public async Task Connect_local_repository_modal_opens()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenSettingsAsync(page);
+        var connectLocal = page.Locator("#connectLocal");
+        if (await connectLocal.CountAsync() == 0)
+        {
+            // Already associated in this environment — still assert open-folder/disconnect controls.
+            await Assertions.Expect(page.Locator("#settingsOpenFolder").Or(page.Locator("#disconnectLocal")).First).ToBeVisibleAsync();
+            return;
+        }
+
+        await Ui.ClickAsync(connectLocal);
+        await Assertions.Expect(page.Locator(".modal-content h2")).ToHaveTextAsync("Connect local repository");
+        await Assertions.Expect(page.Locator("#localPath")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#detectLocal")).ToBeVisibleAsync();
+        await page.Locator("button[value='cancel']").ClickAsync();
+    }
+
+    [Fact]
+    public async Task Credential_modal_opens_from_settings()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenSettingsAsync(page);
+        await Ui.ClickAsync(page.Locator("#credentialButton"));
+        await Assertions.Expect(page.Locator(".modal-content h2")).ToHaveTextAsync("GitHub personal access token");
+        await Assertions.Expect(page.Locator("#githubToken")).ToBeVisibleAsync();
+        await page.Locator("button[value='cancel']").ClickAsync();
+    }
+}
+
+[Collection("playwright")]
+public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
+{
+    [Fact]
+    public async Task Command_palette_opens_and_jumps_to_changes()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.ClickAsync(page.Locator("#commandButton"));
+        await Assertions.Expect(page.Locator(".modal-content h2")).ToHaveTextAsync("Quick switcher");
+        await page.Locator("button[value='changes']").ClickAsync();
+        await Ui.ExpectVisible(page, "h1", "Changes");
+    }
+
+    [Fact]
+    public async Task Audit_log_page_renders_heading()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenAuditAsync(page);
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Audit");
+        await Assertions.Expect(page.Locator("#content .card")).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task Modules_page_lists_enabled_modules_and_github_connector()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenModulesAsync(page);
+        await Assertions.Expect(page.Locator(".module-card").First).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("GitHub Connector");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Enabled");
+    }
+
+    [Fact]
+    public async Task Overview_open_review_cta_navigates_to_changes()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.OpenOverviewAsync(page);
+        await Assertions.Expect(page.Locator("#content h1").First).ToContainTextAsync("Atlas");
+        var openReview = page.Locator("#content [data-route='/changes']");
+        if (await openReview.CountAsync() > 0)
+        {
+            await Ui.ClickAsync(openReview.First);
+            await Ui.ExpectVisible(page, "h1", "Changes");
+        }
+    }
+
+    [Fact]
+    public async Task Hash_route_deep_links_to_pipelines_and_runners()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await page.GotoAsync("/#/pipelines");
+        await Ui.WaitForAppIdleAsync(page);
+        await Ui.ExpectVisible(page, "h1", "Pipelines");
+
+        await page.GotoAsync("/#/runners");
+        await Ui.WaitForAppIdleAsync(page);
+        await Ui.ExpectVisible(page, "h1", "Runners");
+
+        await page.GotoAsync("/#/settings");
+        await Ui.WaitForAppIdleAsync(page);
+        await Ui.ExpectVisible(page, "h1", "Project settings");
+    }
+
+    [Fact]
+    public async Task User_menu_shows_signed_in_identity()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.ClickAsync(page.Locator("#userMenu"));
+        await Assertions.Expect(page.Locator("#modal[open] button[value='signout']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#modal[open]")).ToContainTextAsync("@maya");
+        await page.Locator("#modal[open] button[value='cancel']").ClickAsync();
+        await Ui.ExpectModalClosedAsync(page);
+    }
+
+    [Fact]
+    public async Task Seeded_sign_out_and_sign_in_round_trip()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await Ui.ClickAsync(page.Locator("#userMenu"));
+        await Ui.ClickAsync(page.Locator("button[value='signout']"));
+        await Ui.ExpectVisible(page, "h1", "Sign in");
+
+        await Ui.SignInAsync(page, "maya@northstar.dev", "demo");
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await Assertions.Expect(page.Locator("#projectLabel")).ToContainTextAsync("Atlas");
+    }
+}

@@ -15,8 +15,11 @@ public static class SourceEndpoints
         group.MapPost("/", Connect);
         group.MapGet("/{id:guid}/branches", async (Guid id, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.BranchesAsync(id, token)));
         group.MapGet("/{id:guid}/commits", async (Guid id, string? branch, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.CommitsAsync(id, branch, token)));
+        group.MapGet("/{id:guid}/commits/{sha}", async (Guid id, string sha, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.CommitAsync(id, sha, token)));
+        group.MapGet("/{id:guid}/compare", async (Guid id, string @base, string head, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.DiffAsync(id, head, @base, token)));
         group.MapGet("/{id:guid}/tree", async (Guid id, string? reference, string? path, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.TreeAsync(id, reference, path, token)));
         group.MapGet("/{id:guid}/file", async (Guid id, string path, string? reference, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.FileAsync(id, reference, path, token)));
+        group.MapGet("/{id:guid}/changes", async (Guid id, SourceRepositoryService service, CancellationToken token) => Results.Ok(await service.ExternalChangesAsync(id, token)));
     }
 
     private static async Task<IResult> Connect(ConnectSourceRequest request, SourceRepositoryService service, IAuditWriter audit, CancellationToken token)

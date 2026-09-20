@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -23,8 +23,10 @@
     <ProjectReference Include="..\..\src\Platform.Core\Platform.Core.csproj" />
     <ProjectReference Include="..\..\src\Platform.Web\Platform.Web.csproj" />
     <ProjectReference Include="..\..\src\Modules.Review\Modules.Review.csproj" />
+    <ProjectReference Include="..\..\ee\Modules.Review.Commercial\Modules.Review.Commercial.csproj" />
     <ProjectReference Include="..\..\src\Modules.Pipelines\Modules.Pipelines.csproj" />
     <ProjectReference Include="..\..\src\Modules.Git\Modules.Git.csproj" />
+    <ProjectReference Include="..\..\src\PipelineRunner\PipelineRunner.csproj" />
   </ItemGroup>
 
 </Project>

@@ -25,7 +25,8 @@ public sealed record ChangeOpened(
     string Repository,
     string SourceBranch,
     string TargetBranch,
-    string CommitSha) : IDomainEvent
+    string CommitSha,
+    string? RepositoryUrl = null) : IDomainEvent
 {
     public Guid EventId { get; } = Guid.NewGuid();
     public int Version => 1;
@@ -39,6 +40,47 @@ public sealed record PushReceived(
     string Repository,
     string Branch,
     string CommitSha) : IDomainEvent
+{
+    public Guid EventId { get; } = Guid.NewGuid();
+    public int Version => 1;
+    public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;
+    public string CorrelationId { get; } = Guid.NewGuid().ToString("N");
+}
+
+public sealed record ChangeUpdated(
+    Guid ChangeId,
+    string ProjectKey,
+    string Repository,
+    string SourceBranch,
+    string TargetBranch,
+    string CommitSha,
+    string PreviousCommitSha,
+    string? RepositoryUrl = null) : IDomainEvent
+{
+    public Guid EventId { get; } = Guid.NewGuid();
+    public int Version => 1;
+    public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;
+    public string CorrelationId { get; } = Guid.NewGuid().ToString("N");
+}
+
+public sealed record PipelineRunStarted(
+    Guid RunId,
+    Guid? ChangeId,
+    string PipelineName,
+    string CommitSha) : IDomainEvent
+{
+    public Guid EventId { get; } = Guid.NewGuid();
+    public int Version => 1;
+    public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;
+    public string CorrelationId { get; } = Guid.NewGuid().ToString("N");
+}
+
+public sealed record PipelineRunCompleted(
+    Guid RunId,
+    Guid? ChangeId,
+    string PipelineName,
+    string CommitSha,
+    string Status) : IDomainEvent
 {
     public Guid EventId { get; } = Guid.NewGuid();
     public int Version => 1;

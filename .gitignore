@@ -4,3 +4,6 @@
 .sites-runtime/
 *.user
 *.suo
+.runner/
+keys/licence-private.pem
+data/licence.json
