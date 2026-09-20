@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Connectors.GitHub/Connectors.GitHub.csproj" />
+    <Project Path="src/Modules.ChecksDemo/Modules.ChecksDemo.csproj" />
+    <Project Path="src/Modules.Git/Modules.Git.csproj" />
+    <Project Path="src/Modules.Pipelines/Modules.Pipelines.csproj" />
+    <Project Path="src/Modules.Review/Modules.Review.csproj" />
+    <Project Path="src/Platform.Api/Platform.Api.csproj" />
+    <Project Path="src/Platform.Contracts/Platform.Contracts.csproj" />
+    <Project Path="src/Platform.Core/Platform.Core.csproj" />
+    <Project Path="src/Platform.Web/Platform.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tests.Integration/Tests.Integration.csproj" />
+    <Project Path="tests/Tests.Unit/Tests.Unit.csproj" />
+  </Folder>
+</Solution>

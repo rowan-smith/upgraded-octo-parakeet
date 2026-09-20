@@ -1,0 +1,18 @@
+services:
+  platform:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      Modules__git__Enabled: "false"
+      Modules__review__Enabled: "true"
+      Modules__pipelines__Enabled: "false"
+      Modules__checks-demo__Enabled: "false"
+      ConnectionStrings__Platform: "Data Source=/app/data/forgedeck.db"
+      Data__ProtectionKeysPath: "/app/data/keys"
+    volumes:
+      - forgedeck-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  forgedeck-data:
