@@ -16,11 +16,54 @@ public sealed class SqliteTenancyStore : ITenancyStore
     public InstanceConfiguration GetInstance()
     {
         using var connection = _connections.Open();
-        using var command = Command(connection, "SELECT state, initialised_at FROM core_instance WHERE singleton=1");
+        using var command = Command(connection, """
+            SELECT state, initialised_at, instance_id, licence_mode, bootstrap_enabled, setup_completed_at
+            FROM core_instance WHERE singleton=1
+            """);
         using var reader = command.ExecuteReader();
-        return reader.Read()
-            ? new InstanceConfiguration { State = Enum.Parse<InstanceState>(reader.GetString(0)), InitialisedAt = Date(reader, 1) }
-            : new InstanceConfiguration();
+        if (!reader.Read()) return new InstanceConfiguration();
+        var instanceIdRaw = Text(reader, 2);
+        var instanceId = Guid.TryParse(instanceIdRaw, out var parsed) ? parsed : Guid.Empty;
+        var licenceModeRaw = Text(reader, 3) ?? "None";
+        if (!Enum.TryParse<LicenceMode>(licenceModeRaw, true, out var licenceMode)) licenceMode = LicenceMode.None;
+        var bootstrap = reader.IsDBNull(4) || reader.GetInt64(4) != 0;
+        return new InstanceConfiguration
+        {
+            State = Enum.Parse<InstanceState>(reader.GetString(0)),
+            InitialisedAt = Date(reader, 1),
+            InstanceId = instanceId,
+            LicenceMode = licenceMode,
+            BootstrapEnabled = bootstrap,
+            SetupCompletedAt = Date(reader, 5)
+        };
+    }
+
+    public void EnsureInstanceId()
+    {
+        var instance = GetInstance();
+        if (instance.InstanceId != Guid.Empty) return;
+        instance.InstanceId = Guid.NewGuid();
+        SaveInstance(instance);
+    }
+
+    public void SaveInstance(InstanceConfiguration configuration)
+    {
+        Execute("""
+            UPDATE core_instance SET
+                state=$state,
+                initialised_at=$initialised,
+                instance_id=$instanceId,
+                licence_mode=$licenceMode,
+                bootstrap_enabled=$bootstrap,
+                setup_completed_at=$setupCompleted
+            WHERE singleton=1
+            """,
+            ("$state", configuration.State),
+            ("$initialised", configuration.InitialisedAt),
+            ("$instanceId", configuration.InstanceId == Guid.Empty ? null : configuration.InstanceId),
+            ("$licenceMode", configuration.LicenceMode),
+            ("$bootstrap", configuration.BootstrapEnabled ? 1 : 0),
+            ("$setupCompleted", configuration.SetupCompletedAt));
     }
 
     public Organisation? GetOrganisation()
@@ -39,14 +82,50 @@ public sealed class SqliteTenancyStore : ITenancyStore
         if (!string.Equals((string?)state.ExecuteScalar(), InstanceState.Uninitialised.ToString(), StringComparison.Ordinal))
             throw new InvalidOperationException("This ForgeDeck instance has already been initialised.");
 
+        var instanceId = Guid.NewGuid();
         Execute(connection, InsertOrganisation, transaction, OrganisationValues(organisation));
         Execute(connection, InsertUser, transaction, UserValues(user));
         Execute(connection, InsertProfile, transaction, ProfileValues(profile));
         Execute(connection, InsertMembership, transaction, MembershipValues(membership));
-        Execute(connection, "UPDATE core_instance SET state='Initialised', initialised_at=$at WHERE singleton=1 AND state='Uninitialised'", transaction, ("$at", DateTimeOffset.UtcNow));
+        Execute(connection, """
+            UPDATE core_instance SET
+                state='Initialised',
+                initialised_at=$at,
+                instance_id=COALESCE(NULLIF(instance_id,''), $instanceId),
+                licence_mode=CASE WHEN licence_mode IS NULL OR licence_mode='None' THEN 'Community' ELSE licence_mode END,
+                bootstrap_enabled=0
+            WHERE singleton=1 AND state='Uninitialised'
+            """, transaction,
+            ("$at", DateTimeOffset.UtcNow),
+            ("$instanceId", instanceId));
         using var confirm = Command(connection, "SELECT changes()", transaction);
         if (Convert.ToInt32(confirm.ExecuteScalar()) != 1)
             throw new InvalidOperationException("This ForgeDeck instance has already been initialised.");
+        transaction.Commit();
+    }
+
+    public void CreateOwner(UserAccount user, UserProfile profile, OrganisationMembership membership)
+    {
+        using var connection = _connections.Open();
+        using var transaction = connection.BeginTransaction();
+        using var state = Command(connection, "SELECT state FROM core_instance WHERE singleton=1", transaction);
+        if (!string.Equals((string?)state.ExecuteScalar(), InstanceState.Uninitialised.ToString(), StringComparison.Ordinal))
+            throw new InvalidOperationException("This ForgeDeck instance has already been initialised.");
+        using var org = Command(connection, "SELECT COUNT(1) FROM core_organisation", transaction);
+        if (Convert.ToInt32(org.ExecuteScalar()) == 0)
+            throw new InvalidOperationException("Organisation must be configured before creating an owner.");
+
+        Execute(connection, InsertUser, transaction, UserValues(user));
+        Execute(connection, InsertProfile, transaction, ProfileValues(profile));
+        Execute(connection, InsertMembership, transaction, MembershipValues(membership));
+        Execute(connection, """
+            UPDATE core_instance SET state='Initialised', initialised_at=$at, bootstrap_enabled=0
+            WHERE singleton=1 AND state='Uninitialised'
+            """, transaction, ("$at", DateTimeOffset.UtcNow));
+        using var confirm = Command(connection, "SELECT changes()", transaction);
+        if (Convert.ToInt32(confirm.ExecuteScalar()) != 1)
+            throw new InvalidOperationException("This ForgeDeck instance has already been initialised.");
+        Execute(connection, "UPDATE core_bootstrap_sessions SET revoked_at=$at WHERE revoked_at IS NULL", transaction, ("$at", DateTimeOffset.UtcNow));
         transaction.Commit();
     }
 
@@ -105,10 +184,10 @@ public sealed class SqliteTenancyStore : ITenancyStore
         QueryMany("SELECT id,team_id,user_id,joined_at FROM core_team_memberships WHERE user_id=$value", MapTeamMembership, ("$value", userId));
 
     public void SaveProject(Project value) => Execute("""
-        INSERT INTO core_projects(id,name,slug,key,description,visibility,created_by_user_id,created_at,updated_at,archived_at)
-        VALUES($id,$name,$slug,$key,$description,$visibility,$creator,$created,$updated,$archived)
+        INSERT INTO core_projects(id,name,slug,key,description,visibility,created_by_user_id,created_at,updated_at,archived_at,repository_mode)
+        VALUES($id,$name,$slug,$key,$description,$visibility,$creator,$created,$updated,$archived,$repoMode)
         ON CONFLICT(id) DO UPDATE SET name=excluded.name,slug=excluded.slug,key=excluded.key,description=excluded.description,
-        visibility=excluded.visibility,updated_at=excluded.updated_at,archived_at=excluded.archived_at
+        visibility=excluded.visibility,updated_at=excluded.updated_at,archived_at=excluded.archived_at,repository_mode=excluded.repository_mode
         """, ProjectValues(value));
     public Project? FindProject(Guid id) => QueryOne("SELECT * FROM core_projects WHERE id=$value", MapProject, ("$value", id));
     public Project? FindProjectBySlug(string slug) => QueryOne("SELECT * FROM core_projects WHERE slug=$value COLLATE NOCASE", MapProject, ("$value", slug));
@@ -175,6 +254,60 @@ public sealed class SqliteTenancyStore : ITenancyStore
         QueryOne("SELECT * FROM core_sessions WHERE token_hash=$value", MapSession, ("$value", tokenHash));
     public void RevokeSession(string tokenHash, DateTimeOffset revokedAt) =>
         Execute("UPDATE core_sessions SET revoked_at=$revoked WHERE token_hash=$token", ("$revoked", revokedAt), ("$token", tokenHash));
+
+    public void SaveBootstrapSession(BootstrapSession value) => Execute("""
+        INSERT INTO core_bootstrap_sessions(id,token_hash,created_at,expires_at,revoked_at)
+        VALUES($id,$token,$created,$expires,$revoked)
+        ON CONFLICT(id) DO UPDATE SET revoked_at=excluded.revoked_at
+        """, ("$id", value.Id), ("$token", value.TokenHash), ("$created", value.CreatedAt),
+        ("$expires", value.ExpiresAt), ("$revoked", value.RevokedAt));
+
+    public BootstrapSession? FindBootstrapSession(string tokenHash) =>
+        QueryOne("SELECT id,token_hash,created_at,expires_at,revoked_at FROM core_bootstrap_sessions WHERE token_hash=$value", MapBootstrapSession, ("$value", tokenHash));
+
+    public void RevokeBootstrapSession(string tokenHash, DateTimeOffset revokedAt) =>
+        Execute("UPDATE core_bootstrap_sessions SET revoked_at=$revoked WHERE token_hash=$token", ("$revoked", revokedAt), ("$token", tokenHash));
+
+    public void RevokeAllBootstrapSessions(DateTimeOffset revokedAt) =>
+        Execute("UPDATE core_bootstrap_sessions SET revoked_at=$revoked WHERE revoked_at IS NULL", ("$revoked", revokedAt));
+
+    public LicenceRecord? GetActiveLicence() =>
+        QueryOne("SELECT * FROM core_licences WHERE status='Active' ORDER BY installed_at DESC LIMIT 1", MapLicence);
+
+    public IReadOnlyList<LicenceRecord> ListLicences() =>
+        QueryMany("SELECT * FROM core_licences ORDER BY installed_at DESC", MapLicence);
+
+    public void SaveLicence(LicenceRecord record) => Execute("""
+        INSERT INTO core_licences(id,licence_id,customer_id,mode,status,issued_at,expires_at,payload,signature,installed_at)
+        VALUES($id,$licenceId,$customerId,$mode,$status,$issued,$expires,$payload,$signature,$installed)
+        ON CONFLICT(id) DO UPDATE SET licence_id=excluded.licence_id,customer_id=excluded.customer_id,mode=excluded.mode,
+        status=excluded.status,issued_at=excluded.issued_at,expires_at=excluded.expires_at,payload=excluded.payload,
+        signature=excluded.signature
+        """, LicenceValues(record));
+
+    public void ReplaceActiveLicence(LicenceRecord record)
+    {
+        using var connection = _connections.Open();
+        using var transaction = connection.BeginTransaction();
+        Execute(connection, "UPDATE core_licences SET status='Replaced' WHERE status='Active'", transaction);
+        Execute(connection, """
+            INSERT INTO core_licences(id,licence_id,customer_id,mode,status,issued_at,expires_at,payload,signature,installed_at)
+            VALUES($id,$licenceId,$customerId,$mode,$status,$issued,$expires,$payload,$signature,$installed)
+            """, transaction, LicenceValues(record));
+        transaction.Commit();
+    }
+
+    public void MarkActiveLicence(LicenceRecordStatus status) =>
+        Execute("UPDATE core_licences SET status=$status WHERE status='Active'", ("$status", status));
+
+    public void AddLicenceHistory(LicenceHistoryEntry entry) => Execute("""
+        INSERT INTO core_licence_history(id,action,mode,licence_id,detail,at)
+        VALUES($id,$action,$mode,$licenceId,$detail,$at)
+        """, ("$id", entry.Id), ("$action", entry.Action), ("$mode", entry.Mode),
+        ("$licenceId", entry.LicenceId), ("$detail", entry.Detail), ("$at", entry.At));
+
+    public IReadOnlyList<LicenceHistoryEntry> ListLicenceHistory() =>
+        QueryMany("SELECT id,action,mode,licence_id,detail,at FROM core_licence_history ORDER BY at DESC", MapLicenceHistory);
 
     private const string InsertOrganisation = "INSERT INTO core_organisation(id,name,description,avatar_url,created_at,updated_at) VALUES($id,$name,$description,$avatar,$created,$updated)";
     private const string UpsertOrganisation = InsertOrganisation + " ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,avatar_url=excluded.avatar_url,updated_at=excluded.updated_at";
@@ -246,9 +379,12 @@ public sealed class SqliteTenancyStore : ITenancyStore
     private static (string, object?)[] MembershipValues(OrganisationMembership value) =>
         [("$id", value.Id), ("$user", value.UserId), ("$role", value.Role), ("$status", value.Status), ("$joined", value.JoinedAt), ("$inviter", value.InvitedByUserId)];
     private static (string, object?)[] ProjectValues(Project value) =>
-        [("$id", value.Id), ("$name", value.Name), ("$slug", value.Slug), ("$key", value.Key), ("$description", value.Description), ("$visibility", value.Visibility), ("$creator", value.CreatedByUserId), ("$created", value.CreatedAt), ("$updated", value.UpdatedAt), ("$archived", value.ArchivedAt)];
+        [("$id", value.Id), ("$name", value.Name), ("$slug", value.Slug), ("$key", value.Key), ("$description", value.Description), ("$visibility", value.Visibility), ("$creator", value.CreatedByUserId), ("$created", value.CreatedAt), ("$updated", value.UpdatedAt), ("$archived", value.ArchivedAt), ("$repoMode", value.RepositoryMode)];
     private static (string, object?)[] RepositoryValues(Repository value) =>
         [("$id", value.Id), ("$project", value.ProjectId), ("$name", value.Name), ("$slug", value.Slug), ("$branch", value.DefaultBranch), ("$status", value.Status), ("$created", value.CreatedAt), ("$updated", value.UpdatedAt), ("$archived", value.ArchivedAt)];
+    private static (string, object?)[] LicenceValues(LicenceRecord value) =>
+        [("$id", value.Id), ("$licenceId", value.LicenceId), ("$customerId", value.CustomerId), ("$mode", value.Mode), ("$status", value.Status),
+         ("$issued", value.IssuedAt), ("$expires", value.ExpiresAt), ("$payload", value.Payload), ("$signature", value.Signature), ("$installed", value.InstalledAt)];
 
     private static Organisation MapOrganisation(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), Name = r.GetString(1), Description = Text(r, 2), AvatarUrl = Text(r, 3), CreatedAt = RequiredDate(r, 4), UpdatedAt = RequiredDate(r, 5) };
     private static UserAccount MapUser(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), Email = r.GetString(1), Username = r.GetString(2), PasswordHash = r.GetString(3), Status = Enum.Parse<UserStatus>(r.GetString(4)), CreatedAt = RequiredDate(r, 5), UpdatedAt = RequiredDate(r, 6), LastLoginAt = Date(r, 7), OnboardingDismissedAt = Date(r, 8) };
@@ -259,11 +395,58 @@ public sealed class SqliteTenancyStore : ITenancyStore
     private static TeamMembership MapTeamMembership(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), TeamId = Guid.Parse(r.GetString(1)), UserId = Guid.Parse(r.GetString(2)), JoinedAt = RequiredDate(r, 3) };
     private static ProjectUserAccess MapProjectUserAccess(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), UserId = Guid.Parse(r.GetString(2)), GrantedAt = RequiredDate(r, 3) };
     private static ProjectTeamAccess MapProjectTeamAccess(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), TeamId = Guid.Parse(r.GetString(2)), GrantedAt = RequiredDate(r, 3) };
-    private static Project MapProject(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), Name = r.GetString(1), Slug = r.GetString(2), Key = r.GetString(3), Description = Text(r, 4), Visibility = Enum.Parse<ProjectVisibility>(r.GetString(5)), CreatedByUserId = Guid.Parse(r.GetString(6)), CreatedAt = RequiredDate(r, 7), UpdatedAt = RequiredDate(r, 8), ArchivedAt = Date(r, 9) };
+    private static Project MapProject(DbDataReader r)
+    {
+        var mode = RepositoryMode.SingleRepository;
+        if (r.FieldCount > 10 && !r.IsDBNull(10))
+            Enum.TryParse(r.GetString(10), true, out mode);
+        return new()
+        {
+            Id = Guid.Parse(r.GetString(0)),
+            Name = r.GetString(1),
+            Slug = r.GetString(2),
+            Key = r.GetString(3),
+            Description = Text(r, 4),
+            Visibility = Enum.Parse<ProjectVisibility>(r.GetString(5)),
+            CreatedByUserId = Guid.Parse(r.GetString(6)),
+            CreatedAt = RequiredDate(r, 7),
+            UpdatedAt = RequiredDate(r, 8),
+            ArchivedAt = Date(r, 9),
+            RepositoryMode = mode
+        };
+    }
     private static Repository MapRepository(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), Name = r.GetString(2), Slug = r.GetString(3), DefaultBranch = Text(r, 4), Status = Enum.Parse<RepositoryStatus>(r.GetString(5)), CreatedAt = RequiredDate(r, 6), UpdatedAt = RequiredDate(r, 7), ArchivedAt = Date(r, 8) };
     private static RepositoryConnection MapRepositoryConnection(DbDataReader r) => new() { RepositoryId = Guid.Parse(r.GetString(0)), ProviderType = r.GetString(1), ExternalRepositoryId = Text(r, 2), ExternalOwner = r.GetString(3), ExternalName = r.GetString(4), CloneUrl = r.GetString(5), WebUrl = Text(r, 6), LastSyncedAt = Date(r, 7), Status = Enum.Parse<RepositoryStatus>(r.GetString(8)) };
     private static UserRepositoryWorkspace MapWorkspace(DbDataReader r) => new() { UserId = Guid.Parse(r.GetString(0)), RepositoryId = Guid.Parse(r.GetString(1)), LocalPath = r.GetString(2), LastDetectedBranch = Text(r, 3), LastDetectedHead = Text(r, 4), UpdatedAt = RequiredDate(r, 5) };
     private static AuthSession MapSession(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), UserId = Guid.Parse(r.GetString(1)), TokenHash = r.GetString(2), CreatedAt = RequiredDate(r, 3), ExpiresAt = RequiredDate(r, 4), RevokedAt = Date(r, 5) };
+    private static BootstrapSession MapBootstrapSession(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), TokenHash = r.GetString(1), CreatedAt = RequiredDate(r, 2), ExpiresAt = RequiredDate(r, 3), RevokedAt = Date(r, 4) };
+    private static LicenceRecord MapLicence(DbDataReader r) => new()
+    {
+        Id = Guid.Parse(r.GetString(0)),
+        LicenceId = Text(r, 1),
+        CustomerId = Text(r, 2),
+        Mode = Enum.Parse<LicenceMode>(r.GetString(3)),
+        Status = Enum.Parse<LicenceRecordStatus>(r.GetString(4)),
+        IssuedAt = Date(r, 5),
+        ExpiresAt = Date(r, 6),
+        Payload = Text(r, 7),
+        Signature = Text(r, 8),
+        InstalledAt = RequiredDate(r, 9)
+    };
+    private static LicenceHistoryEntry MapLicenceHistory(DbDataReader r)
+    {
+        LicenceMode? mode = null;
+        if (!r.IsDBNull(2) && Enum.TryParse<LicenceMode>(r.GetString(2), true, out var parsed)) mode = parsed;
+        return new()
+        {
+            Id = Guid.Parse(r.GetString(0)),
+            Action = r.GetString(1),
+            Mode = mode,
+            LicenceId = Text(r, 3),
+            Detail = Text(r, 4),
+            At = RequiredDate(r, 5)
+        };
+    }
     private static string? Text(DbDataReader r, int index) => r.IsDBNull(index) ? null : r.GetString(index);
     private static DateTimeOffset RequiredDate(DbDataReader r, int index) => DateTimeOffset.Parse(r.GetString(index));
     private static DateTimeOffset? Date(DbDataReader r, int index) => r.IsDBNull(index) ? null : RequiredDate(r, index);

@@ -19,7 +19,7 @@ public sealed class ReviewPlaywrightTests(PlaywrightBrowserFixture browser)
         await Assertions.Expect(page.Locator("#statusFilter")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#authorFilter")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#reviewerFilter")).ToBeVisibleAsync();
-        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Review");
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pull Requests");
     }
 
     [Fact]
@@ -98,6 +98,21 @@ public sealed class ReviewPlaywrightTests(PlaywrightBrowserFixture browser)
         // Seeded GitHub connection may yield branches or an empty/error state depending on network;
         // the page shell must still render.
         await Assertions.Expect(page.Locator("#content")).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task Repositories_browser_renders_file_table_and_sidebar()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.NavigateAsync(page, "/files");
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Repositories");
+        await Assertions.Expect(page.Locator(".file-browser")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 20000 });
+        await Assertions.Expect(page.Locator("#refPicker")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator(".repo-aside")).ToContainTextAsync("About");
+        await Assertions.Expect(page.Locator("#cloneButton")).ToBeVisibleAsync();
     }
 }
 
@@ -185,7 +200,7 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.ClickAsync(page.Locator("#commandButton"));
         await Assertions.Expect(page.Locator(".modal-content h2")).ToHaveTextAsync("Quick switcher");
         await page.Locator("button[value='changes']").ClickAsync();
-        await Ui.ExpectVisible(page, "h1", "Changes");
+        await Ui.ExpectVisible(page, "h1", "Pull Requests");
     }
 
     [Fact]
@@ -222,12 +237,10 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
 
         await Ui.OpenOverviewAsync(page);
         await Assertions.Expect(page.Locator("#content h1").First).ToContainTextAsync("Atlas");
-        var openReview = page.Locator("#content [data-route='/changes']");
-        if (await openReview.CountAsync() > 0)
-        {
-            await Ui.ClickAsync(openReview.First);
-            await Ui.ExpectVisible(page, "h1", "Changes");
-        }
+        var openReview = page.Locator("#content .header-actions [data-route='/changes']");
+        await Assertions.Expect(openReview).ToBeVisibleAsync();
+        await openReview.ClickAsync(new LocatorClickOptions { Force = true });
+        await Ui.ExpectVisible(page, "h1", "Pull Requests");
     }
 
     [Fact]

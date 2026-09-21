@@ -8,11 +8,21 @@ namespace Platform.Core.Identity;
 
 public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
 {
-    public async Task InvokeAsync(HttpContext context, PlatformContextStore platformContext, AuthService auth, ITenancyStore store)
+    public async Task InvokeAsync(HttpContext context, PlatformContextStore platformContext, AuthService auth, SetupService setup, ITenancyStore store)
     {
         if (!RequiresAuthentication(context.Request.Path)) { await next(context); return; }
+
         var authorization = context.Request.Headers.Authorization.ToString();
         var token = authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? authorization[7..].Trim() : null;
+
+        if (!string.IsNullOrWhiteSpace(token) && setup.IsBootstrapTokenValid(token) && IsSetupPath(context.Request.Path))
+        {
+            context.Items["bootstrap"] = true;
+            context.Items["session-token"] = token;
+            await next(context);
+            return;
+        }
+
         UserAccount? user = null;
         if (token == "mvp-admin-token")
             user = store.FindUserByEmail("maya@northstar.dev");
@@ -52,12 +62,17 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
     {
         if (!path.StartsWithSegments("/api")) return false;
         if (path == "/api/auth/login") return false;
-        if (path == "/api/setup" || path == "/api/setup/status") return false;
-        // Public invitation preview / accept (token in path or body).
+        if (path == "/api/setup" || path == "/api/setup/status" || path == "/api/setup/bootstrap-login") return false;
         if (path.StartsWithSegments("/api/invitations")) return false;
-        // Runner protocol authenticates via registration token / X-Runner-Token, not user bearer.
         if (IsRunnerProtocol(path)) return false;
         return true;
+    }
+
+    private static bool IsSetupPath(PathString path)
+    {
+        var value = path.Value ?? "";
+        return value.StartsWith("/api/setup", StringComparison.OrdinalIgnoreCase)
+               || value.StartsWith("/api/licensing", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool IsRunnerProtocol(PathString path)
@@ -71,7 +86,6 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
              value.EndsWith("/work", StringComparison.OrdinalIgnoreCase)))
             return true;
 
-        // Job reporting from the runner: .../runs/{id}/jobs/...
         if (value.StartsWith("/api/pipelines/runs/", StringComparison.OrdinalIgnoreCase) &&
             value.Contains("/jobs", StringComparison.OrdinalIgnoreCase))
             return true;

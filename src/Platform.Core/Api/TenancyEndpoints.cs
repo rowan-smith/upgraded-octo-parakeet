@@ -4,6 +4,7 @@ using Platform.Core.Application;
 using Platform.Core.Context;
 using Platform.Core.Domain;
 using Platform.Core.Identity;
+using Platform.Core.Licensing;
 using Platform.Core.Persistence;
 
 namespace Platform.Core.Api;
@@ -13,6 +14,72 @@ public static class TenancyEndpoints
     public static void MapTenancyEndpoints(this WebApplication app)
     {
         app.MapGet("/api/setup/status", (SetupService setup) => Results.Ok(setup.GetStatus()));
+
+        app.MapPost("/api/setup/bootstrap-login", (BootstrapLoginRequest request, SetupService setup) =>
+        {
+            try
+            {
+                var token = setup.BootstrapLogin(request.Username, request.Password);
+                return Results.Ok(new { token, bootstrap = true });
+            }
+            catch (UnauthorizedAccessException ex) { return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized); }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/organisation", (OrganisationSetupRequest request, SetupService setup, HttpContext http) =>
+        {
+            if (!SetupAuth.IsBootstrapOrUser(http)) return Results.Unauthorized();
+            try { return Results.Ok(setup.SaveOrganisation(request)); }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/licence/community", (SetupService setup, HttpContext http) =>
+        {
+            if (!SetupAuth.IsBootstrapOrUser(http)) return Results.Unauthorized();
+            try
+            {
+                setup.SelectCommunityLicence();
+                return Results.Ok(setup.GetStatus());
+            }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/licence/commercial", (InstallLicenceRequest request, SetupService setup, HttpContext http) =>
+        {
+            if (!SetupAuth.IsBootstrapOrUser(http)) return Results.Unauthorized();
+            try { return Results.Ok(setup.InstallCommercialLicence(request.Payload ?? request.LicenceKey ?? "")); }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/owner", (OwnerSetupRequest request, SetupService setup, AuthService auth, ITenancyStore store, PlatformContextStore context, HttpContext http) =>
+        {
+            if (http.Items["bootstrap"] is not true) return Results.Unauthorized();
+            try
+            {
+                var user = setup.CreateOwner(request);
+                var login = auth.Login(request.Email, request.Password)
+                             ?? throw new InvalidOperationException("Owner created but login failed.");
+                var organisation = store.GetOrganisation()!;
+                context.Apply(
+                    new OrganisationView(organisation.Id, organisation.Name, SlugRules.Normalize(organisation.Name)),
+                    context.Project,
+                    PlatformContextStore.ToPlatformUser(user, store.GetProfile(user.Id), OrganisationRole.Owner));
+                return Results.Ok(new { token = login.Token, user = login.User, profile = login.Profile, organisation });
+            }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/complete", (SetupService setup, HttpContext http, PermissionAuthorizer authorizer) =>
+        {
+            if (http.Items["bootstrap"] is true) return Results.BadRequest(new { error = "Complete setup as the Owner account." });
+            if (!authorizer.Has(http, OrganisationPermissions.OrganisationManage)) return PermissionAuthorizer.Forbidden();
+            setup.MarkSetupCompleted();
+            return Results.Ok(setup.GetStatus());
+        });
+
         app.MapPost("/api/setup", (SetupRequest request, SetupService setup, AuthService auth, ITenancyStore store, PlatformContextStore context) =>
         {
             try
@@ -29,6 +96,32 @@ public static class TenancyEndpoints
             }
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapGet("/api/licensing", (LicenceService licences, PermissionAuthorizer authorizer, HttpContext http) =>
+        {
+            if (!authorizer.Has(http, OrganisationPermissions.LicensingManage) &&
+                !authorizer.Has(http, OrganisationPermissions.OrganisationRead))
+                return PermissionAuthorizer.Forbidden();
+            return Results.Ok(licences.GetStatus());
+        });
+        app.MapPost("/api/licensing/community", (LicenceService licences, PermissionAuthorizer authorizer, HttpContext http) =>
+        {
+            if (!authorizer.Has(http, OrganisationPermissions.LicensingManage)) return PermissionAuthorizer.Forbidden();
+            licences.SelectCommunity();
+            return Results.Ok(licences.GetStatus());
+        });
+        app.MapPost("/api/licensing/commercial", (InstallLicenceRequest request, LicenceService licences, PermissionAuthorizer authorizer, HttpContext http) =>
+        {
+            if (!authorizer.Has(http, OrganisationPermissions.LicensingManage)) return PermissionAuthorizer.Forbidden();
+            try { return Results.Ok(licences.InstallCommercial(request.Payload ?? request.LicenceKey ?? "")); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+        app.MapDelete("/api/licensing/commercial", (LicenceService licences, PermissionAuthorizer authorizer, HttpContext http) =>
+        {
+            if (!authorizer.Has(http, OrganisationPermissions.LicensingManage)) return PermissionAuthorizer.Forbidden();
+            licences.RemoveCommercial();
+            return Results.Ok(licences.GetStatus());
         });
 
         app.MapGet("/api/users/me", (PlatformContextStore context, ITenancyStore store) =>
@@ -200,7 +293,7 @@ public static class TenancyEndpoints
             try { return Results.Ok(projects.CreateProject(request, context.User.Id)); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
-        app.MapPatch("/api/projects/{id:guid}", (Guid id, UpdateProjectRequest request, ITenancyStore store, PermissionAuthorizer authorizer, HttpContext http) =>
+        app.MapPatch("/api/projects/{id:guid}", (Guid id, UpdateProjectRequest request, ProjectService projects, ITenancyStore store, PermissionAuthorizer authorizer, HttpContext http) =>
         {
             if (!authorizer.Has(http, OrganisationPermissions.ProjectsManage)) return PermissionAuthorizer.Forbidden();
             var project = store.FindProject(id);
@@ -214,6 +307,11 @@ public static class TenancyEndpoints
             }
             if (request.Description is not null) project.Description = request.Description;
             if (request.Visibility is not null) project.Visibility = request.Visibility.Value;
+            if (request.RepositoryMode is not null)
+            {
+                try { return Results.Ok(projects.SetRepositoryMode(id, request.RepositoryMode.Value)); }
+                catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+            }
             project.UpdatedAt = DateTimeOffset.UtcNow;
             store.SaveProject(project);
             return Results.Ok(project);
@@ -266,6 +364,7 @@ public static class TenancyEndpoints
                 return PermissionAuthorizer.Forbidden();
             try { return Results.Ok(repositories.CreateRepository(projectId, request)); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
         app.MapDelete("/api/projects/{projectId:guid}/repositories/{id:guid}", (Guid projectId, Guid id, RepositoryService repositories, PermissionAuthorizer authorizer, HttpContext http) =>
@@ -301,11 +400,13 @@ public static class TenancyEndpoints
     }
 }
 
+public sealed record BootstrapLoginRequest(string Username, string Password);
+public sealed record InstallLicenceRequest(string? Payload, string? LicenceKey);
 public sealed record UpdateOrganisationRequest(string? Name, string? Description, string? AvatarUrl);
 public sealed record CreateMemberRequest(string Email, string Username, string DisplayName, string Password, OrganisationRole Role);
 public sealed record ChangeRoleRequest(OrganisationRole Role);
 public sealed record ChangeStatusRequest(MembershipStatus Status);
-public sealed record UpdateProjectRequest(string? Name, string? Slug, string? Description, ProjectVisibility? Visibility);
+public sealed record UpdateProjectRequest(string? Name, string? Slug, string? Description, ProjectVisibility? Visibility, RepositoryMode? RepositoryMode);
 public sealed record WorkspaceRequest(string LocalPath);
 public sealed record SwitchProjectRequest(Guid ProjectId);
 public sealed record CreateInvitationRequest(string Email, OrganisationRole Role);
@@ -315,3 +416,9 @@ public sealed record UpdateTeamRequest(string? Name, string? Slug, string? Descr
 public sealed record TeamMemberRequest(Guid UserId);
 public sealed record ProjectMemberRequest(Guid UserId);
 public sealed record ProjectTeamRequest(Guid TeamId);
+
+internal static class SetupAuth
+{
+    public static bool IsBootstrapOrUser(HttpContext http) =>
+        http.Items["bootstrap"] is true || http.Items["user"] is not null;
+}

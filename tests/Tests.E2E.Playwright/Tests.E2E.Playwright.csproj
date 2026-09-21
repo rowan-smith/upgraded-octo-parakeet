@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <RootNamespace>Tests.E2E.Playwright</RootNamespace>
+    <!-- Licensing E2E covers commercial module visibility; build the API with EE packages. -->
+    <IncludeEE>true</IncludeEE>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +24,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" AdditionalProperties="IncludeEE=true" />
+    <!-- Ensure commercial module lands in the test output AppContext.BaseDirectory for discovery. -->
+    <ProjectReference Include="..\..\ee\Modules.Review.Commercial\Modules.Review.Commercial.csproj" />
   </ItemGroup>
 
 </Project>

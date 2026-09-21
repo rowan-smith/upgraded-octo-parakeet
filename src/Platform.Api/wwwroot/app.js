@@ -1,4 +1,4 @@
-const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],setup:null,me:null,tab:'overview',route:'/overview',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members'};
+const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],setup:null,me:null,tab:'overview',route:'/overview',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',changesTab:'open'};
 const DEFAULT_LOCAL_PATH='C:\\Users\\rowan\\RiderProjects\\upgraded-octo-parakeet';
 const TOKEN_KEY='forgedeck.token';
 const el=id=>document.getElementById(id);
@@ -24,6 +24,11 @@ async function boot(){
       el('appSidebar').style.display='none';
       document.querySelector('.app-shell')?.classList.add('setup-mode');
       el('app').setAttribute('aria-busy','false');
+      state.token=localStorage.getItem(TOKEN_KEY);
+      if(state.token && state.setup.bootstrapEnabled!==false){
+        // May be a bootstrap token — refresh status with it.
+        try{state.setup=await api('/api/setup/status')}catch{state.token=null;localStorage.removeItem(TOKEN_KEY)}
+      }
       return renderSetup();
     }
     state.token=localStorage.getItem(TOKEN_KEY);
@@ -43,7 +48,7 @@ async function boot(){
       el('appSidebar').style.display='none';
       document.querySelector('.app-shell')?.classList.add('setup-mode');
       el('app').setAttribute('aria-busy','false');
-      return renderSetupProject();
+      return renderSetup();
     }
     await loadWorkspace();
   }catch(error){
@@ -77,6 +82,8 @@ function paintShell(){
   el('userName').textContent=profile?.displayName||user?.username||'User';
   el('userHandle').textContent=`@${user?.username||'user'}`;
   el('userAvatar').textContent=initials(profile?.displayName||user?.username||'?');
+  const chip=el('topProjectChip');
+  if(chip)chip.textContent=project?.name||'Project';
   document.title=`ForgeDeck · ${project?.name||org?.name||'Workspace'}`;
 }
 
@@ -112,81 +119,251 @@ function renderLogin(){
   };
 }
 
-function renderSetup(){
-  crumbs('Setup');
-  const step=state.setupStep||0;
-  if(step===0){
-    el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
+function setupProgressHtml(){
+  const steps=state.setup?.steps||[];
+  if(!steps.length)return '';
+  return `<ol class="setup-progress">${steps.map(step=>{
+    const cls=step.complete?'done':step.current?'current':step.locked?'locked':'';
+    const mark=step.complete?'✓':step.current?'●':'○';
+    return `<li class="${cls}"><span>${mark}</span>${esc(step.title)}</li>`;
+  }).join('')}</ol>`;
+}
+
+function setupShell(title, body, {orgBrand=true}={}){
+  const org=state.setup?.organisationName;
+  crumbs(org?`${esc(org)} <span>/</span> Setup`:'Setup');
+  return `<div class="setup-layout">
+    <aside class="setup-rail">
       <p class="eyebrow"><span class="repo-mark">ForgeDeck</span></p>
-      <h1>Welcome</h1>
-      <p class="description">Set up your software delivery platform. This installation represents one organisation.</p>
-      <div class="modal-actions"><button class="button primary" id="setupStart">Get Started</button></div>
-    </div></div>`;
-    el('setupStart').onclick=()=>{state.setupStep=1;renderSetup()};
-    return;
-  }
+      ${orgBrand&&org?`<h2 class="setup-org-brand">${esc(org)}</h2>`:''}
+      <h1>Setup</h1>
+      ${setupProgressHtml()}
+    </aside>
+    <div class="setup-shell"><div class="setup-card">${title}${body}</div></div>
+  </div>`;
+}
+
+async function refreshSetup(){
+  state.setup=await api('/api/setup/status');
+  return state.setup;
+}
+
+function currentSetupStepId(){
+  const s=state.setup;
+  if(!s?.initialised && !s?.hasOrganisation) return state.token?'organisation':'bootstrap';
+  if(!s?.hasLicence) return 'licence';
+  if(!s?.hasOwner) return 'owner';
+  if(!s?.hasProjects) return 'project';
+  if(!s?.hasRepositories) return 'repositories';
+  const modulePending=(s.moduleSteps||[]).some(step=>step.isAvailable&&!step.isComplete);
+  if(modulePending) return 'modules';
+  return 'finish';
+}
+
+function renderSetup(){
+  const step=currentSetupStepId();
+  if(step==='bootstrap') return renderBootstrapLogin();
+  if(step==='organisation') return renderSetupOrganisation();
+  if(step==='licence') return renderSetupLicence();
+  if(step==='owner') return renderSetupOwner();
+  if(step==='project') return renderSetupProject();
+  if(step==='repositories') return renderSetupRepositories();
+  if(step==='modules') return renderSetupModules();
+  return renderSetupFinish();
+}
+
+function renderBootstrapLogin(){
+  crumbs('Initial Setup');
+  const warn=state.setup?.developmentBootstrapWarning
+    ?`<div class="setup-warning" id="bootstrapWarning">Development credentials are active. Complete setup to secure this installation.</div>`:'';
   el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
-    <h1>Create your organisation</h1>
-    <p class="description">You will become the Owner of this organisation.</p>
-    <label class="form-label">Organisation name</label><input class="field" id="setupOrgName" value="Northstar Engineering">
-    <label class="form-label">Description</label><input class="field" id="setupOrgDesc" placeholder="Optional">
-    <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
-    <h2 style="margin:0 0 8px;font-size:1.05rem">Owner account</h2>
-    <label class="form-label">Display name</label><input class="field" id="setupDisplayName" value="Rowan Smith">
+    <p class="eyebrow"><span class="repo-mark">ForgeDeck</span></p>
+    <h1>Initial Setup</h1>
+    <p class="description">Sign in with the installation credentials to configure this server.</p>
+    ${warn}
+    <label class="form-label">Username</label><input class="field" id="bootstrapUser" value="admin" autocomplete="username">
+    <label class="form-label">Password</label><input class="field" id="bootstrapPass" type="password" value="admin" autocomplete="current-password">
+    <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="bootstrapSignIn">Sign In</button></div>
+  </div></div>`;
+  el('bootstrapSignIn').onclick=async()=>{
+    try{
+      const result=await api('/api/setup/bootstrap-login',{method:'POST',body:JSON.stringify({
+        username:el('bootstrapUser').value,password:el('bootstrapPass').value
+      })});
+      state.token=result.token;localStorage.setItem(TOKEN_KEY,state.token);
+      await refreshSetup();
+      renderSetup();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+function renderSetupOrganisation(){
+  el('content').innerHTML=setupShell(`<h1>Set up your organisation</h1>
+    <p class="description">This installation represents exactly one organisation.</p>`, `
+    <label class="form-label">Organisation Name</label><input class="field" id="setupOrgName" value="Northstar Labs">
+    <label class="form-label">Description</label><input class="field" id="setupOrgDesc" placeholder="Engineering and automation">
+    <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="setupOrgContinue">Continue</button></div>
+  `,{orgBrand:false});
+  el('setupOrgContinue').onclick=async()=>{
+    try{
+      await api('/api/setup/organisation',{method:'POST',body:JSON.stringify({
+        name:el('setupOrgName').value,description:el('setupOrgDesc').value||null
+      })});
+      await refreshSetup();
+      renderSetup();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+function renderSetupLicence(){
+  el('content').innerHTML=setupShell(`<h1>Choose your licence</h1>
+    <p class="description">Choose how this installation will be licensed. Community is always available.</p>`, `
+    <div class="licence-choice-grid">
+      <article class="licence-choice">
+        <h2>Community</h2>
+        <p>Open-source features. No licence required.</p>
+        <button class="button primary" id="setupUseCommunity">Use Community</button>
+      </article>
+      <article class="licence-choice">
+        <h2>Commercial Licence</h2>
+        <p>Unlock licensed module capabilities purchased for this installation.</p>
+        <label class="form-label">Licence Key / JSON</label>
+        <textarea class="field" id="setupLicencePayload" rows="5" placeholder="Paste signed licence JSON"></textarea>
+        <div class="modal-actions" style="margin-top:12px">
+          <button class="button" id="setupValidateLicence">Validate Licence</button>
+        </div>
+      </article>
+    </div>
+  `);
+  el('setupUseCommunity').onclick=async()=>{
+    try{
+      await api('/api/setup/licence/community',{method:'POST',body:'{}'});
+      await refreshSetup();
+      renderSetup();
+    }catch(error){showToast(error.message,true)}
+  };
+  el('setupValidateLicence').onclick=async()=>{
+    try{
+      await api('/api/setup/licence/commercial',{method:'POST',body:JSON.stringify({payload:el('setupLicencePayload').value})});
+      await refreshSetup();
+      showToast('Commercial licence active');
+      renderSetup();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+function renderSetupOwner(){
+  el('content').innerHTML=setupShell(`<h1>Create Owner Account</h1>
+    <p class="description">The first permanent user becomes the Organisation Owner. Bootstrap access ends after this step.</p>`, `
+    <label class="form-label">Display Name</label><input class="field" id="setupDisplayName" value="Rowan Smith">
     <label class="form-label">Username</label><input class="field" id="setupUsername" value="rowan">
     <label class="form-label">Email</label><input class="field" id="setupEmail" type="email" value="rowan@example.com">
     <label class="form-label">Password</label><input class="field" id="setupPassword" type="password" value="password123">
-    <label class="form-label">Confirm password</label><input class="field" id="setupPassword2" type="password" value="password123">
-    <div class="modal-actions" style="margin-top:22px">
-      <button class="button" id="setupBack">Back</button>
-      <button class="button primary" id="setupContinue">Continue</button>
-    </div>
-  </div></div>`;
-  el('setupBack').onclick=()=>{state.setupStep=0;renderSetup()};
-  el('setupContinue').onclick=async()=>{
+    <label class="form-label">Confirm Password</label><input class="field" id="setupPassword2" type="password" value="password123">
+    <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="setupCreateOwner">Create Owner</button></div>
+  `);
+  el('setupCreateOwner').onclick=async()=>{
     const password=el('setupPassword').value;
     if(password!==el('setupPassword2').value)return showToast('Passwords do not match',true);
     try{
-      const result=await api('/api/setup',{method:'POST',body:JSON.stringify({
-        organisationName:el('setupOrgName').value,
-        organisationDescription:el('setupOrgDesc').value||null,
+      const result=await api('/api/setup/owner',{method:'POST',body:JSON.stringify({
         displayName:el('setupDisplayName').value,
         username:el('setupUsername').value,
         email:el('setupEmail').value,
         password
       })});
       state.token=result.token;localStorage.setItem(TOKEN_KEY,state.token);
-      state.setup={initialised:true,organisationName:result.organisation?.name,hasProjects:false,hasRepositories:false};
-      state.setupStep=2;renderSetupProject();
+      await refreshSetup();
+      renderSetup();
     }catch(error){showToast(error.message,true)}
   };
 }
 
 function renderSetupProject(){
-  crumbs('Setup <span>/</span> Project');
-  el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
-    <h1>Create your first project</h1>
-    <p class="description">Projects group repositories, review, pipelines, and deployments.</p>
-    <label class="form-label">Name</label><input class="field" id="setupProjectName" value="Platform">
+  el('content').innerHTML=setupShell(`<h1>Create your first project</h1>
+    <p class="description">Projects group repositories, review, pipelines, and deployments.</p>`, `
+    <label class="form-label">Project Name</label><input class="field" id="setupProjectName" value="Platform">
     <label class="form-label">Slug</label><input class="field" id="setupProjectSlug" value="platform">
     <label class="form-label">Description</label><input class="field" id="setupProjectDesc" value="Modular software delivery platform">
+    <p class="form-label">Repository Structure</p>
+    <label class="choice-row"><input type="radio" name="repoMode" value="SingleRepository" checked> Single Repository</label>
+    <label class="choice-row"><input type="radio" name="repoMode" value="MultiRepository"> Multiple Repositories</label>
+    <p class="form-label" style="margin-top:14px">Visibility</p>
+    <label class="choice-row"><input type="radio" name="visibility" value="Private" checked> Private</label>
+    <label class="choice-row"><input type="radio" name="visibility" value="Organisation"> Organisation</label>
     <div class="modal-actions" style="margin-top:22px">
       <button class="button" id="setupSkipProject">Skip for now</button>
       <button class="button primary" id="setupCreateProject">Create Project</button>
     </div>
-  </div></div>`;
+  `);
   el('setupSkipProject').onclick=()=>finishSetup();
   el('setupCreateProject').onclick=async()=>{
     try{
+      const mode=document.querySelector('input[name="repoMode"]:checked')?.value||'SingleRepository';
+      const visibility=document.querySelector('input[name="visibility"]:checked')?.value||'Private';
       await api('/api/projects',{method:'POST',body:JSON.stringify({
         name:el('setupProjectName').value,
         slug:el('setupProjectSlug').value,
         description:el('setupProjectDesc').value,
-        visibility:'Private'
+        visibility,
+        repositoryMode:mode
       })});
       showToast('Project created');
-      await finishSetup();
+      await refreshSetup();
+      renderSetup();
     }catch(error){showToast(error.message,true)}
+  };
+}
+
+function renderSetupRepositories(){
+  el('content').innerHTML=setupShell(`<h1>Connect your repository</h1>
+    <p class="description">You can connect a source repository now or skip and finish later in Project settings.</p>`, `
+    <p class="description">Use Project settings after setup to connect GitHub or a local working copy.</p>
+    <div class="modal-actions" style="margin-top:22px">
+      <button class="button" id="setupSkipRepos">Skip for now</button>
+      <button class="button primary" id="setupReposContinue">Continue</button>
+    </div>
+  `);
+  const next=async()=>{await refreshSetup();renderSetupModules();};
+  el('setupSkipRepos').onclick=next;
+  el('setupReposContinue').onclick=next;
+}
+
+function renderSetupModules(){
+  const steps=state.setup?.moduleSteps||[];
+  const rows=steps.filter(s=>s.isAvailable).map(s=>`
+    <div class="setup-module-row">
+      <div><strong>${esc(s.title)}</strong><p class="description">${s.isComplete?'Configured':'Optional module setup available after you open the workspace.'}</p></div>
+      <span class="pill">${s.isComplete?'Done':'Pending'}</span>
+    </div>`).join('')||'<p class="description">No module setup steps required right now.</p>';
+  el('content').innerHTML=setupShell(`<h1>Enabled module setup</h1>
+    <p class="description">Installed modules can contribute optional configuration. Licensed capabilities determine what appears here.</p>`, `
+    ${rows}
+    <div class="modal-actions" style="margin-top:22px">
+      <button class="button" id="setupSkipModules">Skip</button>
+      <button class="button primary" id="setupModulesContinue">Continue</button>
+    </div>
+  `);
+  const go=()=>renderSetupFinish();
+  el('setupSkipModules').onclick=go;
+  el('setupModulesContinue').onclick=go;
+}
+
+function renderSetupFinish(){
+  const s=state.setup||{};
+  el('content').innerHTML=setupShell(`<h1>Setup Complete</h1>
+    <p class="description">Your organisation is ready.</p>`, `
+    <div class="setup-summary">
+      <div><span>Organisation</span><strong>${esc(s.organisationName||'—')}</strong></div>
+      <div><span>Licence</span><strong>${esc(s.licenceMode||'Community')}</strong></div>
+      <div><span>Project</span><strong>${s.hasProjects?'Created':'Skipped'}</strong></div>
+      <div><span>Repositories</span><strong>${s.hasRepositories?'Connected':'Not yet'}</strong></div>
+    </div>
+    <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="setupOpenWorkspace">Open workspace</button></div>
+  `);
+  el('setupOpenWorkspace').onclick=async()=>{
+    try{await api('/api/setup/complete',{method:'POST',body:'{}'})}catch{}
+    await finishSetup();
   };
 }
 
@@ -238,7 +415,11 @@ function bindShell(){
     shellBound=true;
   }
   el('mobileMenu').onclick=()=>document.querySelector('.sidebar').classList.toggle('open');
-  el('commandButton').onclick=()=>openModal(`<div class="modal-content"><h2>Quick switcher</h2><p>Jump to source, review, or settings.</p><div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="changes">Open changes</button></div></div>`,e=>{if(e.submitter?.value==='changes')navigate('/changes')});
+  const openSwitcher=()=>openModal(`<div class="modal-content"><h2>Quick switcher</h2><p>Jump to source, review, or settings.</p><div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="changes">Open changes</button></div></div>`,e=>{if(e.submitter?.value==='changes')navigate('/changes')});
+  el('commandButton').onclick=openSwitcher;
+  el('globalSearch')?.addEventListener('click',openSwitcher);
+  el('globalSearch')?.addEventListener('focus',openSwitcher);
+  el('topProjectChip')?.addEventListener('click',openProjectSwitcher);
   el('contextButton').onclick=openProjectSwitcher;
   el('userMenu').onclick=openUserMenu;
 }
@@ -295,14 +476,18 @@ function openUserMenu(){
 }
 
 function renderNavigation(){
+  const openCount=openStatuses().length;
   let html='<p class="nav-group">Project</p><button type="button" class="nav-item" data-route="/overview"><span class="nav-icon">⌂</span>Overview</button>';
-  html+='<p class="nav-group">Code</p><button type="button" class="nav-item" data-route="/files"><span class="nav-icon">▱</span>Files</button><button type="button" class="nav-item" data-route="/commits"><span class="nav-icon">◉</span>Commits</button><button type="button" class="nav-item" data-route="/source-branches"><span class="nav-icon">⑂</span>Branches</button>';
+  html+='<p class="nav-group">Code</p><button type="button" class="nav-item" data-route="/files"><span class="nav-icon">▱</span>Repos</button><button type="button" class="nav-item" data-route="/commits"><span class="nav-icon">◉</span>Commits</button><button type="button" class="nav-item" data-route="/source-branches"><span class="nav-icon">⑂</span>Branches</button>';
   const groups={};state.modules.flatMap(module=>module.navigation||[]).sort((a,b)=>a.order-b.order).forEach(item=>(groups[item.group]??=[]).push(item));
   Object.entries(groups).forEach(([group,items])=>html+=`<p class="nav-group">${esc(group)}</p>${items.map(item=>{
     const icon=item.id==='changes'?'⑂':item.id==='pipelines'||item.id==='runs'?'≋':item.id==='runners'?'◉':'≋';
-    return `<button type="button" class="nav-item" data-route="${esc(item.route)}"><span class="nav-icon">${icon}</span>${esc(item.label)}</button>`;
+    const badge=item.id==='changes'&&openCount?`<span class="nav-badge">${openCount}</span>`:'';
+    return `<button type="button" class="nav-item" data-route="${esc(item.route)}"><span class="nav-icon">${icon}</span>${esc(item.label)}${badge}</button>`;
   }).join('')}`);
-  html+='<p class="nav-group">Settings</p><button type="button" class="nav-item" data-route="/settings"><span class="nav-icon">⚙</span>Project settings</button>';el('primaryNav').innerHTML=html;
+  html+='<p class="nav-group">Settings</p><button type="button" class="nav-item" data-route="/settings"><span class="nav-icon">⚙</span>Project settings</button>';
+  html+='<button type="button" class="nav-item" data-route="/licensing"><span class="nav-icon">▣</span>Licensing</button>';
+  el('primaryNav').innerHTML=html;
   setActiveNav(state.route);
 }
 
@@ -324,28 +509,29 @@ async function navigate(route,push=true){
   }
   setActiveNav(route);
   try{
-    if(route==='/overview')return renderOverview();
+    if(route==='/overview')return await renderOverview();
     if(route==='/changes')return renderChanges();
     if(route==='/queue')return renderQueue();
     if(route.startsWith('/changes/')){const id=route.split('/')[2];state.change=await api(`/api/review/changes/${id}`);state.expandedFiles={};return renderChange()}
-    if(route.startsWith('/files'))return renderFiles(route);
-    if(route.startsWith('/commits/'))return renderCommitDetail(route.split('/')[2]);
-    if(route==='/commits')return renderCommits();
-    if(route==='/source-branches')return renderBranches();
-    if(route==='/pipelines'||route.startsWith('/pipelines/'))return renderPipelines(route);
-    if(route==='/runs')return renderRuns();
+    if(route.startsWith('/files'))return await renderFiles(route);
+    if(route.startsWith('/commits/'))return await renderCommitDetail(route.split('/')[2]);
+    if(route==='/commits')return await renderCommits();
+    if(route==='/source-branches')return await renderBranches();
+    if(route==='/pipelines'||route.startsWith('/pipelines/'))return await renderPipelines(route);
+    if(route==='/runs')return await renderRuns();
     {
       const jobMatch=route.match(/^\/runs\/([^/]+)\/jobs\/([^/]+)(?:\/logs)?\/?$/);
-      if(jobMatch)return renderJobPage(jobMatch[1],jobMatch[2]);
+      if(jobMatch)return await renderJobPage(jobMatch[1],jobMatch[2]);
     }
-    if(route.startsWith('/runs/'))return renderRunDetail(route.split('/')[2]);
-    if(route==='/runners')return renderRunners();
-    if(route==='/settings')return renderSettings();
-    if(route==='/people')return renderPeople();
-    if(route.startsWith('/invite/'))return renderInviteAccept(decodeURIComponent(route.slice('/invite/'.length)));
-    if(route==='/audit')return renderAudit();
-    if(route==='/modules')return renderModules();
-    return renderOverview();
+    if(route.startsWith('/runs/'))return await renderRunDetail(route.split('/')[2]);
+    if(route==='/runners')return await renderRunners();
+    if(route==='/settings')return await renderSettings();
+    if(route==='/licensing')return await renderLicensing();
+    if(route==='/people')return await renderPeople();
+    if(route.startsWith('/invite/'))return await renderInviteAccept(decodeURIComponent(route.slice('/invite/'.length)));
+    if(route==='/audit')return await renderAudit();
+    if(route==='/modules')return await renderModules();
+    return await renderOverview();
   }catch(error){renderError(error)}
 }
 
@@ -365,37 +551,197 @@ function localStatusCard(){
   </div></div>`;
 }
 
-function renderOverview(){
+async function renderOverview(){
   const project=state.context?.project;const org=state.context?.organisation;
-  crumbs(projectCrumb('Overview'));
+  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')}`);
   const open=openStatuses();
   const waiting=open.filter(change=>change.reviewers.some(review=>review.name===actor()&&review.status==='Requested'));
   const approved=open.filter(change=>change.status==='Approved');
   const merged=state.changes.filter(change=>change.status==='Merged').slice().sort((a,b)=>new Date(b.mergedAt||b.updatedAt)-new Date(a.mergedAt||a.updatedAt)).slice(0,5);
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>${esc(project?.name||'Project')}</h1><p>${esc(org?.name||'Organisation')} · local development with GitHub-backed review.</p></div>${hasModule('review')?'<button class="button primary" data-route="/changes">Open review</button>':''}</div>
-  <div class="panel-grid"><div>
-    <div class="card"><div class="card-header"><h2>Review activity</h2></div>
-      <div class="card-body" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-        <div class="side-stat" style="border:0;flex-direction:column;align-items:flex-start;gap:4px"><span>Open</span><strong>${open.length}</strong></div>
-        <div class="side-stat" style="border:0;flex-direction:column;align-items:flex-start;gap:4px"><span>Waiting for me</span><strong>${waiting.length}</strong></div>
-        <div class="side-stat" style="border:0;flex-direction:column;align-items:flex-start;gap:4px"><span>Approved</span><strong>${approved.length}</strong></div>
-        <div class="side-stat" style="border:0;flex-direction:column;align-items:flex-start;gap:4px"><span>Recently merged</span><strong>${merged.length}</strong></div>
+
+  let runs=[],members=[],audit=[];
+  try{
+    const jobs=[];
+    if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
+    jobs.push(api('/api/organisation/members').then(r=>members=r||[]).catch(()=>[]));
+    jobs.push(api('/api/core/audit').then(r=>audit=r||[]).catch(()=>[]));
+    await Promise.all(jobs);
+  }catch{/* overview widgets degrade gracefully */}
+
+  const terminal=runs.filter(r=>['Succeeded','Failed','Cancelled','PartiallySucceeded'].includes(r.status));
+  const succeeded=terminal.filter(r=>r.status==='Succeeded'||r.status==='PartiallySucceeded').length;
+  const successRate=terminal.length?Math.round((succeeded/terminal.length)*100):null;
+  const local=state.local?.status;
+  const localHealthy=state.local?.associated?!local||local.isClean!==false:null;
+  const tags=['delivery',source()?.repositoryId?.provider||'git',hasModule('pipelines')?'pipelines':'',hasModule('review')?'review':'','.net'].filter(Boolean);
+  const desc=project?.description||`${org?.name||'Organisation'} delivery workspace with GitHub-backed review and pipelines.`;
+  const recentRuns=runs.slice(0,5);
+  const activity=buildOverviewActivity(open,merged,runs,audit);
+  const tech=['.NET','React','GitHub','Docker','SQLite','Azure'].slice(0,hasModule('pipelines')?6:4);
+
+  el('content').innerHTML=`
+  <section class="project-hero">
+    <div class="project-hero-top">
+      <div class="project-identity">
+        <div class="project-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 17L12 5l8 12H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </div>
+        <div>
+          <h1>${esc(project?.name||'Project')} <span class="pill visibility-pill">${esc(project?.visibility||'Organisation')}</span></h1>
+          <p class="project-desc">${esc(desc)}</p>
+          <div class="tag-row">${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+        </div>
       </div>
-      ${open.length?open.slice(0,5).map(changeRow).join(''):'<div class="empty">No open Changes. Import or create one when a branch is ready.</div>'}
+      <div class="header-actions">
+        <button class="button" data-route="/files">Code</button>
+        ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Run pipeline</button>':''}
+        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create change</button>':''}
+      </div>
     </div>
-    ${merged.length?`<div class="card" style="margin-top:18px"><div class="card-header"><h2>Recently merged</h2></div>${merged.map(changeRow).join('')}</div>`:''}
+  </section>
+
+  <div class="metric-row">
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Pipeline success rate</p>
+          <p class="metric-value">${successRate==null?'—':`${successRate}%`}</p>
+          <p class="metric-trend ${successRate==null?'flat':successRate>=80?'up':'down'}">${terminal.length?`${succeeded}/${terminal.length} recent runs`:'No runs yet'}</p>
+        </div>
+        <div class="metric-ring" style="--pct:${successRate??0}"></div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Active pipeline jobs</p>
+          <p class="metric-value">${runs.filter(r=>['Queued','Running','Waiting'].includes(r.status)).length}</p>
+          <p class="metric-trend flat">${runs.length} total runs</p>
+        </div>
+        <div class="metric-icon green">↗</div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Open pull requests</p>
+          <p class="metric-value">${open.length}</p>
+          <p class="metric-trend ${waiting.length?'down':'flat'}">${waiting.length?`${waiting.length} waiting on you`:`${approved.length} approved`}</p>
+        </div>
+        <div class="metric-icon">⑂</div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Lead time (merged)</p>
+          <p class="metric-value">${merged.length||'—'}</p>
+          <p class="metric-trend up">${merged.length?'Recently merged':'No merges yet'}</p>
+        </div>
+        <div class="metric-icon slate">◷</div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Environments</p>
+          <p class="metric-value">${state.local?.associated?1:0}<span style="font-size:.9rem;font-weight:600;color:var(--muted)"> / local</span></p>
+          <div class="env-pills">
+            <span class="env-pill ${localHealthy===false?'warn':'ok'}">${state.local?.associated?(localHealthy===false?'Dirty tree':'Healthy'):'Not linked'}</span>
+          </div>
+        </div>
+        <div class="metric-icon amber">◎</div>
+      </div>
+    </article>
   </div>
-  <aside>${localStatusCard()}
-    <div class="card" style="margin-top:18px"><div class="card-header"><h2>Project</h2></div><div class="card-body">
-      <div class="side-stat"><span>Organisation</span><strong>${esc(org?.name||'—')}</strong></div>
-      <div class="side-stat"><span>Repository</span><strong>${source()?`${esc(source().repositoryId.owner)}/${esc(source().repositoryId.name)}`:'Not connected'}</strong></div>
-      <div class="side-stat"><span>Open changes</span><strong>${open.length}</strong></div>
-      <div class="side-stat"><span>Waiting for me</span><strong>${waiting.length}</strong></div>
-      <div class="policy-box">GitHub owns refs and merge state. ForgeDeck owns review discussion and policy.</div>
-    </div></div>
-  </aside></div>`;
-  const connect=el('overviewConnectLocal');if(connect)connect.onclick=openConnectLocal;
-  const openFolder=el('overviewOpenFolder');if(openFolder)openFolder.onclick=openLocalFolder;
+
+  <div class="dash-grid">
+    <div class="dash-col">
+      <div class="card"><div class="card-header"><h2>About this project</h2></div><div class="card-body">
+        <p class="description">${esc(desc)}</p>
+        <div class="meta-list" style="margin-top:14px">
+          <div class="meta-row"><span>Owner</span><strong>${esc(org?.name||'—')}</strong></div>
+          <div class="meta-row"><span>Organisation</span><strong>${esc(org?.name||'—')}</strong></div>
+          <div class="meta-row"><span>Default branch</span><strong>${esc(source()?.defaultBranch||local?.currentBranch||'main')}</strong></div>
+          <div class="meta-row"><span>Repository</span><strong>${source()?`${esc(source().repositoryId.owner)}/${esc(source().repositoryId.name)}`:'Not connected'}</strong></div>
+          <div class="meta-row"><span>Local path</span><strong>${esc(local?.root||local?.path||'—')}</strong></div>
+        </div>
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Environments</h2><button class="button text" data-route="/settings">Manage</button></div><div class="card-body">
+        ${state.local?.associated?`<div class="env-row"><span class="env-dot ${localHealthy===false?'warn':'ok'}"></span><div><strong>Local working copy</strong><small>${esc(local?.currentBranch||'—')} · ${esc((local?.headSha||'').slice(0,7)||'no HEAD')}</small></div><span class="pill">${local?.isClean?'Clean':'Dirty'}</span></div>`:`<div class="empty small">Connect a local repository in Settings.</div>`}
+        ${source()?`<div class="env-row"><span class="env-dot ok"></span><div><strong>GitHub source</strong><small>${esc(source().url||'')}</small></div><span class="pill">Connected</span></div>`:''}
+      </div></div>
+    </div>
+
+    <div class="dash-col">
+      <div class="card"><div class="card-header"><h2>Recent activity</h2><button class="button text" data-route="/audit">View all</button></div><div class="card-body">
+        ${activity.length?activity.map(item=>`<div class="activity-item"><span class="avatar">${esc(item.initials)}</span><div><p><strong>${esc(item.actor)}</strong> ${esc(item.detail)}</p></div><small>${esc(item.when)}</small></div>`).join(''):'<div class="empty small">Activity will appear as you review and run pipelines.</div>'}
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Repositories &amp; services</h2><button class="button text" data-route="/files">Browse</button></div><div class="card-body">
+        ${(state.connections||[]).length?(state.connections||[]).map(c=>`<div class="repo-row"><div><strong>${esc(c.repositoryId.owner)}/${esc(c.repositoryId.name)}</strong><small><span class="lang-dot" style="background:#3178c6"></span>${esc(c.repositoryId.provider)} · default ${esc(c.defaultBranch)}</small></div><span class="pill">Source</span></div>`).join(''):'<div class="empty small">No repository connected.</div>'}
+        ${state.local?.associated?`<div class="repo-row"><div><strong>local working copy</strong><small><span class="lang-dot" style="background:#512bd4"></span>.NET · ${esc(local?.currentBranch||'—')}</small></div><span class="pill">Local</span></div>`:''}
+      </div></div>
+    </div>
+
+    <div class="dash-col">
+      <div class="card"><div class="card-header"><h2>Latest pipeline runs</h2><button class="button text" data-route="/runs">View all</button></div><div class="card-body">
+        ${recentRuns.length?recentRuns.map(run=>`<div class="run-mini" data-route="/runs/${esc(run.id)}">
+          <span class="run-status ${statusClass(run.status)}">${checkIcon(run.status)}</span>
+          <div style="flex:1;min-width:0"><strong>${esc(run.definitionName||'Pipeline')}</strong><div><code>#${esc(shortId(run.id))}</code> · ${esc(run.ref||'—')}</div></div>
+          <div style="text-align:right"><span class="status ${statusClass(run.status)}">${esc(run.status)}</span><div><small style="color:var(--muted)">${esc(durationLabel(run.startedAt,run.completedAt))}</small></div></div>
+        </div>`).join(''):`<div class="empty small">${hasModule('pipelines')?'No runs yet.':'Pipelines module is not enabled.'}</div>`}
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Team</h2><button class="button text" data-route="/people">Manage</button></div><div class="card-body">
+        ${members.slice(0,5).map(m=>`<div class="team-row"><span class="avatar">${esc(initials(m.profile?.displayName||m.user?.username))}</span><div><strong>${esc(m.profile?.displayName||m.user?.username)}</strong><small>@${esc(m.user?.username)}</small></div><span class="pill">${esc(m.membership?.role||'Member')}</span></div>`).join('')||'<div class="empty small">No members loaded.</div>'}
+        ${members.length>5?`<p class="description" style="margin:8px 0 0">+${members.length-5} more</p>`:''}
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Tech stack</h2></div><div class="card-body">
+        <div class="tech-grid">${tech.map(t=>`<div class="tech-chip"><span>${esc(t[0])}</span>${esc(t)}</div>`).join('')}</div>
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Work items</h2></div><div class="card-body">
+        <div class="work-row"><span>Open changes</span><span class="work-count">${open.length}</span></div>
+        <div class="work-row"><span>Waiting for me</span><span class="work-count">${waiting.length}</span></div>
+        <div class="work-row"><span>Approved</span><span class="work-count">${approved.length}</span></div>
+        <div class="work-row"><span>Recently merged</span><span class="work-count">${merged.length}</span></div>
+      </div></div>
+    </div>
+  </div>`;
+}
+
+function buildOverviewActivity(open,merged,runs,audit){
+  const items=[];
+  open.slice(0,3).forEach(c=>items.push({
+    actor:c.author||'Someone',initials:initials(c.author),
+    detail:`opened change #${c.externalNumber||c.externalId||''} — ${c.title||'untitled'}`,
+    when:relativeTime(c.updatedAt||c.createdAt),ts:new Date(c.updatedAt||c.createdAt||0).getTime()
+  }));
+  merged.slice(0,2).forEach(c=>items.push({
+    actor:c.author||'Someone',initials:initials(c.author),
+    detail:`merged pull request #${c.externalNumber||c.externalId||''}`,
+    when:relativeTime(c.mergedAt||c.updatedAt),ts:new Date(c.mergedAt||c.updatedAt||0).getTime()
+  }));
+  runs.slice(0,3).forEach(r=>items.push({
+    actor:'Pipelines',initials:'PL',
+    detail:`${String(r.status).toLowerCase()} run ${r.definitionName||''}`.trim(),
+    when:relativeTime(r.completedAt||r.startedAt),ts:new Date(r.completedAt||r.startedAt||0).getTime()
+  }));
+  (audit||[]).slice(0,4).forEach(a=>items.push({
+    actor:a.actor||'System',initials:initials(a.actor||'S'),
+    detail:`${a.action||'action'} on ${a.resource||a.module||'platform'}`,
+    when:relativeTime(a.timestamp),ts:new Date(a.timestamp||0).getTime()
+  }));
+  return items.sort((a,b)=>b.ts-a.ts).slice(0,6);
+}
+
+function relativeTime(value){
+  if(!value)return '—';
+  const then=new Date(value).getTime();
+  if(Number.isNaN(then))return '—';
+  const seconds=Math.max(0,Math.round((Date.now()-then)/1000));
+  if(seconds<60)return 'just now';
+  if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;
+  if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;
+  return `${Math.floor(seconds/86400)}d ago`;
 }
 
 async function renderPeople(){
@@ -522,27 +868,237 @@ async function renderInviteAccept(token){
   };
 }
 
-function changeRow(change){return `<article class="change-row" data-route="/changes/${change.id}"><span class="number">#${esc(change.externalNumber||change.externalId)}</span><div><h3>${esc(change.title)}</h3><p>${esc(change.author)} · ${esc(change.sourceBranch)} → ${esc(change.targetBranch)}</p></div><span class="status ${statusClass(change.status)}">${esc(change.status)}</span></article>`}
+function changeLabels(change){
+  const labels=[];
+  const status=String(change.status||'');
+  if(status==='Draft')labels.push({text:'draft',tone:'slate'});
+  else if(status==='Approved')labels.push({text:'approved',tone:'green'});
+  else if(status==='Changes Requested')labels.push({text:'changes',tone:'amber'});
+  else if(status==='Merged')labels.push({text:'merged',tone:'violet'});
+  else if(status==='Closed')labels.push({text:'closed',tone:'slate'});
+  else labels.push({text:'open',tone:'blue'});
+  const title=`${change.title||''} ${change.sourceBranch||''}`.toLowerCase();
+  if(/\bfix\b|\bbug\b/.test(title))labels.push({text:'bug',tone:'red'});
+  else if(/\bui\b|\bfront/.test(title))labels.push({text:'ui',tone:'cyan'});
+  else if(/\bapi\b|\bauth\b/.test(title))labels.push({text:'api',tone:'blue'});
+  else if(/\bperf/.test(title))labels.push({text:'performance',tone:'green'});
+  else if(change.sourceBranch&&change.sourceBranch!=='main')labels.push({text:'feature',tone:'violet'});
+  return labels.slice(0,3);
+}
+
+function changeChecksSummary(change){
+  const status=String(change.status||'');
+  if(status==='Merged'||status==='Approved')return {tone:'ok',label:'All passed'};
+  if(status==='Changes Requested')return {tone:'bad',label:'1 failed'};
+  if(status==='Closed')return {tone:'muted',label:'Closed'};
+  if(change.canMerge)return {tone:'ok',label:'All passed'};
+  if(change.providerMergeable===false)return {tone:'bad',label:'1 failed'};
+  return {tone:'pending',label:'Pending'};
+}
+
+function changeRow(change,options={}){
+  if(options.compact){
+    return `<article class="change-row" data-route="/changes/${change.id}"><span class="number">#${esc(change.externalNumber||change.externalId)}</span><div><h3>${esc(change.title)}</h3><p>${esc(change.author)} · ${esc(change.sourceBranch)} → ${esc(change.targetBranch)}</p></div><span class="status ${statusClass(change.status)}">${esc(change.status)}</span></article>`;
+  }
+  const number=change.externalNumber||change.externalId;
+  const approvals=(change.reviews||[]).filter(r=>r.state==='Approved').length;
+  const requested=Math.max((change.reviewers||[]).length,approvals,1);
+  const checks=changeChecksSummary(change);
+  const labels=changeLabels(change);
+  const desc=(change.description||`${change.sourceBranch||'?'} → ${change.targetBranch||'?'}`).trim();
+  const shortDesc=desc.length>110?`${desc.slice(0,107)}…`:desc;
+  const reviewers=change.reviewers||[];
+  const extra=Math.max(0,reviewers.length-3);
+  const updatedLabel=options.closedColumn
+    ?esc(relativeTime(change.closedAt||change.mergedAt||change.updatedAt||change.createdAt))
+    :esc(relativeTime(change.updatedAt||change.createdAt));
+  return `<article class="change-row pr-row" data-route="/changes/${change.id}">
+    <div class="pr-title-cell">
+      <span class="pr-icon ${statusClass(change.status)}" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="2.2" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="2.2" stroke="currentColor" stroke-width="1.4"/><path d="M4 6.2v3.1a2.7 2.7 0 0 0 2.7 2.7H9.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12 9.8V6.9a2.7 2.7 0 0 0-2.7-2.7H6.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </span>
+      <div class="pr-title-copy">
+        <h3><span class="pr-number">#${esc(number)}</span> ${esc(change.title)}</h3>
+        <p>${esc(shortDesc)}</p>
+      </div>
+    </div>
+    <div class="pr-author-cell">
+      <span class="avatar">${esc(initials(change.author))}</span>
+      <div><strong>${esc(change.author)}</strong><small>${esc(relativeTime(change.createdAt||change.updatedAt))}</small></div>
+    </div>
+    <div class="pr-labels-cell">${labels.map(l=>`<span class="pr-label ${l.tone}">${esc(l.text)}</span>`).join('')}</div>
+    <div class="pr-assignees-cell">${reviewers.slice(0,3).map(r=>`<span class="avatar sm" title="${esc(r.name)}">${esc(initials(r.name))}</span>`).join('')}${extra?`<span class="avatar sm more">+${extra}</span>`:''}${reviewers.length?'':'<span class="avatar sm add" title="No assignees">＋</span>'}</div>
+    <div class="pr-reviews-cell"><span class="pr-reviews-icon" aria-hidden="true">◎</span>${approvals}/${requested}</div>
+    <div class="pr-checks-cell"><span class="pr-check ${checks.tone}">${checks.tone==='ok'?'✓':checks.tone==='bad'?'✕':'○'}</span> ${esc(checks.label)}</div>
+    <div class="pr-updated-cell">${updatedLabel}</div>
+    <div class="pr-actions-cell"><button type="button" class="icon-button ghost" data-route="/changes/${change.id}" aria-label="Open pull request">⋯</button></div>
+  </article>`;
+}
+
+function changeTableHeader(closedColumn=false){
+  return `<div class="pr-table-head">
+    <span>Title</span><span>Author</span><span>Labels</span><span>Assignees</span><span>Reviews</span><span>Checks</span><span>${closedColumn?'Closed':'Updated'}</span><span></span>
+  </div>`;
+}
 
 function renderChanges(){
-  crumbs(projectCrumb('Review <span>/</span> Changes'));
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Changes</h1><p>Pull requests represented as provider-neutral Changes.</p></div>
-    <div class="header-actions"><button class="button" id="refreshChanges">Refresh</button><button class="button" id="discoverButton">Discover PRs</button><button class="button primary" id="importButton">＋ Import change</button></div></div>
-    <div class="filterbar">
-      <select class="field compact" id="statusFilter"><option value="">All statuses</option>${['Open','Draft','Approved','Changes Requested','Merged','Closed'].map(value=>`<option>${value}</option>`).join('')}</select>
-      <input class="field compact" id="authorFilter" placeholder="Filter by author">
-      <input class="field compact" id="reviewerFilter" placeholder="Filter by reviewer">
+  const project=state.context?.project;
+  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Pull Requests`);
+  if(!state.changesTab)state.changesTab='open';
+  const counts={
+    open:state.changes.filter(c=>['Open','Approved','Changes Requested'].includes(c.status)).length,
+    draft:state.changes.filter(c=>c.status==='Draft').length,
+    merged:state.changes.filter(c=>c.status==='Merged').length,
+    closed:state.changes.filter(c=>c.status==='Closed').length
+  };
+  const labelOptions=[...new Set(state.changes.flatMap(c=>changeLabels(c).map(l=>l.text)))].sort();
+  el('content').innerHTML=`
+  <section class="project-hero pr-hero">
+    <div class="project-hero-top">
+      <div class="project-identity">
+        <div class="project-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="3" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="18" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M6 9v4.5A4.5 4.5 0 0 0 10.5 18H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18 15v-4.5A4.5 4.5 0 0 0 13.5 6H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </div>
+        <div>
+          <h1>Pull Requests <span class="pill visibility-pill">Public</span></h1>
+          <p class="project-desc">Review and collaborate on changes to improve your codebase.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="button" id="refreshChanges">Refresh</button>
+        <button class="button" id="discoverButton">Discover</button>
+        <button class="button primary" id="importButton">＋ New pull request</button>
+      </div>
     </div>
-    <div class="card" id="changeList">${state.changes.length?state.changes.map(changeRow).join(''):'<div class="empty">No Changes yet. Import an existing GitHub pull request or create one from Branches.</div>'}</div>`;
+    <div class="pr-status-tabs" role="tablist">
+      <button type="button" class="pr-status-tab ${state.changesTab==='open'?'active':''}" data-changes-tab="open">Open <span class="count">${counts.open}</span></button>
+      <button type="button" class="pr-status-tab ${state.changesTab==='draft'?'active':''}" data-changes-tab="draft">Drafts <span class="count">${counts.draft}</span></button>
+      <button type="button" class="pr-status-tab ${state.changesTab==='merged'?'active':''}" data-changes-tab="merged">Merged <span class="count">${counts.merged}</span></button>
+      <button type="button" class="pr-status-tab ${state.changesTab==='closed'?'active':''}" data-changes-tab="closed">Closed <span class="count">${counts.closed}</span></button>
+    </div>
+  </section>
+
+  <div class="pr-filterbar filterbar">
+    <input class="field compact pr-search" id="changeSearch" placeholder="Search pull requests…">
+    <select class="field compact" id="statusFilter" aria-label="Status">
+      <option value="">All statuses</option>
+      ${['Open','Draft','Approved','Changes Requested','Merged','Closed'].map(value=>`<option>${value}</option>`).join('')}
+    </select>
+    <input class="field compact" id="authorFilter" placeholder="Author">
+    <select class="field compact" id="labelFilter" aria-label="Label">
+      <option value="">Label</option>
+      ${labelOptions.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join('')}
+    </select>
+    <input class="field compact" id="reviewerFilter" placeholder="Assignee">
+    <select class="field compact" id="changeSort" aria-label="Sort">
+      <option value="updated">Sort: Recently updated</option>
+      <option value="created">Sort: Newest</option>
+      <option value="title">Sort: Title</option>
+    </select>
+  </div>
+
+  <div class="card pr-table-card">
+    <div class="card-header"><h2 id="changeListHeading">Open pull requests</h2><span class="muted-hint" id="changeListHint">${counts.open} open pull requests</span></div>
+    ${changeTableHeader(false)}
+    <div id="changeList"></div>
+  </div>
+
+  <div class="card pr-table-card" id="recentClosedCard" style="margin-top:16px">
+    <div class="card-header"><div><h2>Recently closed</h2><p class="muted-hint" style="margin:4px 0 0">Showing 5 most recent</p></div><button type="button" class="button text" id="viewAllClosed">View all closed</button></div>
+    ${changeTableHeader(true)}
+    <div id="recentClosedList"></div>
+  </div>`;
+
   el('importButton').onclick=openImport;
   el('discoverButton').onclick=openDiscover;
   el('refreshChanges').onclick=async()=>{state.changes=await api('/api/review/changes');renderChanges();showToast('Changes refreshed')};
-  const filter=()=>{
-    const status=el('statusFilter').value.toLowerCase(),author=el('authorFilter').value.toLowerCase(),reviewer=el('reviewerFilter').value.toLowerCase();
-    const items=state.changes.filter(c=>(!status||c.status.toLowerCase()===status)&&(!author||c.author.toLowerCase().includes(author))&&(!reviewer||c.reviewers.some(r=>r.name.toLowerCase().includes(reviewer))));
-    el('changeList').innerHTML=items.length?items.map(changeRow).join(''):'<div class="empty">No matching Changes.</div>';
+  el('viewAllClosed').onclick=()=>{state.changesTab='closed';el('statusFilter').value='Closed';syncChangesTabUi();applyChangeFilters()};
+  document.querySelectorAll('[data-changes-tab]').forEach(button=>button.onclick=()=>{
+    state.changesTab=button.dataset.changesTab;
+    if(state.changesTab==='open')el('statusFilter').value='';
+    else if(state.changesTab==='draft')el('statusFilter').value='Draft';
+    else if(state.changesTab==='merged')el('statusFilter').value='Merged';
+    else if(state.changesTab==='closed')el('statusFilter').value='Closed';
+    syncChangesTabUi();
+    applyChangeFilters();
+  });
+  const apply=()=>applyChangeFilters();
+  el('statusFilter').onchange=()=>{
+    const v=el('statusFilter').value.toLowerCase();
+    if(v==='draft')state.changesTab='draft';
+    else if(v==='merged')state.changesTab='merged';
+    else if(v==='closed')state.changesTab='closed';
+    else state.changesTab='open';
+    syncChangesTabUi();
+    apply();
   };
-  el('statusFilter').onchange=filter;el('authorFilter').oninput=filter;el('reviewerFilter').oninput=filter;
+  el('authorFilter').oninput=apply;
+  el('reviewerFilter').oninput=apply;
+  el('labelFilter').onchange=apply;
+  el('changeSearch').oninput=apply;
+  el('changeSort').onchange=apply;
+  applyChangeFilters();
+}
+
+function syncChangesTabUi(){
+  document.querySelectorAll('[data-changes-tab]').forEach(tab=>tab.classList.toggle('active',tab.dataset.changesTab===state.changesTab));
+}
+
+function applyChangeFilters(){
+  const status=(el('statusFilter')?.value||'').toLowerCase();
+  const author=(el('authorFilter')?.value||'').toLowerCase();
+  const reviewer=(el('reviewerFilter')?.value||'').toLowerCase();
+  const label=(el('labelFilter')?.value||'').toLowerCase();
+  const search=(el('changeSearch')?.value||'').toLowerCase();
+  const sort=el('changeSort')?.value||'updated';
+  const matches=c=>{
+    if(status){
+      if(String(c.status).toLowerCase()!==status)return false;
+    }else if(state.changesTab==='open'){
+      if(!['Open','Approved','Changes Requested'].includes(c.status))return false;
+    }else if(state.changesTab==='draft'){
+      if(c.status!=='Draft')return false;
+    }else if(state.changesTab==='merged'){
+      if(c.status!=='Merged')return false;
+    }else if(state.changesTab==='closed'){
+      if(c.status!=='Closed')return false;
+    }
+    if(author&&!(c.author||'').toLowerCase().includes(author))return false;
+    if(reviewer&&!(c.reviewers||[]).some(r=>(r.name||'').toLowerCase().includes(reviewer)))return false;
+    if(label&&!changeLabels(c).some(l=>l.text.toLowerCase()===label))return false;
+    if(search){
+      const hay=`${c.title||''} ${c.description||''} ${c.author||''} ${c.externalNumber||''}`.toLowerCase();
+      if(!hay.includes(search))return false;
+    }
+    return true;
+  };
+  const sorted=(items)=>items.slice().sort((a,b)=>{
+    if(sort==='title')return String(a.title||'').localeCompare(String(b.title||''));
+    if(sort==='created')return new Date(b.createdAt||0)-new Date(a.createdAt||0);
+    return new Date(b.updatedAt||b.createdAt||0)-new Date(a.updatedAt||a.createdAt||0);
+  });
+  const items=sorted(state.changes.filter(matches));
+  const list=el('changeList');
+  if(!list)return;
+  const closedView=status==='closed'||state.changesTab==='closed';
+  list.innerHTML=items.length?items.map(c=>changeRow(c,{closedColumn:closedView})).join(''):'<div class="empty">No matching pull requests.</div>';
+  const heading=el('changeListHeading');const hint=el('changeListHint');
+  const title=status==='draft'||state.changesTab==='draft'?'Draft pull requests'
+    :status==='merged'||state.changesTab==='merged'?'Merged pull requests'
+    :status==='closed'||state.changesTab==='closed'?'Closed pull requests'
+    :'Open pull requests';
+  if(heading)heading.textContent=title;
+  if(hint)hint.textContent=`${items.length} ${items.length===1?'pull request':'pull requests'}`;
+
+  const closedCard=el('recentClosedCard');
+  const showRecent=!status&&state.changesTab==='open'&&!author&&!reviewer&&!label&&!search;
+  if(closedCard){
+    closedCard.style.display=showRecent?'':'none';
+    if(showRecent){
+      const recent=sorted(state.changes.filter(c=>c.status==='Closed'||c.status==='Merged')).slice(0,5);
+      el('recentClosedList').innerHTML=recent.length?recent.map(c=>changeRow(c,{closedColumn:true})).join(''):'<div class="empty small">No recently closed pull requests.</div>';
+    }
+  }
 }
 
 function renderQueue(){
@@ -550,7 +1106,7 @@ function renderQueue(){
   const waiting=state.changes.filter(c=>c.reviewers.some(r=>r.name===actor()&&r.status==='Requested'));
   const mine=state.changes.filter(c=>c.author===actor());
   const reviewed=state.changes.filter(c=>c.reviews.some(r=>r.reviewer===actor())).slice().sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
-  const section=(title,items)=>`<div class="card queue-section"><div class="card-header"><h2>${title}</h2><span class="pill">${items.length}</span></div>${items.length?items.map(changeRow).join(''):'<div class="empty small">Nothing here.</div>'}</div>`;
+  const section=(title,items)=>`<div class="card queue-section"><div class="card-header"><h2>${title}</h2><span class="pill">${items.length}</span></div>${items.length?items.map(c=>changeRow(c,{compact:true})).join(''):'<div class="empty small">Nothing here.</div>'}</div>`;
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Review queue</h1><p>Your review work, without CI or deployment noise.</p></div></div>${section('Waiting for me',waiting)}${section('Authored by me',mine)}${section('Recently reviewed',reviewed)}`;
 }
 
@@ -728,43 +1284,237 @@ function reviewersTab(c){
   <aside><div class="card"><div class="card-body"><strong>Community policy</strong><p class="description">One approval and no active changes-requested review.</p></div></div></aside></div>`;
 }
 
-function fileBreadcrumbs(path,reference){
+function formatBytes(n){
+  const value=Number(n)||0;
+  if(value<1024)return `${value} B`;
+  if(value<1024*1024)return `${(value/1024).toFixed(1)} KB`;
+  return `${(value/(1024*1024)).toFixed(1)} MB`;
+}
+
+function inferLanguages(entries){
+  const weights={};
+  (entries||[]).filter(e=>e.kind==='file').forEach(entry=>{
+    const name=entry.name||'';
+    const ext=(name.includes('.')?name.split('.').pop():'').toLowerCase();
+    const map={ts:'TypeScript',tsx:'TypeScript',js:'JavaScript',jsx:'JavaScript',cs:'C#',css:'CSS',scss:'CSS',html:'HTML',json:'JSON',yml:'YAML',yaml:'YAML',md:'Markdown',py:'Python',go:'Go',rs:'Rust',dockerfile:'Docker'};
+    const lang=name.toLowerCase()==='dockerfile'?'Docker':(map[ext]||'Other');
+    weights[lang]=(weights[lang]||0)+(entry.size||1);
+  });
+  const total=Object.values(weights).reduce((a,b)=>a+b,0)||1;
+  const colors={TypeScript:'#3178c6',JavaScript:'#f7df1e',CSS:'#563d7c','C#':'#512bd4',HTML:'#e34c26',JSON:'#292929',YAML:'#cb171e',Markdown:'#083fa1',Python:'#3572a5',Go:'#00add8',Rust:'#dea584',Docker:'#2496ed',Other:'#94a3b8'};
+  return Object.entries(weights).map(([name,size])=>({name,pct:Math.round((size/total)*1000)/10,color:colors[name]||'#94a3b8'})).sort((a,b)=>b.pct-a.pct);
+}
+
+function simpleMarkdown(text){
+  return esc(text||'')
+    .replace(/^### (.*)$/gm,'<h3>$1</h3>')
+    .replace(/^## (.*)$/gm,'<h2>$1</h2>')
+    .replace(/^# (.*)$/gm,'<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\n\n/g,'</p><p>')
+    .replace(/\n/g,'<br>');
+}
+
+function openCloneMenu(){
+  if(!source())return showToast('Connect a repository first.',true);
+  const url=source().url||`https://github.com/${source().repositoryId.owner}/${source().repositoryId.name}`;
+  openModal(`<div class="modal-content"><h2>Clone repository</h2>
+    <p class="description">${esc(source().repositoryId.owner)}/${esc(source().repositoryId.name)}</p>
+    <label class="form-label">HTTPS</label><input class="field" id="cloneUrl" value="${esc(url)}" readonly>
+    <div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="copy">Copy</button></div></div>`,async e=>{
+    if(e.submitter?.value==='copy'){try{await navigator.clipboard.writeText(el('cloneUrl').value);showToast('URL copied')}catch{showToast('Could not copy',true)}}
+  });
+}
+
+function fileBreadcrumbs(path,reference,repoName){
   const parts=path?path.split('/').filter(Boolean):[];
   let acc='';
-  const links=[`<button class="button text" data-route="/files?ref=${encodeURIComponent(reference)}">root</button>`];
+  const rootLabel=esc(repoName||'root');
+  const links=[`<button class="button text" data-route="/files?ref=${encodeURIComponent(reference)}">${rootLabel}</button>`];
   parts.forEach((part,index)=>{acc=acc?`${acc}/${part}`:part;const last=index===parts.length-1;links.push(last?`<span>${esc(part)}</span>`:`<button class="button text" data-route="/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(acc)}">${esc(part)}</button>`)});
   return links.join(' <span>/</span> ');
 }
 
 async function renderFiles(route){
-  crumbs(projectCrumb('Code <span>/</span> Files'));
-  if(!source())return renderNoSource();
+  const project=state.context?.project;
+  if(!source()){
+    crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Repositories`);
+    return renderNoSource();
+  }
   const query=new URLSearchParams(route.split('?')[1]||'');
-  const path=query.get('path')||'',reference=query.get('ref')||source().defaultBranch;
-  const tree=await api(`/api/source/repositories/${source().id}/tree?reference=${encodeURIComponent(reference)}&path=${encodeURIComponent(path)}`);
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Files</h1><p>${esc(source().repositoryId.owner)}/${esc(source().repositoryId.name)} · ${esc(reference)}</p><div class="breadcrumbs" style="margin-top:8px">${fileBreadcrumbs(path,reference)}</div></div>
-    <select class="field compact" id="refPicker"><option>${esc(reference)}</option></select></div>
-    <div class="card source-list">${path?`<button class="source-row" data-up="${esc(path.split('/').slice(0,-1).join('/'))}"><span>↰</span><strong>..</strong></button>`:''}
-    ${tree.entries.map(entry=>`<button class="source-row" data-path="${esc(entry.path)}" data-kind="${entry.kind}"><span>${entry.kind==='directory'?'▱':'≡'}</span><strong>${esc(entry.name)}</strong><small>${entry.kind==='file'?`${entry.size} bytes`:''}</small></button>`).join('')}</div>`;
-  const branches=await api(`/api/source/repositories/${source().id}/branches`);
-  el('refPicker').innerHTML=branches.map(branch=>`<option ${branch.name===reference?'selected':''}>${esc(branch.name)}</option>`).join('');
+  const path=query.get('path')||'';
+  const reference=query.get('ref')||source().defaultBranch;
+  const repo=source().repositoryId;
+  const repoName=repo.name;
+  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Repositories <span>/</span> ${esc(repoName)}`);
+
+  const [tree,branches,commits,runs]=await Promise.all([
+    api(`/api/source/repositories/${source().id}/tree?reference=${encodeURIComponent(reference)}&path=${encodeURIComponent(path)}`),
+    api(`/api/source/repositories/${source().id}/branches`).catch(()=>[]),
+    api(`/api/source/repositories/${source().id}/commits?branch=${encodeURIComponent(reference)}`).catch(()=>[]),
+    hasModule('pipelines')?api('/api/pipelines/runs').catch(()=>[]):Promise.resolve([])
+  ]);
+
+  const head=commits[0]||null;
+  const latestRun=(runs||[])[0]||null;
+  const langs=inferLanguages(tree.entries);
+  const entries=[...(tree.entries||[])].sort((a,b)=>{
+    if(a.kind!==b.kind)return a.kind==='directory'?-1:1;
+    return a.name.localeCompare(b.name);
+  });
+  const parentPath=path?path.split('/').slice(0,-1).join('/'):'';
+  const tags=[repo.provider,'source',reference,hasModule('pipelines')?'ci':''].filter(Boolean);
+  const about=project?.description||`Source repository ${repo.owner}/${repo.name}.`;
+
+  let readmeHtml='';
+  if(!path){
+    const readmeEntry=entries.find(e=>e.kind==='file'&&/^readme(\.|$)/i.test(e.name));
+    if(readmeEntry){
+      try{
+        const file=await api(`/api/source/repositories/${source().id}/file?reference=${encodeURIComponent(reference)}&path=${encodeURIComponent(readmeEntry.path)}`);
+        if(file&&!file.isBinary&&file.content){
+          readmeHtml=`<div class="card readme-card"><div class="card-header"><h2>${esc(readmeEntry.name)}</h2></div><div class="card-body readme-body"><div class="readme-title">${esc(repoName)}</div>
+            <div class="readme-badges"><span class="pill visibility-pill">source connected</span>${latestRun?`<span class="pill ${['Succeeded','PartiallySucceeded'].includes(latestRun.status)?'visibility-pill':''}">build ${esc(latestRun.status)}</span>`:''}<span class="pill">branch ${esc(reference)}</span></div>
+            <div class="readme-prose"><p>${simpleMarkdown(file.content.slice(0,4000))}</p></div></div></div>`;
+        }
+      }catch{/* optional */}
+    }
+  }
+
+  el('content').innerHTML=`
+  <section class="project-hero repo-hero">
+    <div class="project-hero-top">
+      <div class="project-identity">
+        <div class="project-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 7.5h16M4 12h16M4 16.5h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/></svg>
+        </div>
+        <div>
+          <h1>${esc(repoName)} <span class="pill visibility-pill">Public</span></h1>
+          <p class="project-desc">${esc(about)}</p>
+          <div class="tag-row">${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="button" id="cloneButton">&lt;&gt; Code</button>
+        ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Run pipeline</button>':''}
+        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create change</button>':''}
+      </div>
+    </div>
+  </section>
+
+  <div class="repo-layout">
+    <div class="repo-main">
+      ${head?`<div class="commit-bar">
+        <span class="avatar">${esc(initials(head.author))}</span>
+        <div class="commit-bar-copy">
+          <strong>${esc(head.author)}</strong>
+          <span class="commit-msg">${esc((head.message||'').split('\n')[0])}</span>
+          <span class="commit-ok" title="Latest on ${esc(reference)}">✓</span>
+          <code data-route="/commits/${esc(head.sha)}">${esc(head.sha.slice(0,7))}</code>
+          <small>${esc(relativeTime(head.authoredAt))}</small>
+        </div>
+        <button class="button" data-route="/commits">View history</button>
+      </div>`:''}
+
+      <div class="card file-browser">
+        <div class="file-toolbar">
+          <select class="field compact" id="refPicker" aria-label="Branch"></select>
+          <div class="file-path">${fileBreadcrumbs(path,reference,repoName)}</div>
+          <div class="file-toolbar-actions">
+            <button class="button compact" id="goToFile" type="button">Go to file…</button>
+            <button class="button compact" data-route="/source-branches">Branches</button>
+          </div>
+        </div>
+        <div class="file-table-head"><span>Name</span><span>Last commit</span><span>Updated</span></div>
+        <div class="file-table-body">
+          ${path?`<button type="button" class="file-row" data-up="${esc(parentPath)}"><span class="file-name"><span class="file-icon up">↰</span><strong>..</strong></span><span class="file-commit muted-hint">Parent directory</span><span class="file-updated"></span></button>`:''}
+          ${entries.map(entry=>`<button type="button" class="file-row" data-path="${esc(entry.path)}" data-kind="${esc(entry.kind)}">
+            <span class="file-name"><span class="file-icon ${entry.kind==='directory'?'dir':'file'}" aria-hidden="true">${entry.kind==='directory'?'▱':'≡'}</span><strong>${esc(entry.name)}</strong></span>
+            <span class="file-commit">${entry.kind==='directory'?'—':esc(formatBytes(entry.size))}${entry.sha?` · <code>${esc(String(entry.sha).slice(0,7))}</code>`:''}</span>
+            <span class="file-updated">${head?esc(relativeTime(head.authoredAt)):'—'}</span>
+          </button>`).join('')||'<div class="empty small">This directory is empty.</div>'}
+        </div>
+      </div>
+      ${readmeHtml}
+    </div>
+
+    <aside class="repo-aside">
+      <div class="card"><div class="card-header"><h2>About</h2></div><div class="card-body">
+        <p class="description">${esc(about)}</p>
+        <div class="about-links">
+          <a class="about-link" href="${esc(source().url||'#')}" target="_blank" rel="noreferrer">Repository on GitHub</a>
+          <button type="button" class="about-link" data-route="/commits">Commit history</button>
+          <button type="button" class="about-link" data-route="/source-branches">Branches</button>
+          <button type="button" class="about-link" data-route="/settings">Source settings</button>
+        </div>
+        <div class="repo-stats">
+          <div><strong>${esc(String((branches||[]).length))}</strong><span>branches</span></div>
+          <div><strong>${esc(String((commits||[]).length))}</strong><span>recent commits</span></div>
+          <div><strong>${esc(String(entries.length))}</strong><span>entries</span></div>
+        </div>
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Releases</h2></div><div class="card-body">
+        <div class="release-row"><strong>${esc(reference)}</strong><span class="pill visibility-pill">Default</span></div>
+        <p class="description" style="margin:8px 0 0">Branch tip ${head?`<code>${esc(head.sha.slice(0,7))}</code> · ${esc(relativeTime(head.authoredAt))}`:'unavailable'}.</p>
+      </div></div>
+      <div class="card"><div class="card-header"><h2>CI / CD</h2></div><div class="card-body">
+        ${latestRun?`<button type="button" class="ci-row" data-route="/runs/${esc(latestRun.id)}">
+          <span class="run-status ${statusClass(latestRun.status)}">${checkIcon(latestRun.status)}</span>
+          <div><strong>${esc(latestRun.definitionName||'Pipeline')}</strong><small>#${esc(shortId(latestRun.id))} · ${esc(relativeTime(latestRun.completedAt||latestRun.startedAt))}</small></div>
+        </button>`:`<div class="empty small">${hasModule('pipelines')?'No pipeline runs yet.':'Pipelines not enabled.'}</div>`}
+      </div></div>
+      <div class="card"><div class="card-header"><h2>Languages</h2></div><div class="card-body">
+        ${langs.length?`<div class="lang-bar">${langs.map(l=>`<span style="width:${Math.max(l.pct,2)}%;background:${l.color}" title="${esc(l.name)} ${l.pct}%"></span>`).join('')}</div>
+          <div class="lang-legend">${langs.slice(0,5).map(l=>`<div><span class="lang-dot" style="background:${l.color}"></span>${esc(l.name)} <strong>${l.pct}%</strong></div>`).join('')}</div>`:'<div class="empty small">No language signals in this folder.</div>'}
+      </div></div>
+    </aside>
+  </div>`;
+
+  el('refPicker').innerHTML=(branches||[]).map(branch=>`<option value="${esc(branch.name)}" ${branch.name===reference?'selected':''}>${esc(branch.name)}${branch.isDefault?' (default)':''}</option>`).join('')||`<option>${esc(reference)}</option>`;
   el('refPicker').onchange=()=>navigate(`/files?ref=${encodeURIComponent(el('refPicker').value)}`);
-  document.querySelectorAll('[data-path]').forEach(button=>button.onclick=()=>button.dataset.kind==='directory'?navigate(`/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(button.dataset.path)}`):renderSourceFile(button.dataset.path,reference));
-  const up=document.querySelector('[data-up]');if(up)up.onclick=()=>navigate(`/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(up.dataset.up)}`);
+  el('cloneButton').onclick=openCloneMenu;
+  el('goToFile').onclick=()=>{
+    openModal(`<div class="modal-content"><h2>Go to file</h2>
+      <label class="form-label">Path</label><input class="field" id="goFilePath" placeholder="src/Program.cs" value="${esc(path)}">
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Open</button></div></div>`,e=>{
+      if(e.submitter?.value!=='submit')return;
+      const target=(el('goFilePath').value||'').trim();
+      if(!target)return;
+      const hit=entries.find(x=>x.path===target||x.name===target);
+      if(hit?.kind==='directory')navigate(`/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(hit.path)}`);
+      else renderSourceFile(hit?.path||target,reference);
+    });
+  };
+  document.querySelectorAll('.file-row[data-path]').forEach(button=>button.onclick=()=>button.dataset.kind==='directory'
+    ?navigate(`/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(button.dataset.path)}`)
+    :renderSourceFile(button.dataset.path,reference));
+  const up=document.querySelector('[data-up]');
+  if(up)up.onclick=()=>navigate(`/files?ref=${encodeURIComponent(reference)}${up.dataset.up?`&path=${encodeURIComponent(up.dataset.up)}`:''}`);
 }
 
 async function renderSourceFile(path,reference){
+  const project=state.context?.project;
+  const repoName=source()?.repositoryId?.name||'repository';
+  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Repositories <span>/</span> ${esc(repoName)} <span>/</span> ${esc(path)}`);
   const file=await api(`/api/source/repositories/${source().id}/file?reference=${encodeURIComponent(reference)}&path=${encodeURIComponent(path)}`);
-  crumbs(projectCrumb(`Code <span>/</span> ${esc(path)}`));
-  el('content').innerHTML=`<div class="list-page-header"><div>
-    <h1 class="file-title">${esc(path.split('/').pop())}</h1>
-    <p>${esc(reference)} · ${file.size} bytes · ${esc(file.sha.slice(0,7))}</p>
-    <div class="breadcrumbs" style="margin-top:8px">${fileBreadcrumbs(path,reference)}</div>
-  </div>
-  <div class="header-actions">
-    <button class="button" id="copyPath">Copy path</button>
-    <button class="button" data-route="/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(path.split('/').slice(0,-1).join('/'))}">Back</button>
-  </div></div>
+  el('content').innerHTML=`
+  <section class="project-hero repo-hero">
+    <div class="project-hero-top">
+      <div class="project-identity">
+        <div class="project-icon" aria-hidden="true">≡</div>
+        <div>
+          <h1 class="file-title">${esc(path.split('/').pop())}</h1>
+          <p class="project-desc">${esc(reference)} · ${formatBytes(file.size)} · <code>${esc(file.sha.slice(0,7))}</code></p>
+          <div class="file-path" style="margin-top:10px">${fileBreadcrumbs(path,reference,repoName)}</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="button" id="copyPath">Copy path</button>
+        <button class="button" data-route="/files?ref=${encodeURIComponent(reference)}&path=${encodeURIComponent(path.split('/').slice(0,-1).join('/'))}">Back</button>
+      </div>
+    </div>
+  </section>
   <div class="card code-view">${file.isBinary?'<div class="empty">Binary files are not rendered inline.</div>':`<pre>${(file.content||'').split('\n').map((line,index)=>`<span><i>${index+1}</i><code>${esc(line)}</code></span>`).join('')}</pre>`}</div>`;
   el('copyPath').onclick=async()=>{try{await navigator.clipboard.writeText(path);showToast('Path copied')}catch{showToast('Could not copy path',true)}};
 }
@@ -853,11 +1603,72 @@ async function renderAudit(){
     <div class="card">${audit.map(item=>`<div class="audit-row"><span class="event-icon">◎</span><div><strong>${esc(item.actor)}</strong> <code>${esc(item.action)}</code><br><small>${esc(item.module)} · ${esc(item.resource)}</small></div><small>${new Date(item.timestamp).toLocaleString()}</small></div>`).join('')||'<div class="empty">No audited actions yet.</div>'}</div>`;
 }
 
-function renderModules(){
+async function renderModules(){
   crumbs(projectCrumb('Modules'));
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Runtime composition</h1><p>The dogfooding milestone runs Core, Review, and the GitHub connector.</p></div></div>
-    <div class="card">${state.modules.map(module=>`<div class="module-card"><span class="module-logo">${esc(module.name[0])}</span><div><h3>${esc(module.name)}</h3><p>${module.capabilities.map(esc).join(' · ')}</p></div><span class="module-state">● Enabled</span></div>`).join('')}
-    <div class="module-card"><span class="module-logo">G</span><div><h3>GitHub Connector</h3><p>Repository source · change source · real GitHub REST API</p></div><span class="module-state">● Available</span></div></div>`;
+  const platform=await api('/api/platform/modules');
+  state.modules=platform.modules;
+  el('content').innerHTML=`<div class="list-page-header"><div><h1>Runtime composition</h1><p>Installed modules and the capabilities this installation is entitled to use.</p></div></div>
+    <div class="card" id="modulesList">${state.modules.map(module=>`<div class="module-card" data-module-id="${esc(module.id)}" data-edition="${esc(module.edition||'Community')}">
+      <span class="module-logo">${esc(module.name[0])}</span>
+      <div>
+        <h3>${esc(module.name)} <span class="pill module-edition">${esc(module.edition||'Community')}</span></h3>
+        <p data-capabilities>${(module.capabilities||[]).map(esc).join(' · ')||'No granted capabilities'}</p>
+      </div>
+      <span class="module-state">● Enabled</span>
+    </div>`).join('')}
+    <div class="module-card" data-module-id="github-connector" data-edition="Community"><span class="module-logo">G</span><div><h3>GitHub Connector <span class="pill module-edition">Community</span></h3><p>Repository source · change source · real GitHub REST API</p></div><span class="module-state">● Available</span></div></div>`;
+}
+
+async function renderLicensing(){
+  crumbs(`${esc(state.context?.organisation?.name||'Organisation')} <span>/</span> Licensing`);
+  const licence=await api('/api/licensing');
+  const modules=(licence.modules||[]).map(m=>`
+    <tr data-licence-module="${esc(m.moduleId||m.name)}" data-edition="${esc(m.edition)}"><td>${esc(m.name)}</td><td><span class="pill">${esc(m.edition)}</span></td><td>${m.installed?'Installed':'Not installed'}</td></tr>`).join('');
+  el('content').innerHTML=`
+  <div class="list-page-header"><div>
+    <h1>Licensing</h1>
+    <p class="description">Licensing is capability and module based for this installation.</p>
+  </div></div>
+  <div class="card" id="licensingStatus">
+    <div class="card-header"><h2>Current licence</h2><span class="pill" id="licensingStatusPill">${esc(licence.status)}</span></div>
+    <div class="card-body setup-summary">
+      <div><span>Type</span><strong id="licensingMode">${esc(licence.mode)}</strong></div>
+      <div><span>Customer</span><strong>${esc(licence.customerId||'—')}</strong></div>
+      <div><span>Expires</span><strong>${licence.expiresAt?esc(new Date(licence.expiresAt).toLocaleDateString()):'—'}</strong></div>
+      <div><span>Capabilities</span><strong id="licensingCapabilityCount">${licence.capabilityCount??0} enabled</strong></div>
+      <div><span>Instance</span><strong class="mono">${esc(licence.instanceId||'—')}</strong></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><h2>Modules</h2></div>
+    <div class="card-body"><table class="data-table" id="licensingModules"><thead><tr><th>Module</th><th>Licence</th><th>Installed</th></tr></thead><tbody>${modules||'<tr><td colspan="3">No modules</td></tr>'}</tbody></table></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><h2>${licence.mode==='Commercial'?'Replace licence':'Add commercial licence'}</h2></div>
+    <div class="card-body">
+      <label class="form-label">Licence JSON</label>
+      <textarea class="field" id="licensingPayload" rows="6" placeholder="Paste signed licence JSON"></textarea>
+      <div class="modal-actions" style="margin-top:14px">
+        <button class="button" id="licensingCommunity">Use Community</button>
+        ${licence.mode==='Commercial'?`<button class="button" id="licensingRemove">Remove commercial</button>`:''}
+        <button class="button primary" id="licensingInstall">Validate &amp; install</button>
+      </div>
+    </div>
+  </div>`;
+  el('licensingCommunity').onclick=async()=>{
+    try{await api('/api/licensing/community',{method:'POST',body:'{}'});showToast('Community licence active');await renderLicensing()}
+    catch(error){showToast(error.message,true)}
+  };
+  el('licensingInstall').onclick=async()=>{
+    try{await api('/api/licensing/commercial',{method:'POST',body:JSON.stringify({payload:el('licensingPayload').value})});showToast('Licence installed');await renderLicensing()}
+    catch(error){showToast(error.message,true)}
+  };
+  const remove=el('licensingRemove');
+  if(remove)remove.onclick=async()=>{
+    if(!confirm('Remove the commercial licence and continue with Community?'))return;
+    try{await api('/api/licensing/commercial',{method:'DELETE'});showToast('Commercial licence removed');await renderLicensing()}
+    catch(error){showToast(error.message,true)}
+  };
 }
 
 function shortId(id){return String(id||'').replace(/-/g,'').slice(0,8)}
@@ -872,25 +1683,200 @@ function triggerLabels(triggers){return (triggers||[]).map(t=>typeof t==='number
 
 async function renderPipelines(route){
   if(!hasModule('pipelines'))return renderError(new Error('Pipelines module is not enabled.'));
-  const definitions=await api('/api/pipelines/definitions');
+  const project=state.context?.project;
+  const [definitions,runs]=await Promise.all([
+    api('/api/pipelines/definitions'),
+    api('/api/pipelines/runs').catch(()=>[])
+  ]);
   const id=route.split('/')[2];
   const selected=id?definitions.find(d=>d.id===id):null;
-  crumbs(projectCrumb(`Automation <span>/</span> Pipelines${selected?` <span>/</span> ${esc(selected.name)}`:''}`));
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Pipelines</h1><p>Definitions that run on push, change open, or manual trigger.</p></div>
-    <button class="button" id="refreshPipelines">Refresh</button></div>
-    <div class="card">${definitions.map(def=>`<article class="pipeline-row">
-      <span class="number">≋</span>
-      <div><h3>${esc(def.name)}</h3><p>${esc(triggerLabels(def.triggers))} · ${def.jobs?.length||0} jobs · ${def.enabled?'enabled':'disabled'}</p></div>
-      <div class="header-actions">
-        <button class="button" data-edit-pipeline="${esc(def.id)}">View</button>
-        <button class="button" data-toggle-pipeline="${esc(def.id)}" data-enabled="${def.enabled?'1':'0'}">${def.enabled?'Disable':'Enable'}</button>
-        <button class="button danger" data-delete-pipeline="${esc(def.id)}">Delete</button>
-        <button class="button primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>
+  if(!state.pipelinesFilter)state.pipelinesFilter='all';
+  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Pipelines${selected?` <span>/</span> ${esc(selected.name)}`:''}`);
+
+  const latestByDef={};
+  (runs||[]).forEach(run=>{
+    const key=String(run.definitionId||'');
+    if(!key)return;
+    const prev=latestByDef[key];
+    if(!prev||new Date(run.startedAt||run.createdAt||0)>new Date(prev.startedAt||prev.createdAt||0))
+      latestByDef[key]=run;
+  });
+
+  const terminal=(runs||[]).filter(r=>['Succeeded','Failed','Cancelled','PartiallySucceeded'].includes(r.status));
+  const succeeded=terminal.filter(r=>r.status==='Succeeded'||r.status==='PartiallySucceeded').length;
+  const successRate=terminal.length?Math.round((succeeded/terminal.length)*100):null;
+  const activeRuns=(runs||[]).filter(r=>isActiveStatus(r.status)).length;
+  const avgSeconds=(()=>{
+    const samples=terminal.map(r=>{
+      if(!r.startedAt||!r.completedAt)return null;
+      return Math.max(0,(new Date(r.completedAt)-new Date(r.startedAt))/1000);
+    }).filter(v=>v!=null);
+    if(!samples.length)return null;
+    return samples.reduce((a,b)=>a+b,0)/samples.length;
+  })();
+  const avgLabel=avgSeconds==null?'—':avgSeconds<60?`${avgSeconds.toFixed(0)}s`:`${Math.floor(avgSeconds/60)}m ${Math.round(avgSeconds%60)}s`;
+
+  const enriched=definitions.map(def=>{
+    const latest=latestByDef[String(def.id)]||null;
+    return {def,latest};
+  });
+
+  const statusBucket=item=>{
+    const s=item.latest?.status;
+    if(!s)return 'scheduled';
+    if(isActiveStatus(s))return 'running';
+    if(s==='Succeeded'||s==='PartiallySucceeded')return 'passed';
+    if(s==='Failed'||s==='Cancelled')return 'failed';
+    return 'scheduled';
+  };
+  const counts={
+    all:enriched.length,
+    running:enriched.filter(i=>statusBucket(i)==='running').length,
+    passed:enriched.filter(i=>statusBucket(i)==='passed').length,
+    failed:enriched.filter(i=>statusBucket(i)==='failed').length,
+    scheduled:enriched.filter(i=>statusBucket(i)==='scheduled').length
+  };
+
+  const filter=state.pipelinesFilter;
+  const search=(state.pipelinesSearch||'').toLowerCase();
+  const filtered=enriched.filter(item=>{
+    if(filter!=='all'&&statusBucket(item)!==filter)return false;
+    if(search){
+      const hay=`${item.def.name} ${triggerLabels(item.def.triggers)} ${item.latest?.ref||''}`.toLowerCase();
+      if(!hay.includes(search))return false;
+    }
+    return true;
+  });
+
+  const activity=(runs||[]).slice(0,5).map(run=>({
+    actor:run.requestedBy||run.trigger||'Pipeline',
+    detail:`${String(run.status).toLowerCase()} ${run.definitionName||'pipeline'} #${shortId(run.id)}`,
+    when:relativeTime(run.completedAt||run.startedAt||run.createdAt),
+    initials:initials(run.requestedBy||run.definitionName||'P')
+  }));
+
+  const templates=[
+    {name:'.NET Application',desc:'Restore, build, test, and publish checks',icon:'.N'},
+    {name:'Node.js API',desc:'Install, lint, test, and package',icon:'N'},
+    {name:'Docker Build',desc:'Build and push a container image',icon:'D'},
+    {name:'Infrastructure',desc:'Plan and apply infrastructure changes',icon:'I'}
+  ];
+
+  el('content').innerHTML=`
+  <section class="project-hero pipe-hero">
+    <div class="project-hero-top">
+      <div class="project-identity">
+        <div class="project-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 17l4-10h8l4 10H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 17v3M15 17v3M8 10h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </div>
+        <div>
+          <h1>Pipelines <span class="pill visibility-pill">Public</span></h1>
+          <p class="project-desc">Monitor, run, and review CI/CD workflows for this project.</p>
+        </div>
       </div>
-    </article>`).join('')||'<div class="empty">No pipeline definitions.</div>'}</div>
-    ${selected?`<div class="card" style="margin-top:18px"><div class="card-header"><h2>${esc(selected.name)}</h2><span class="pill">v${esc(selected.version)}</span></div>
-      <div class="card-body">${(selected.jobs||[]).map((job,i)=>`<div class="side-stat"><span>${i+1}. ${esc(job.name)}</span><strong>${(job.steps||[]).length} steps · check: ${esc(job.checkName||job.name)}</strong></div>`).join('')}</div></div>`:''}`;
+      <div class="header-actions">
+        <button class="button" data-route="/files">&lt;&gt; Code</button>
+        <button class="button" id="runPipelineQuick" ${definitions[0]?.enabled===false?'disabled':''}>Run pipeline</button>
+        <button class="button" id="refreshPipelines">Refresh</button>
+        <button class="button primary" id="newPipelineHint">＋ New pipeline</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="pipe-metric-row">
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Pipeline success rate</p>
+          <p class="metric-value">${successRate==null?'—':`${successRate}%`}</p>
+          <p class="metric-trend ${successRate==null?'flat':successRate>=80?'up':'down'}">${terminal.length?`${succeeded}/${terminal.length} completed runs`:'No completed runs'}</p>
+        </div>
+        <div class="metric-ring" style="--pct:${successRate??0}"></div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Average duration</p>
+          <p class="metric-value">${esc(avgLabel)}</p>
+          <p class="metric-trend flat">Across recent terminal runs</p>
+        </div>
+        <div class="metric-icon">◷</div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Active runs</p>
+          <p class="metric-value">${activeRuns}</p>
+          <p class="metric-trend ${activeRuns?'up':'flat'}">${(runs||[]).length} total runs</p>
+        </div>
+        <div class="metric-icon green">≋</div>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-head">
+        <div>
+          <p class="metric-label">Definitions</p>
+          <p class="metric-value">${definitions.length}</p>
+          <p class="metric-trend flat">${definitions.filter(d=>d.enabled).length} enabled</p>
+        </div>
+        <div class="metric-icon amber">◎</div>
+      </div>
+    </article>
+  </div>
+
+  <div class="pr-status-tabs pipe-status-tabs" role="tablist">
+    ${[['all','All'],['running','Running'],['passed','Passed'],['failed','Failed'],['scheduled','Scheduled']].map(([key,label])=>`
+      <button type="button" class="pr-status-tab ${filter===key?'active':''}" data-pipe-filter="${key}">${label} <span class="count">${counts[key]}</span></button>`).join('')}
+  </div>
+
+  <div class="pr-filterbar filterbar pipe-filterbar">
+    <input class="field compact pr-search" id="pipelineSearch" placeholder="Search pipelines…" value="${esc(state.pipelinesSearch||'')}">
+    <select class="field compact" id="pipelineSort">
+      <option value="updated" ${state.pipelinesSort!=='name'?'selected':''}>Sort: Recently updated</option>
+      <option value="name" ${state.pipelinesSort==='name'?'selected':''}>Sort: Name</option>
+    </select>
+    <button class="button" data-route="/runs">View all runs</button>
+  </div>
+
+  <div class="card pr-table-card pipe-table-card">
+    <div class="pipe-table-head">
+      <span>Status</span><span>Pipeline</span><span>Branch</span><span>Commit / Trigger</span><span>Stages</span><span>Duration</span><span>Updated</span><span></span>
+    </div>
+    <div id="pipelineList">
+      ${!definitions.length?'<div class="empty">No pipeline definitions.</div>':filtered.length?sortedPipeRows(filtered,(state.pipelinesSort||'updated')).map(({def,latest})=>pipelineDashboardRow(def,latest)).join(''):'<div class="empty">No pipelines match this filter.</div>'}
+    </div>
+  </div>
+
+  ${selected?`<div class="card" style="margin-top:16px"><div class="card-header"><h2>${esc(selected.name)}</h2><span class="pill">v${esc(selected.version)}</span></div>
+    <div class="card-body">${(selected.jobs||[]).map((job,i)=>`<div class="side-stat"><span>${i+1}. ${esc(job.name)}</span><strong>${(job.steps||[]).length} steps · check: ${esc(job.checkName||job.name)}</strong></div>`).join('')}</div></div>`:''}
+
+  <div class="pipe-footer-grid">
+    <div class="card"><div class="card-header"><h2>Recent pipeline activity</h2><button class="button text" data-route="/runs">View all</button></div><div class="card-body">
+      ${activity.length?activity.map(item=>`<div class="activity-item"><span class="avatar">${esc(item.initials)}</span><div><p><strong>${esc(item.actor)}</strong> ${esc(item.detail)}</p></div><small>${esc(item.when)}</small></div>`).join(''):'<div class="empty small">Run a pipeline to see activity here.</div>'}
+    </div></div>
+    <div class="card"><div class="card-header"><h2>Pipeline templates</h2></div><div class="card-body pipe-templates">
+      ${templates.map(t=>`<div class="pipe-template"><span class="pipe-template-icon">${esc(t.icon)}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.desc)}</small></div><button type="button" class="button compact" data-template="${esc(t.name)}">Use template</button></div>`).join('')}
+    </div></div>
+    <div class="card"><div class="card-header"><h2>Environments touched</h2></div><div class="card-body">
+      <div class="env-row"><span class="env-dot ${state.local?.associated?'ok':'warn'}"></span><div><strong>Local</strong><small>${state.local?.associated?'Working copy linked':'Not linked'}</small></div><span class="pill">${state.local?.status?.currentBranch||'—'}</span></div>
+      <div class="env-row"><span class="env-dot ${source()?'ok':'warn'}"></span><div><strong>GitHub</strong><small>${source()?esc(source().repositoryId.owner+'/'+source().repositoryId.name):'Not connected'}</small></div><span class="pill">${esc(source()?.defaultBranch||'—')}</span></div>
+      <div class="env-row"><span class="env-dot ok"></span><div><strong>Simulated CI</strong><small>Pipeline execution mode</small></div><span class="pill">Active</span></div>
+    </div></div>
+  </div>`;
+
   el('refreshPipelines').onclick=()=>renderPipelines(route);
+  el('runPipelineQuick').onclick=()=>{
+    const first=definitions.find(d=>d.enabled)||definitions[0];
+    if(first)openRunPipeline(first.id);
+    else showToast('No pipeline definitions available',true);
+  };
+  el('newPipelineHint').onclick=()=>showToast('Custom pipeline authoring is coming soon');
+  el('pipelineSearch').oninput=e=>{state.pipelinesSearch=e.target.value;renderPipelines(route)};
+  el('pipelineSort').onchange=e=>{state.pipelinesSort=e.target.value;renderPipelines(route)};
+  document.querySelectorAll('[data-pipe-filter]').forEach(btn=>btn.onclick=()=>{state.pipelinesFilter=btn.dataset.pipeFilter;renderPipelines(route)});
+  document.querySelectorAll('[data-template]').forEach(btn=>btn.onclick=()=>showToast(`Template “${btn.dataset.template}” is a preview — use .NET Validation to run today`));
   document.querySelectorAll('[data-run-pipeline]').forEach(button=>button.onclick=()=>openRunPipeline(button.dataset.runPipeline));
   document.querySelectorAll('[data-edit-pipeline]').forEach(button=>button.onclick=()=>navigate(`/pipelines/${button.dataset.editPipeline}`));
   document.querySelectorAll('[data-toggle-pipeline]').forEach(button=>button.onclick=async()=>{
@@ -904,6 +1890,56 @@ async function renderPipelines(route){
     if(!confirm('Delete this pipeline definition?'))return;
     try{await api(`/api/pipelines/definitions/${button.dataset.deletePipeline}`,{method:'DELETE'});showToast('Pipeline deleted');navigate('/pipelines')}catch(error){showToast(error.message,true)}
   });
+}
+
+function sortedPipeRows(items,sort='updated'){
+  return items.slice().sort((a,b)=>{
+    if(sort==='name')return String(a.def.name||'').localeCompare(String(b.def.name||''));
+    const at=new Date(a.latest?.completedAt||a.latest?.startedAt||a.latest?.createdAt||0).getTime();
+    const bt=new Date(b.latest?.completedAt||b.latest?.startedAt||b.latest?.createdAt||0).getTime();
+    return bt-at||String(a.def.name||'').localeCompare(String(b.def.name||''));
+  });
+}
+
+function pipelineStageDots(def,latest){
+  const jobs=latest?.jobs?.length?latest.jobs:(def.jobs||[]).map(j=>({name:j.name,status:'Pending'}));
+  return `<div class="pipe-stages">${jobs.map(j=>{
+    const s=String(j.status||'Pending').toLowerCase();
+    const cls=s.includes('succeed')||s==='passed'?'ok':s.includes('fail')||s==='cancelled'?'bad':s.includes('run')||s==='queued'||s==='assigned'?'run':'wait';
+    return `<span class="pipe-stage ${cls}" title="${esc(j.name||'')} · ${esc(j.status||'Pending')}"></span>`;
+  }).join('')}</div>`;
+}
+
+function pipelineDashboardRow(def,latest){
+  const status=latest?.status||(def.enabled?'Scheduled':'Disabled');
+  const tone=statusClass(status);
+  const desc=`${triggerLabels(def.triggers)||'Manual'} · ${(def.jobs||[]).length} jobs · ${def.enabled?'enabled':'disabled'}`;
+  const branch=latest?.ref||source()?.defaultBranch||'main';
+  const commit=latest?.commitSha?String(latest.commitSha).slice(0,7):'—';
+  const trigger=latest?.trigger||'Manual';
+  const duration=latest?durationLabel(latest.startedAt,latest.completedAt):'—';
+  const updated=latest?relativeTime(latest.completedAt||latest.startedAt||latest.createdAt):'—';
+  return `<article class="pipeline-row pipe-row">
+    <div class="pipe-status-cell"><span class="run-status ${tone}">${checkIcon(status)}</span></div>
+    <div class="pipe-name-cell">
+      <strong>${esc(def.name)}</strong>
+      <small>${esc(desc)}</small>
+    </div>
+    <div class="pipe-branch-cell"><span class="branch-pill">${esc(branch)}</span></div>
+    <div class="pipe-commit-cell">
+      <span class="avatar sm">${esc(initials(latest?.requestedBy||def.name))}</span>
+      <div><code>${esc(commit)}</code><small>${esc(trigger)}</small></div>
+    </div>
+    <div class="pipe-stages-cell">${pipelineStageDots(def,latest)}</div>
+    <div class="pipe-duration-cell">${esc(duration)}</div>
+    <div class="pipe-updated-cell">${esc(updated)}</div>
+    <div class="pipe-actions-cell header-actions">
+      <button class="button compact" data-edit-pipeline="${esc(def.id)}">View</button>
+      <button class="button compact" data-toggle-pipeline="${esc(def.id)}" data-enabled="${def.enabled?'1':'0'}">${def.enabled?'Disable':'Enable'}</button>
+      <button class="button compact danger" data-delete-pipeline="${esc(def.id)}">Delete</button>
+      <button class="button compact primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>
+    </div>
+  </article>`;
 }
 
 function openRunPipeline(definitionId){

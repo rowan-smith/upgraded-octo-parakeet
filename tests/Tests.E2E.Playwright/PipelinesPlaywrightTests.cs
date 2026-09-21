@@ -32,7 +32,7 @@ public sealed class PipelinesPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.ClickAsync(page.Locator("[data-edit-pipeline]").First);
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pipelines");
         await Assertions.Expect(page.Locator(".card .side-stat").First).ToBeVisibleAsync();
-        await Assertions.Expect(page.Locator(".pill").First).ToContainTextAsync("v");
+        await Assertions.Expect(page.Locator(".card .pill").Filter(new LocatorFilterOptions { HasTextString = "v" }).First).ToBeVisibleAsync();
     }
 
     [Fact]

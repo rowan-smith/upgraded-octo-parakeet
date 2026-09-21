@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 
@@ -57,7 +58,14 @@ public sealed class ForgeDeckHost : IAsyncDisposable
         environment: "Development",
         seedDemo: true);
 
-    private static ForgeDeckHost Start(string databasePrefix, string environment, bool seedDemo)
+    /// <summary>Empty install that verifies licences with the provided public key (pair with TestLicenceFactory).</summary>
+    public static ForgeDeckHost StartEmptyWithLicenceKey(string publicKeyPem) => Start(
+        databasePrefix: "forgedeck-pw-lic",
+        environment: "Testing",
+        seedDemo: false,
+        publicKeyPem: publicKeyPem);
+
+    private static ForgeDeckHost Start(string databasePrefix, string environment, bool seedDemo, string? publicKeyPem = null)
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-{Guid.NewGuid():N}.db");
         var keys = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-keys-{Guid.NewGuid():N}");
@@ -68,6 +76,16 @@ public sealed class ForgeDeckHost : IAsyncDisposable
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Core:SeedDemoOnEmpty", seedDemo ? "true" : "false");
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
+            if (!string.IsNullOrWhiteSpace(publicKeyPem))
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Licensing:PublicKeyPem"] = publicKeyPem
+                    });
+                });
+            }
         });
         factory.UseKestrel(0);
         factory.StartServer();

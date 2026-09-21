@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Platform.Core.Application;
 using Platform.Core.Domain;
+using Platform.Core.Identity;
 using Platform.Core.Persistence;
 
 namespace Tests.Unit;
@@ -14,7 +16,7 @@ internal sealed class TenancyFixture : IDisposable
         var connections = new SqliteConnectionFactory($"Data Source={_path};Pooling=False");
         Store = new SqliteTenancyStore(connections, new CoreSchemaInitializer(connections));
         Passwords = new PasswordHasher<UserAccount>();
-        Setup = new SetupService(Store, Passwords);
+        Setup = new SetupService(Store, Passwords, Options.Create(new BootstrapOptions()));
         Memberships = new MembershipService(Store, Passwords);
         Projects = new ProjectService(Store);
         Access = new ProjectAccessService(Store);

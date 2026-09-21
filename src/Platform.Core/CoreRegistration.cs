@@ -30,7 +30,14 @@ public static class CoreRegistration
         services.AddSingleton<AuditStore>();
         services.AddSingleton<IEnumerable<IPlatformModule>>(modules);
         services.Configure<LicensingOptions>(configuration.GetSection(LicensingOptions.SectionName));
-        services.AddSingleton<ILicenceEntitlementStore, SignedLicenceEntitlementStore>();
+        services.Configure<BootstrapOptions>(configuration.GetSection(BootstrapOptions.SectionName));
+        if (configuration.GetSection(BootstrapOptions.SectionName).Exists() == false)
+        {
+            // Defaults: admin/admin with development warning.
+        }
+        services.AddSingleton<ManagedLicenceEntitlementStore>();
+        services.AddSingleton<ILicenceEntitlementStore>(sp => sp.GetRequiredService<ManagedLicenceEntitlementStore>());
+        services.AddSingleton<LicenceService>();
         services.AddSingleton<ICapabilityService, CapabilityService>();
         services.AddSingleton<CapabilityAuthorizer>();
         services.AddSingleton<IAuditWriter, AuditWriter>();

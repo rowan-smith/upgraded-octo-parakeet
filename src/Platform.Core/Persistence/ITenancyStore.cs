@@ -5,9 +5,13 @@ namespace Platform.Core.Persistence;
 public interface ITenancyStore
 {
     InstanceConfiguration GetInstance();
+    void SaveInstance(InstanceConfiguration configuration);
+    void EnsureInstanceId();
+
     Organisation? GetOrganisation();
     void Bootstrap(Organisation organisation, UserAccount user, UserProfile profile, OrganisationMembership membership);
     void SaveOrganisation(Organisation organisation);
+    void CreateOwner(UserAccount user, UserProfile profile, OrganisationMembership membership);
 
     UserAccount? FindUser(Guid id);
     UserAccount? FindUserByEmail(string email);
@@ -63,4 +67,17 @@ public interface ITenancyStore
     void SaveSession(AuthSession session);
     AuthSession? FindSessionByTokenHash(string tokenHash);
     void RevokeSession(string tokenHash, DateTimeOffset revokedAt);
+
+    void SaveBootstrapSession(BootstrapSession session);
+    BootstrapSession? FindBootstrapSession(string tokenHash);
+    void RevokeBootstrapSession(string tokenHash, DateTimeOffset revokedAt);
+    void RevokeAllBootstrapSessions(DateTimeOffset revokedAt);
+
+    LicenceRecord? GetActiveLicence();
+    IReadOnlyList<LicenceRecord> ListLicences();
+    void SaveLicence(LicenceRecord record);
+    void ReplaceActiveLicence(LicenceRecord record);
+    void MarkActiveLicence(LicenceRecordStatus status);
+    void AddLicenceHistory(LicenceHistoryEntry entry);
+    IReadOnlyList<LicenceHistoryEntry> ListLicenceHistory();
 }

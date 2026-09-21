@@ -14,7 +14,7 @@ public sealed class ReviewModule : IPlatformModule
 {
     public ModuleManifest Manifest { get; } = new(
         "review", "Review", "0.3.0", "Community", ["Review.BasicApproval"],
-        [new("changes", "Changes", "/changes", "Review", 10), new("queue", "Review queue", "/queue", "Review", 20)],
+        [new("changes", "Pull Requests", "/changes", "Review", 10), new("queue", "Review queue", "/queue", "Review", 20)],
         [new("change", "overview", "Overview", "/api/review/changes/{id}", 10), new("change", "files", "Changes", "/api/review/changes/{id}", 20),
          new("change", "discussion", "Discussion", "/api/review/changes/{id}", 30), new("change", "reviewers", "Reviewers", "/api/review/changes/{id}", 40)]);
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
@@ -36,6 +36,7 @@ public sealed class ReviewModule : IPlatformModule
         services.AddSingleton<ReviewService>();
         services.AddSingleton<CheckQueryService>();
         services.AddSingleton<PipelineActivityHandler>();
+        services.AddSingleton<Platform.Contracts.Onboarding.IOnboardingContributor, ReviewOnboardingContributor>();
         services.AddSingleton<IEventHandler<PipelineRunStarted>>(sp => sp.GetRequiredService<PipelineActivityHandler>());
         services.AddSingleton<IEventHandler<PipelineRunCompleted>>(sp => sp.GetRequiredService<PipelineActivityHandler>());
         services.AddHostedService<ChangeRefreshHostedService>();

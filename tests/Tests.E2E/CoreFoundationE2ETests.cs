@@ -287,16 +287,15 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
 
     private HttpClient CreateSeededClient(string environment)
     {
+        var database = Path.Combine(Path.GetTempPath(), $"forgedeck-e2e-seeded-{Guid.NewGuid():N}.db");
+        var keys = Path.Combine(Path.GetTempPath(), $"forgedeck-e2e-seeded-keys-{Guid.NewGuid():N}");
         var factory = _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
-            var database = Path.Combine(Path.GetTempPath(), $"forgedeck-e2e-seeded-{Guid.NewGuid():N}.db");
-            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:Platform"] = $"Data Source={database}",
-                ["Data:ProtectionKeysPath"] = Path.Combine(Path.GetTempPath(), $"forgedeck-e2e-seeded-keys-{Guid.NewGuid():N}"),
-                ["Pipelines:ExecutionMode"] = "Simulated"
-            }));
+            builder.UseSetting("ConnectionStrings:Platform", $"Data Source={database}");
+            builder.UseSetting("Data:ProtectionKeysPath", keys);
+            builder.UseSetting("Core:SeedDemoOnEmpty", "true");
+            builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
         });
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "mvp-admin-token");

@@ -41,8 +41,8 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         var page = session.Page;
 
         await page.Locator("#primaryNav [data-route='/changes']").ClickAsync();
-        await Ui.ExpectVisible(page, "h1", "Changes");
-        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Review");
+        await Ui.ExpectVisible(page, "h1", "Pull Requests");
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pull Requests");
 
         await page.Locator("#primaryNav [data-route='/pipelines']").ClickAsync();
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pipelines");
@@ -73,7 +73,8 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         var page = session.Page;
 
         await page.Locator("#primaryNav [data-route='/files']").ClickAsync();
-        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Files");
+        await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Repositories");
+        await Assertions.Expect(page.Locator(".file-browser").Or(page.Locator("#content h1")).First).ToBeVisibleAsync();
 
         await page.Locator("#primaryNav [data-route='/commits']").ClickAsync();
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Commits");

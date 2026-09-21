@@ -30,6 +30,7 @@ public sealed class PipelinesModule : IPlatformModule
         services.AddSingleton<RunnerService>();
         services.AddSingleton<JobExecutionService>();
         services.AddSingleton<ICheckProvider, PipelineCheckProvider>();
+        services.AddSingleton<Platform.Contracts.Onboarding.IOnboardingContributor, PipelinesOnboardingContributor>();
         services.AddSingleton<IEventHandler<ChangeOpened>, ChangeOpenedPipelineTrigger>();
         services.AddSingleton<IEventHandler<ChangeUpdated>, ChangeUpdatedPipelineTrigger>();
         services.AddSingleton<IEventHandler<PushReceived>, PushReceivedPipelineTrigger>();

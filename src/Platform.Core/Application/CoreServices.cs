@@ -1,16 +1,43 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+using Platform.Contracts.Onboarding;
 using Platform.Contracts.SourceControl;
 using Platform.Core.Domain;
+using Platform.Core.Identity;
+using Platform.Core.Licensing;
 using Platform.Core.Persistence;
 
 namespace Platform.Core.Application;
 
 public sealed record SetupRequest(string OrganisationName, string? OrganisationDescription, string DisplayName, string Username, string Email, string Password);
-public sealed record SetupStatus(bool Initialised, string? OrganisationName, bool HasProjects, bool HasRepositories);
+public sealed record OrganisationSetupRequest(string Name, string? Description, string? AvatarUrl);
+public sealed record OwnerSetupRequest(string DisplayName, string Username, string Email, string Password);
+public sealed record SetupStepStatus(string Id, string Title, bool Complete, bool Current, bool Locked);
+public sealed record SetupStatus(
+    bool Initialised,
+    string? OrganisationName,
+    string? OrganisationDescription,
+    bool HasOrganisation,
+    bool HasLicence,
+    string LicenceMode,
+    bool HasOwner,
+    bool HasProjects,
+    bool HasRepositories,
+    bool BootstrapEnabled,
+    bool DevelopmentBootstrapWarning,
+    Guid? InstanceId,
+    IReadOnlyList<SetupStepStatus> Steps,
+    IReadOnlyList<OnboardingStepView> ModuleSteps);
 public sealed record LoginResult(string Token, UserAccount User, UserProfile? Profile);
-public sealed record CreateProjectRequest(string Name, string? Slug, string? Key, string? Description, ProjectVisibility Visibility = ProjectVisibility.Private);
+public sealed record CreateProjectRequest(
+    string Name,
+    string? Slug,
+    string? Key,
+    string? Description,
+    ProjectVisibility Visibility = ProjectVisibility.Private,
+    RepositoryMode RepositoryMode = RepositoryMode.SingleRepository);
 public sealed record CreateRepositoryRequest(string Name, string? Slug, string? DefaultBranch, string ProviderType, string? ExternalRepositoryId,
     string ExternalOwner, string ExternalName, string CloneUrl, string? WebUrl);
 
@@ -20,16 +47,146 @@ public static class TokenHash
     public static string CreateRaw() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 }
 
-public sealed class SetupService(ITenancyStore store, IPasswordHasher<UserAccount> passwords)
+public sealed class SetupService(
+    ITenancyStore store,
+    IPasswordHasher<UserAccount> passwords,
+    IOptions<BootstrapOptions> bootstrapOptions,
+    LicenceService? licences = null,
+    IEnumerable<IOnboardingContributor>? contributors = null,
+    IServiceProvider? services = null)
 {
     public SetupStatus GetStatus()
     {
+        store.EnsureInstanceId();
+        var instance = store.GetInstance();
         var organisation = store.GetOrganisation();
         var projects = store.ListProjects();
-        return new(store.GetInstance().State == InstanceState.Initialised, organisation?.Name, projects.Count != 0,
-            projects.Any(project => store.ListRepositories(project.Id).Count != 0));
+        var hasOwner = store.ListMemberships().Any(m => m.Role == OrganisationRole.Owner && m.Status == MembershipStatus.Active);
+        var hasLicence = instance.LicenceMode is LicenceMode.Community or LicenceMode.Commercial;
+        var hasRepositories = projects.Any(project => store.ListRepositories(project.Id).Count != 0);
+        var opts = bootstrapOptions.Value;
+        var moduleSteps = ResolveModuleSteps();
+        var steps = BuildSteps(organisation is not null, hasLicence, hasOwner, projects.Count != 0, hasRepositories, moduleSteps);
+
+        return new SetupStatus(
+            instance.State == InstanceState.Initialised,
+            organisation?.Name,
+            organisation?.Description,
+            organisation is not null,
+            hasLicence,
+            instance.LicenceMode.ToString(),
+            hasOwner,
+            projects.Count != 0,
+            hasRepositories,
+            instance.BootstrapEnabled && instance.State == InstanceState.Uninitialised,
+            opts.IsDevelopmentDefault && string.Equals(opts.Username, "admin", StringComparison.OrdinalIgnoreCase) && opts.Password == "admin",
+            instance.InstanceId == Guid.Empty ? null : instance.InstanceId,
+            steps,
+            moduleSteps);
     }
 
+    public string BootstrapLogin(string username, string password)
+    {
+        store.EnsureInstanceId();
+        var instance = store.GetInstance();
+        if (!instance.BootstrapEnabled || instance.State != InstanceState.Uninitialised)
+            throw new InvalidOperationException("Bootstrap authentication is no longer available.");
+
+        var opts = bootstrapOptions.Value;
+        if (!string.Equals(username?.Trim(), opts.Username, StringComparison.Ordinal) ||
+            !string.Equals(password, opts.Password, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("Invalid bootstrap credentials.");
+
+        var raw = TokenHash.CreateRaw();
+        store.SaveBootstrapSession(new BootstrapSession
+        {
+            TokenHash = TokenHash.Compute(raw),
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(12)
+        });
+        return raw;
+    }
+
+    public bool IsBootstrapTokenValid(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        var instance = store.GetInstance();
+        if (!instance.BootstrapEnabled || instance.State != InstanceState.Uninitialised) return false;
+        var session = store.FindBootstrapSession(TokenHash.Compute(token));
+        return session is not null && session.RevokedAt is null && session.ExpiresAt > DateTimeOffset.UtcNow;
+    }
+
+    public Organisation SaveOrganisation(OrganisationSetupRequest request)
+    {
+        if (store.GetInstance().State == InstanceState.Initialised && store.GetOrganisation() is not null)
+            throw new InvalidOperationException("Organisation is already configured.");
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Organisation name is required.");
+
+        store.EnsureInstanceId();
+        var now = DateTimeOffset.UtcNow;
+        var existing = store.GetOrganisation();
+        var organisation = existing ?? new Organisation
+        {
+            Id = KnownIds.OrganisationId,
+            Name = request.Name.Trim(),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        organisation.Name = request.Name.Trim();
+        organisation.Description = request.Description?.Trim();
+        if (request.AvatarUrl is not null) organisation.AvatarUrl = request.AvatarUrl;
+        organisation.UpdatedAt = now;
+        store.SaveOrganisation(organisation);
+        return organisation;
+    }
+
+    public void SelectCommunityLicence()
+    {
+        EnsureOrganisationExists();
+        if (licences is null) throw new InvalidOperationException("Licensing is unavailable.");
+        licences.SelectCommunity();
+    }
+
+    public LicenceStatusView InstallCommercialLicence(string payload)
+    {
+        EnsureOrganisationExists();
+        if (licences is null) throw new InvalidOperationException("Licensing is unavailable.");
+        return licences.InstallCommercial(payload);
+    }
+
+    public UserAccount CreateOwner(OwnerSetupRequest request)
+    {
+        EnsureOrganisationExists();
+        var instance = store.GetInstance();
+        if (instance.LicenceMode == LicenceMode.None)
+            throw new InvalidOperationException("Select a licence before creating the owner account.");
+        if (instance.State != InstanceState.Uninitialised)
+            throw new InvalidOperationException("This ForgeDeck instance has already been initialised.");
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+            throw new ArgumentException("Display name is required.");
+        if (!SlugRules.IsValidUsername(request.Username))
+            throw new ArgumentException("Username is invalid.");
+        if (request.Password.Length < 8)
+            throw new ArgumentException("Password must contain at least 8 characters.");
+
+        var now = DateTimeOffset.UtcNow;
+        var user = new UserAccount
+        {
+            Id = request.Email.Equals("maya@northstar.dev", StringComparison.OrdinalIgnoreCase) ? KnownIds.MayaUserId : Guid.NewGuid(),
+            Email = request.Email.Trim(),
+            Username = request.Username.Trim(),
+            PasswordHash = "",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        user.PasswordHash = passwords.HashPassword(user, request.Password);
+        var profile = new UserProfile { UserId = user.Id, DisplayName = request.DisplayName.Trim() };
+        var membership = new OrganisationMembership { UserId = user.Id, Role = OrganisationRole.Owner, Status = MembershipStatus.Active, JoinedAt = now };
+        store.CreateOwner(user, profile, membership);
+        return user;
+    }
+
+    /// <summary>Legacy one-shot bootstrap used by tests and development seed.</summary>
     public UserAccount Bootstrap(SetupRequest request)
     {
         if (store.GetInstance().State != InstanceState.Uninitialised)
@@ -63,7 +220,70 @@ public sealed class SetupService(ITenancyStore store, IPasswordHasher<UserAccoun
         var profile = new UserProfile { UserId = user.Id, DisplayName = request.DisplayName.Trim() };
         var membership = new OrganisationMembership { UserId = user.Id, Role = OrganisationRole.Owner, Status = MembershipStatus.Active, JoinedAt = now };
         store.Bootstrap(organisation, user, profile, membership);
+        try { licences?.SelectCommunity(); } catch { /* seed/tests may omit licence service */ }
         return user;
+    }
+
+    public void MarkSetupCompleted()
+    {
+        var instance = store.GetInstance();
+        instance.SetupCompletedAt = DateTimeOffset.UtcNow;
+        store.SaveInstance(instance);
+    }
+
+    private void EnsureOrganisationExists()
+    {
+        if (store.GetOrganisation() is null)
+            throw new InvalidOperationException("Organisation must be configured first.");
+    }
+
+    private IReadOnlyList<OnboardingStepView> ResolveModuleSteps()
+    {
+        if (contributors is null || services is null) return [];
+        var orgId = store.GetOrganisation()?.Id ?? KnownIds.OrganisationId;
+        var list = new List<OnboardingStepView>();
+        foreach (var contributor in contributors.OrderBy(c => c.Order))
+        {
+            var available = contributor.RequiredCapability is null ||
+                (services.GetService(typeof(Platform.Contracts.Capabilities.ICapabilityService)) is Platform.Contracts.Capabilities.ICapabilityService caps
+                    && caps.Has(orgId, contributor.RequiredCapability));
+            var complete = false;
+            try { complete = available && contributor.IsCompleteAsync(services).GetAwaiter().GetResult(); }
+            catch { complete = false; }
+            list.Add(new OnboardingStepView(contributor.Id, contributor.Title, contributor.Order, contributor.IsRequired, complete, available));
+        }
+        return list;
+    }
+
+    private static IReadOnlyList<SetupStepStatus> BuildSteps(
+        bool hasOrg, bool hasLicence, bool hasOwner, bool hasProjects, bool hasRepos, IReadOnlyList<OnboardingStepView> moduleSteps)
+    {
+        var steps = new List<(string Id, string Title, bool Complete)>
+        {
+            ("organisation", "Organisation", hasOrg),
+            ("licence", "Licence", hasLicence),
+            ("owner", "Owner", hasOwner),
+            ("project", "Project", hasProjects),
+            ("repositories", "Repositories", hasRepos),
+            ("members", "Members", hasOwner),
+            ("modules", "Modules", moduleSteps.Count == 0 || moduleSteps.Where(s => s.IsAvailable).All(s => s.IsComplete)),
+            ("finish", "Finish", hasOwner && hasProjects)
+        };
+
+        var currentSet = false;
+        var result = new List<SetupStepStatus>();
+        foreach (var (id, title, complete) in steps)
+        {
+            var locked = false;
+            if (id == "licence") locked = !hasOrg;
+            else if (id == "owner") locked = !hasLicence;
+            else if (id is "project" or "repositories" or "members" or "modules" or "finish") locked = !hasOwner;
+
+            var current = !complete && !locked && !currentSet;
+            if (current) currentSet = true;
+            result.Add(new SetupStepStatus(id, title, complete, current, locked));
+        }
+        return result;
     }
 }
 
@@ -183,6 +403,7 @@ public sealed class ProjectService(ITenancyStore store)
             Key = string.IsNullOrWhiteSpace(request.Key) ? SlugRules.KeyFromName(request.Name) : request.Key.Trim().ToUpperInvariant(),
             Description = request.Description?.Trim(),
             Visibility = request.Visibility,
+            RepositoryMode = request.RepositoryMode,
             CreatedByUserId = userId
         };
         store.SaveProject(project);
@@ -201,6 +422,17 @@ public sealed class ProjectService(ITenancyStore store)
     public Project? GetBySlug(string slug) => store.FindProjectBySlug(slug);
     public Project? Get(Guid id) => store.FindProject(id);
     public void Delete(Guid id) => store.DeleteProject(id);
+
+    public Project SetRepositoryMode(Guid projectId, RepositoryMode mode)
+    {
+        var project = store.FindProject(projectId) ?? throw new KeyNotFoundException("Project not found.");
+        if (mode == RepositoryMode.SingleRepository && store.ListRepositories(projectId).Count > 1)
+            throw new InvalidOperationException("This Project contains multiple repositories. Archive or remove additional repositories before switching to Single Repository mode.");
+        project.RepositoryMode = mode;
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+        store.SaveProject(project);
+        return project;
+    }
 
     public void GrantUser(Guid projectId, Guid userId)
     {
@@ -379,7 +611,9 @@ public sealed class RepositoryService(ITenancyStore store, ISourceConnectionStor
 {
     public Repository CreateRepository(Guid projectId, CreateRepositoryRequest request)
     {
-        if (store.FindProject(projectId) is null) throw new KeyNotFoundException("Project not found.");
+        var project = store.FindProject(projectId) ?? throw new KeyNotFoundException("Project not found.");
+        if (project.RepositoryMode == RepositoryMode.SingleRepository && store.ListRepositories(projectId).Count >= 1)
+            throw new InvalidOperationException("This project is in Single Repository mode and already has a repository connected.");
         var slug = string.IsNullOrWhiteSpace(request.Slug) ? SlugRules.Normalize(request.Name) : SlugRules.Normalize(request.Slug);
         if (!SlugRules.IsValid(slug)) throw new ArgumentException("Repository slug is invalid.");
         var repository = new Repository

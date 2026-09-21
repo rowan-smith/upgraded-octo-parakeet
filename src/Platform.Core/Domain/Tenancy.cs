@@ -6,6 +6,9 @@ public enum OrganisationRole { Owner, Admin, Member }
 public enum ProjectVisibility { Private, Organisation }
 public enum RepositoryStatus { Connected, Unavailable, AuthenticationRequired, Disconnected }
 public enum InstanceState { Uninitialised, Initialised }
+public enum LicenceMode { None, Community, Commercial }
+public enum RepositoryMode { SingleRepository, MultiRepository }
+public enum LicenceRecordStatus { Active, Replaced, Removed, Expired }
 
 /// <summary>Stable IDs preserved for existing dogfood data / licences.</summary>
 public static class KnownIds
@@ -21,8 +24,45 @@ public sealed record ProjectView(Guid Id, Guid OrganisationId, string Name, stri
 
 public sealed class InstanceConfiguration
 {
+    public Guid InstanceId { get; set; }
     public InstanceState State { get; set; } = InstanceState.Uninitialised;
+    public LicenceMode LicenceMode { get; set; } = LicenceMode.None;
+    public bool BootstrapEnabled { get; set; } = true;
     public DateTimeOffset? InitialisedAt { get; set; }
+    public DateTimeOffset? SetupCompletedAt { get; set; }
+}
+
+public sealed class BootstrapSession
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public required string TokenHash { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ExpiresAt { get; init; }
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
+public sealed class LicenceRecord
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string? LicenceId { get; set; }
+    public string? CustomerId { get; set; }
+    public LicenceMode Mode { get; set; }
+    public LicenceRecordStatus Status { get; set; } = LicenceRecordStatus.Active;
+    public DateTimeOffset? IssuedAt { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public string? Payload { get; set; }
+    public string? Signature { get; set; }
+    public DateTimeOffset InstalledAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class LicenceHistoryEntry
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public required string Action { get; init; }
+    public LicenceMode? Mode { get; init; }
+    public string? LicenceId { get; set; }
+    public string? Detail { get; set; }
+    public DateTimeOffset At { get; init; } = DateTimeOffset.UtcNow;
 }
 
 /// <summary>Exactly one row per installation.</summary>
@@ -110,6 +150,7 @@ public sealed class Project
     public required string Key { get; set; }
     public string? Description { get; set; }
     public ProjectVisibility Visibility { get; set; } = ProjectVisibility.Private;
+    public RepositoryMode RepositoryMode { get; set; } = RepositoryMode.SingleRepository;
     public Guid CreatedByUserId { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

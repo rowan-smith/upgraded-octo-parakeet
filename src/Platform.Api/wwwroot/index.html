@@ -6,45 +6,58 @@
   <meta name="description" content="ForgeDeck — a modular software delivery platform.">
   <title>ForgeDeck · Atlas</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/app.css?v=core-foundation-1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app.css?v=licensing-e2e-1">
 </head>
 <body>
   <div id="app" class="app-shell" aria-busy="true">
     <aside class="sidebar" id="appSidebar">
-      <div class="brand"><span class="brand-mark">F</span><span>ForgeDeck</span></div>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 11.5L8 3l6 8.5H2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 11.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </span>
+        <span class="brand-copy"><strong>ForgeDeck</strong><small>Delivery platform</small></span>
+      </div>
       <button class="context-card" id="contextButton" aria-label="Switch project">
         <span class="context-avatar" id="projectAvatar">A</span>
-        <span><small id="orgLabel">Organisation</small><strong id="projectLabel">Project</strong></span>
-        <span class="chevron">⌄</span>
+        <span class="context-copy"><small id="orgLabel">Organisation</small><strong id="projectLabel">Project</strong></span>
+        <span class="chevron" aria-hidden="true">⌄</span>
       </button>
       <nav id="primaryNav" aria-label="Project navigation"></nav>
       <div class="sidebar-footer">
         <button type="button" class="nav-item" data-route="/people"><span class="nav-icon">◎</span>People</button>
         <button type="button" class="nav-item" data-route="/audit"><span class="nav-icon">◫</span>Audit log</button>
         <button type="button" class="nav-item" data-route="/modules"><span class="nav-icon">◇</span>Modules</button>
-        <button type="button" class="user" id="userMenu" aria-label="User menu">
-          <span class="avatar" id="userAvatar">?</span>
-          <span><strong id="userName">User</strong><small id="userHandle">@user</small></span>
-          <span class="online" aria-label="Online"></span>
-        </button>
       </div>
     </aside>
 
-    <main class="workspace">
+    <div class="workspace">
       <header class="topbar">
         <button class="mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button>
         <div class="breadcrumbs" id="breadcrumbs">ForgeDeck</div>
+        <label class="global-search" for="globalSearch">
+          <span class="search-glyph" aria-hidden="true">⌕</span>
+          <input id="globalSearch" type="search" placeholder="Search projects, pipelines, issues, or people…" readonly>
+          <kbd>Ctrl K</kbd>
+        </label>
         <div class="top-actions">
-          <button class="icon-button" id="commandButton" aria-label="Open command menu">⌘</button>
-          <button class="icon-button" aria-label="Notifications">♢<span class="notification-dot"></span></button>
+          <button class="button ghost compact" id="topProjectChip" type="button">Project</button>
+          <button class="icon-button" id="commandButton" aria-label="Open command menu" title="Quick switcher">＋</button>
+          <button class="icon-button" type="button" aria-label="Notifications">♢<span class="notification-dot"></span></button>
+          <button class="user-chip" id="userMenu" aria-label="User menu">
+            <span class="avatar" id="userAvatar">?</span>
+            <span class="user-copy"><strong id="userName">User</strong><small id="userHandle">@user</small></span>
+          </button>
         </div>
       </header>
-      <section id="content" class="content"><div class="loading"><span></span>Loading workspace…</div></section>
-    </main>
+      <main id="content" class="content"><div class="loading"><span></span>Loading workspace…</div></main>
+    </div>
   </div>
 
   <dialog id="modal" class="modal"><form method="dialog" id="modalForm"><div id="modalBody"></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=core-foundation-1" defer></script>
+  <script src="/app.js?v=licensing-e2e-2" defer></script>
 </body>
 </html>

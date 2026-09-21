@@ -6,27 +6,73 @@ internal static class Ui
 {
     public static async Task CompleteSetupAsync(IPage page, string org = "Northstar Engineering", string email = "rowan@example.com", string username = "rowan")
     {
-        await ExpectVisible(page, "h1", "Welcome");
-        await page.Locator("#setupStart").ClickAsync();
-        await ExpectVisible(page, "h1", "Create your organisation");
+        await CompleteSetupThroughLicenceAsync(page, org);
+        await page.Locator("#setupUseCommunity").ClickAsync();
+        await CompleteSetupAfterLicenceAsync(page, email, username, org);
+    }
 
+    public static async Task CompleteSetupWithCommercialLicenceAsync(
+        IPage page,
+        string licenceJson,
+        string org = "Northstar Engineering",
+        string email = "rowan@example.com",
+        string username = "rowan")
+    {
+        await CompleteSetupThroughLicenceAsync(page, org);
+        await page.Locator("#setupLicencePayload").FillAsync(licenceJson);
+        await page.Locator("#setupValidateLicence").ClickAsync();
+        await ExpectVisible(page, "h1", "Create Owner Account");
+        await CompleteSetupAfterLicenceAsync(page, email, username, org);
+    }
+
+    public static async Task CompleteSetupThroughLicenceAsync(IPage page, string org = "Northstar Engineering")
+    {
+        await ExpectVisible(page, "h1", "Initial Setup");
+        await page.Locator("#bootstrapSignIn").ClickAsync();
+        await ExpectVisible(page, "h1", "Set up your organisation");
         await page.Locator("#setupOrgName").FillAsync(org);
+        await page.Locator("#setupOrgContinue").ClickAsync();
+        await ExpectVisible(page, "h1", "Choose your licence");
+    }
+
+    public static async Task CompleteSetupAfterLicenceAsync(
+        IPage page,
+        string email,
+        string username,
+        string org)
+    {
+        await ExpectVisible(page, "h1", "Create Owner Account");
         await page.Locator("#setupDisplayName").FillAsync("Rowan Smith");
         await page.Locator("#setupUsername").FillAsync(username);
         await page.Locator("#setupEmail").FillAsync(email);
         await page.Locator("#setupPassword").FillAsync("password123");
         await page.Locator("#setupPassword2").FillAsync("password123");
-        await page.Locator("#setupContinue").ClickAsync();
+        await page.Locator("#setupCreateOwner").ClickAsync();
 
         await ExpectVisible(page, "h1", "Create your first project");
         await page.Locator("#setupProjectName").FillAsync("Platform");
         await page.Locator("#setupProjectSlug").FillAsync("platform");
         await page.Locator("#setupCreateProject").ClickAsync();
 
+        await ExpectVisible(page, "h1", "Connect your repository");
+        await page.Locator("#setupSkipRepos").ClickAsync();
+
+        await ExpectVisible(page, "h1", "Enabled module setup");
+        await page.Locator("#setupSkipModules").ClickAsync();
+
+        await ExpectVisible(page, "h1", "Setup Complete");
+        await page.Locator("#setupOpenWorkspace").ClickAsync();
+
         await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
         await ExpectVisible(page, "#orgLabel", org);
         await ExpectVisible(page, "#projectLabel", "Platform");
         await ExpectVisible(page, "#userHandle", $"@{username}");
+    }
+
+    public static async Task OpenLicensingAsync(IPage page)
+    {
+        await NavigateAsync(page, "/licensing");
+        await ExpectVisible(page, "h1", "Licensing");
     }
 
     public static async Task SignInAsync(IPage page, string email, string password)
@@ -76,7 +122,7 @@ internal static class Ui
     public static async Task OpenChangesAsync(IPage page)
     {
         await NavigateAsync(page, "/changes");
-        await ExpectVisible(page, "h1", "Changes");
+        await ExpectVisible(page, "h1", "Pull Requests");
     }
 
     public static async Task OpenQueueAsync(IPage page)
@@ -106,7 +152,8 @@ internal static class Ui
     public static async Task OpenOverviewAsync(IPage page)
     {
         await NavigateAsync(page, "/overview");
-        await Assertions.Expect(page.Locator("#content h1").First).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#content h1").First).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+        await Assertions.Expect(page.Locator(".project-hero")).ToBeVisibleAsync();
     }
 
     public static async Task WaitForAppIdleAsync(IPage page)

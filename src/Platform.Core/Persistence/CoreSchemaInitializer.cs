@@ -1,3 +1,5 @@
+using System.Data.Common;
+
 namespace Platform.Core.Persistence;
 
 public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
@@ -18,9 +20,13 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                 CREATE TABLE IF NOT EXISTS core_instance (
                     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
                     state TEXT NOT NULL,
-                    initialised_at TEXT
+                    initialised_at TEXT,
+                    instance_id TEXT,
+                    licence_mode TEXT NOT NULL DEFAULT 'None',
+                    bootstrap_enabled INTEGER NOT NULL DEFAULT 1,
+                    setup_completed_at TEXT
                 );
-                INSERT OR IGNORE INTO core_instance(singleton, state) VALUES(1, 'Uninitialised');
+                INSERT OR IGNORE INTO core_instance(singleton, state, licence_mode, bootstrap_enabled) VALUES(1, 'Uninitialised', 'None', 1);
                 CREATE TABLE IF NOT EXISTS core_organisation (
                     id TEXT PRIMARY KEY,
                     singleton INTEGER NOT NULL UNIQUE DEFAULT 1 CHECK (singleton = 1),
@@ -94,7 +100,8 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     created_by_user_id TEXT NOT NULL REFERENCES core_users(id),
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    archived_at TEXT
+                    archived_at TEXT,
+                    repository_mode TEXT NOT NULL DEFAULT 'SingleRepository'
                 );
                 CREATE TABLE IF NOT EXISTS core_project_user_access (
                     id TEXT PRIMARY KEY,
@@ -150,6 +157,33 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     expires_at TEXT NOT NULL,
                     revoked_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS core_bootstrap_sessions (
+                    id TEXT PRIMARY KEY,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    revoked_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS core_licences (
+                    id TEXT PRIMARY KEY,
+                    licence_id TEXT,
+                    customer_id TEXT,
+                    mode TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    issued_at TEXT,
+                    expires_at TEXT,
+                    payload TEXT,
+                    signature TEXT,
+                    installed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS core_licence_history (
+                    id TEXT PRIMARY KEY,
+                    action TEXT NOT NULL,
+                    mode TEXT,
+                    licence_id TEXT,
+                    detail TEXT,
+                    at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS core_integrations (
                     provider_id TEXT PRIMARY KEY,
                     protected_secret TEXT NOT NULL,
@@ -185,9 +219,54 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     metadata TEXT
                 );
                 CREATE INDEX IF NOT EXISTS ix_core_audit_timestamp ON core_audit(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS ix_core_licences_status ON core_licences(status);
                 """;
             command.ExecuteNonQuery();
+            EnsureColumn(connection, "core_instance", "instance_id", "TEXT");
+            EnsureColumn(connection, "core_instance", "licence_mode", "TEXT NOT NULL DEFAULT 'None'");
+            EnsureColumn(connection, "core_instance", "bootstrap_enabled", "INTEGER NOT NULL DEFAULT 1");
+            EnsureColumn(connection, "core_instance", "setup_completed_at", "TEXT");
+            EnsureColumn(connection, "core_projects", "repository_mode", "TEXT NOT NULL DEFAULT 'SingleRepository'");
+            // Backfill defaults only after columns exist.
+            using (var seedId = connection.CreateCommand())
+            {
+                seedId.CommandText = """
+                    UPDATE core_instance
+                    SET licence_mode = COALESCE(NULLIF(licence_mode, ''), 'None')
+                    WHERE singleton = 1;
+                    UPDATE core_instance
+                    SET bootstrap_enabled = CASE WHEN state = 'Initialised' THEN 0 ELSE COALESCE(bootstrap_enabled, 1) END
+                    WHERE singleton = 1;
+                    UPDATE core_projects
+                    SET repository_mode = COALESCE(NULLIF(repository_mode, ''), 'SingleRepository')
+                    WHERE repository_mode IS NULL OR repository_mode = '';
+                    """;
+                seedId.ExecuteNonQuery();
+            }
             _initialized = true;
         }
+    }
+
+    private static void EnsureColumn(DbConnection connection, string table, string column, string definition)
+    {
+        var exists = false;
+        using (var probe = connection.CreateCommand())
+        {
+            probe.CommandText = $"PRAGMA table_info({table})";
+            using var reader = probe.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (exists) return;
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 }

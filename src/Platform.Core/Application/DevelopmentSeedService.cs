@@ -33,6 +33,16 @@ public sealed class DevelopmentSeedService(
         var profile = new UserProfile { UserId = user.Id, DisplayName = "Maya Chen", DefaultProjectId = KnownIds.AtlasProjectId };
         store.Bootstrap(organisation, user, profile,
             new OrganisationMembership { UserId = user.Id, Role = OrganisationRole.Owner, Status = MembershipStatus.Active, JoinedAt = now });
+        var instance = store.GetInstance();
+        instance.LicenceMode = LicenceMode.Community;
+        instance.BootstrapEnabled = false;
+        store.SaveInstance(instance);
+        store.ReplaceActiveLicence(new LicenceRecord
+        {
+            Mode = LicenceMode.Community,
+            Status = LicenceRecordStatus.Active,
+            LicenceId = "community"
+        });
         var project = projects.CreateProject(new CreateProjectRequest("Atlas", "atlas", "ATL", null, ProjectVisibility.Organisation),
             user.Id, KnownIds.AtlasProjectId);
         context.Apply(
