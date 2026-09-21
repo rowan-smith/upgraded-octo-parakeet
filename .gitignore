@@ -7,3 +7,4 @@
 .runner/
 keys/licence-private.pem
 data/licence.json
+*.db
