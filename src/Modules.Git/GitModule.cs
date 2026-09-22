@@ -11,9 +11,11 @@ namespace Modules.Git;
 
 public sealed class GitModule : IPlatformModule
 {
+    // Code browse UI is owned by the SPA (Files / Branches / Commits / Tags).
+    // Keep Git hosting APIs; do not advertise conflicting /repositories|/branches|/tags nav routes.
     public ModuleManifest Manifest { get; } = new("git", "Git", "0.1.0", "Community",
         ["Git.RepositoryHosting"],
-        [new("repositories", "Repositories", "/repositories", "Code", 10), new("branches", "Branches", "/branches", "Code", 20), new("tags", "Tags", "/tags", "Code", 30)], []);
+        [], []);
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<IGitRepositoryStore, InMemoryGitRepositoryStore>();

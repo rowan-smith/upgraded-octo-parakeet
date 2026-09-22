@@ -251,7 +251,7 @@ public sealed class PipelinesMorePlaywrightTests(PlaywrightBrowserFixture browse
         await Ui.ClickAsync(page.Locator("[data-run-pipeline]").First);
         await Ui.ExpectModalOpenAsync(page, "Run pipeline");
         await Ui.CloseModalAsync(page);
-        await Assertions.Expect(page.Locator("h1").Filter(new LocatorFilterOptions { HasTextString = "Pipelines" })).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("h1").Filter(new LocatorFilterOptions { HasTextString = "Build" })).ToBeVisibleAsync();
     }
 
     [Fact]

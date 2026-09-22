@@ -1,4 +1,4 @@
-const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],setup:null,me:null,tab:'overview',route:'/overview',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',changesTab:'open'};
+const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],starredProjects:[],selectedConnectionId:null,setup:null,me:null,tab:'overview',route:'/home',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',changesTab:'open'};
 const DEFAULT_LOCAL_PATH='C:\\Users\\rowan\\RiderProjects\\upgraded-octo-parakeet';
 const TOKEN_KEY='forgedeck.token';
 const el=id=>document.getElementById(id);
@@ -60,14 +60,17 @@ async function boot(){
 async function loadWorkspace(){
   el('appSidebar').style.display='';
   document.querySelector('.app-shell')?.classList.remove('setup-mode');
-  const [platform,context,connections,local,projects,me]=await Promise.all([
+  const [platform,context,connections,local,projects,me,starred]=await Promise.all([
     api('/api/platform/modules'),api('/api/core/context'),api('/api/source/repositories'),
-    api('/api/projects/current/local-repository'),api('/api/projects'),api('/api/users/me')
+    api('/api/projects/current/local-repository'),api('/api/projects'),api('/api/users/me'),
+    api('/api/users/me/starred-projects').catch(()=>[])
   ]);
-  state.modules=platform.modules;state.context=context;state.connections=connections;state.local=local;state.projects=projects;state.me=me;
+  state.modules=platform.modules;state.context=context;state.connections=connections;state.local=local;state.projects=projects;state.me=me;state.starredProjects=starred||[];
+  if(!state.selectedConnectionId||!state.connections.some(c=>c.id===state.selectedConnectionId))
+    state.selectedConnectionId=state.connections[0]?.id||null;
   if(hasModule('review'))state.changes=await api('/api/review/changes');
   paintShell();renderNavigation();bindShell();
-  const route=location.hash.slice(1)||'/overview';
+  const route=location.hash.slice(1)||'/home';
   await navigate(route,false);
   el('app').setAttribute('aria-busy','false');
   setInterval(refreshActiveChange,60000);
@@ -82,18 +85,44 @@ function paintShell(){
   el('userName').textContent=profile?.displayName||user?.username||'User';
   el('userHandle').textContent=`@${user?.username||'user'}`;
   el('userAvatar').textContent=initials(profile?.displayName||user?.username||'?');
-  const chip=el('topProjectChip');
-  if(chip)chip.textContent=project?.name||'Project';
   document.title=`ForgeDeck · ${project?.name||org?.name||'Workspace'}`;
 }
 
-function hasModule(id){return state.modules.some(module=>module.id===id)}
-function source(){return state.connections[0]}
+function hasModule(id){return state.modules.some(module=>module.id===id&&module.enabled!==false)}
+function editionLabel(value){return value==='Commercial'?'Enterprise':(value||'Community')}
+function licenceModeLabel(value){return value==='Commercial'?'Enterprise':(value||'None')}
+async function reloadComposition(){
+  const platform=await api('/api/platform/modules');
+  state.modules=platform.modules||[];
+  renderNavigation();
+}
+function source(){return state.connections.find(c=>c.id===state.selectedConnectionId)||state.connections[0]||null}
+function isMultiRepo(){return state.context?.project?.repositoryMode==='MultiRepository'&&(state.connections||[]).length>1}
+function isOrgRoute(route){
+  const r=normalizeRoute(route);
+  return r==='/home'||r==='/projects'||r==='/people'
+    ||r.startsWith('/organisation/')||r.startsWith('/invite/');
+}
 function actor(){return state.context?.user?.name||state.me?.profile?.displayName||'User'}
 function crumbs(value){el('breadcrumbs').innerHTML=value}
 function projectCrumb(...parts){
   const name=esc(state.context?.project?.name||'Project');
   return [name,...parts].join(' <span>/</span> ');
+}
+function orgCrumb(...parts){
+  const name=esc(state.context?.organisation?.name||'Organisation');
+  return [name,...parts].join(' <span>/</span> ');
+}
+function repoPickerHtml(){
+  if(!isMultiRepo())return '';
+  return `<label class="repo-picker"><span>Repository</span><select class="field compact" id="repoPicker" aria-label="Repository">${
+    state.connections.map(c=>`<option value="${esc(c.id)}" ${c.id===source()?.id?'selected':''}>${esc(c.repositoryId.owner)}/${esc(c.repositoryId.name)}</option>`).join('')
+  }</select></label>`;
+}
+function bindRepoPicker(rerender){
+  const picker=el('repoPicker');
+  if(!picker)return;
+  picker.onchange=()=>{state.selectedConnectionId=picker.value;rerender()};
 }
 function statusClass(value){return String(value).toLowerCase().replace(/\s+/g,'-')}
 function showToast(message,bad=false){const toast=el('toast');toast.textContent=message;toast.classList.toggle('error',bad);toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2800)}
@@ -154,9 +183,6 @@ function currentSetupStepId(){
   if(!s?.hasLicence) return 'licence';
   if(!s?.hasOwner) return 'owner';
   if(!s?.hasProjects) return 'project';
-  if(!s?.hasRepositories) return 'repositories';
-  const modulePending=(s.moduleSteps||[]).some(step=>step.isAvailable&&!step.isComplete);
-  if(modulePending) return 'modules';
   return 'finish';
 }
 
@@ -167,8 +193,6 @@ function renderSetup(){
   if(step==='licence') return renderSetupLicence();
   if(step==='owner') return renderSetupOwner();
   if(step==='project') return renderSetupProject();
-  if(step==='repositories') return renderSetupRepositories();
-  if(step==='modules') return renderSetupModules();
   return renderSetupFinish();
 }
 
@@ -225,12 +249,12 @@ function renderSetupLicence(){
         <button class="button primary" id="setupUseCommunity">Use Community</button>
       </article>
       <article class="licence-choice">
-        <h2>Commercial Licence</h2>
-        <p>Unlock licensed module capabilities purchased for this installation.</p>
+        <h2>Enterprise</h2>
+        <p>Unlock Enterprise module capabilities for this installation with a signed licence.</p>
         <label class="form-label">Licence Key / JSON</label>
         <textarea class="field" id="setupLicencePayload" rows="5" placeholder="Paste signed licence JSON"></textarea>
         <div class="modal-actions" style="margin-top:12px">
-          <button class="button" id="setupValidateLicence">Validate Licence</button>
+          <button class="button" id="setupValidateLicence">Upload Enterprise Licence</button>
         </div>
       </article>
     </div>
@@ -246,7 +270,7 @@ function renderSetupLicence(){
     try{
       await api('/api/setup/licence/commercial',{method:'POST',body:JSON.stringify({payload:el('setupLicencePayload').value})});
       await refreshSetup();
-      showToast('Commercial licence active');
+      showToast('Enterprise licence active');
       renderSetup();
     }catch(error){showToast(error.message,true)}
   };
@@ -281,7 +305,7 @@ function renderSetupOwner(){
 
 function renderSetupProject(){
   el('content').innerHTML=setupShell(`<h1>Create your first project</h1>
-    <p class="description">Projects group repositories, review, pipelines, and deployments.</p>`, `
+    <p class="description">Projects group repositories, review, build, and deployments.</p>`, `
     <label class="form-label">Project Name</label><input class="field" id="setupProjectName" value="Platform">
     <label class="form-label">Slug</label><input class="field" id="setupProjectSlug" value="platform">
     <label class="form-label">Description</label><input class="field" id="setupProjectDesc" value="Modular software delivery platform">
@@ -310,56 +334,24 @@ function renderSetupProject(){
       })});
       showToast('Project created');
       await refreshSetup();
-      renderSetup();
+      renderSetupFinish();
     }catch(error){showToast(error.message,true)}
   };
-}
-
-function renderSetupRepositories(){
-  el('content').innerHTML=setupShell(`<h1>Connect your repository</h1>
-    <p class="description">You can connect a source repository now or skip and finish later in Project settings.</p>`, `
-    <p class="description">Use Project settings after setup to connect GitHub or a local working copy.</p>
-    <div class="modal-actions" style="margin-top:22px">
-      <button class="button" id="setupSkipRepos">Skip for now</button>
-      <button class="button primary" id="setupReposContinue">Continue</button>
-    </div>
-  `);
-  const next=async()=>{await refreshSetup();renderSetupModules();};
-  el('setupSkipRepos').onclick=next;
-  el('setupReposContinue').onclick=next;
-}
-
-function renderSetupModules(){
-  const steps=state.setup?.moduleSteps||[];
-  const rows=steps.filter(s=>s.isAvailable).map(s=>`
-    <div class="setup-module-row">
-      <div><strong>${esc(s.title)}</strong><p class="description">${s.isComplete?'Configured':'Optional module setup available after you open the workspace.'}</p></div>
-      <span class="pill">${s.isComplete?'Done':'Pending'}</span>
-    </div>`).join('')||'<p class="description">No module setup steps required right now.</p>';
-  el('content').innerHTML=setupShell(`<h1>Enabled module setup</h1>
-    <p class="description">Installed modules can contribute optional configuration. Licensed capabilities determine what appears here.</p>`, `
-    ${rows}
-    <div class="modal-actions" style="margin-top:22px">
-      <button class="button" id="setupSkipModules">Skip</button>
-      <button class="button primary" id="setupModulesContinue">Continue</button>
-    </div>
-  `);
-  const go=()=>renderSetupFinish();
-  el('setupSkipModules').onclick=go;
-  el('setupModulesContinue').onclick=go;
 }
 
 function renderSetupFinish(){
   const s=state.setup||{};
   el('content').innerHTML=setupShell(`<h1>Setup Complete</h1>
-    <p class="description">Your organisation is ready.</p>`, `
+    <p class="description">Your organisation is ready. Add Code, Review, Build, and connectors when you need them.</p>`, `
     <div class="setup-summary">
       <div><span>Organisation</span><strong>${esc(s.organisationName||'—')}</strong></div>
       <div><span>Licence</span><strong>${esc(s.licenceMode||'Community')}</strong></div>
       <div><span>Project</span><strong>${s.hasProjects?'Created':'Skipped'}</strong></div>
-      <div><span>Repositories</span><strong>${s.hasRepositories?'Connected':'Not yet'}</strong></div>
     </div>
-    <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="setupOpenWorkspace">Open workspace</button></div>
+    <div class="modal-actions" style="margin-top:22px">
+      <button class="button" data-route="/organisation/settings/modules">Browse Modules</button>
+      <button class="button primary" id="setupOpenWorkspace">Open workspace</button>
+    </div>
   `);
   el('setupOpenWorkspace').onclick=async()=>{
     try{await api('/api/setup/complete',{method:'POST',body:'{}'})}catch{}
@@ -381,8 +373,14 @@ let hashNavigating=false;
 function normalizeRoute(route){
   let value=String(route??'').trim();
   if(value.startsWith('#'))value=value.slice(1);
-  if(!value)return '/overview';
+  if(!value)return '/home';
   if(!value.startsWith('/'))value=`/${value}`;
+  if(value==='/organisation/licensing'||value==='/licensing')return '/organisation/settings/license';
+  if(value==='/modules')return '/organisation/settings/modules';
+  if(value==='/connectors')return '/organisation/settings/connectors';
+  if(value==='/audit')return '/organisation/settings/audit';
+  if(value==='/organisation/settings')return '/organisation/settings/general';
+  if(value==='/settings')return '/settings/general';
   return value;
 }
 
@@ -396,7 +394,14 @@ function routeMatchesNav(route,navRoute){
 
 function setActiveNav(route){
   document.querySelectorAll('.nav-item[data-route]').forEach(item=>{
-    item.classList.toggle('active',routeMatchesNav(route,item.dataset.route));
+    const navRoute=item.dataset.route;
+    let active=routeMatchesNav(route,navRoute);
+    if(navRoute==='/organisation/settings'&&route.startsWith('/organisation/settings'))active=true;
+    if(navRoute==='/settings'&&route.startsWith('/settings'))active=true;
+    item.classList.toggle('active',active);
+  });
+  document.querySelectorAll('.settings-nav-item[data-route]').forEach(item=>{
+    item.classList.toggle('active',route===item.dataset.route||route.startsWith(item.dataset.route+'/'));
   });
 }
 
@@ -415,27 +420,108 @@ function bindShell(){
     shellBound=true;
   }
   el('mobileMenu').onclick=()=>document.querySelector('.sidebar').classList.toggle('open');
-  const openSwitcher=()=>openModal(`<div class="modal-content"><h2>Quick switcher</h2><p>Jump to source, review, or settings.</p><div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="changes">Open changes</button></div></div>`,e=>{if(e.submitter?.value==='changes')navigate('/changes')});
-  el('commandButton').onclick=openSwitcher;
+  const openSwitcher=()=>{
+    openModal(`<div class="modal-content"><h2>Quick switcher</h2><p>Jump to source, review, or settings.</p><div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="changes" id="switcherChanges">Open pull requests</button></div></div>`,e=>{
+      if(e.submitter?.value==='changes')navigate('/changes');
+    });
+    el('switcherChanges')?.addEventListener('click',()=>navigate('/changes'));
+  };
   el('globalSearch')?.addEventListener('click',openSwitcher);
   el('globalSearch')?.addEventListener('focus',openSwitcher);
-  el('topProjectChip')?.addEventListener('click',openProjectSwitcher);
   el('contextButton').onclick=openProjectSwitcher;
-  el('userMenu').onclick=openUserMenu;
+  bindUserMenu();
+}
+
+function closeUserMenu(){
+  const wrap=el('userMenuWrap');
+  const menu=el('userMenu');
+  const dropdown=el('userMenuDropdown');
+  if(!wrap||!menu||!dropdown)return;
+  wrap.classList.remove('open');
+  menu.setAttribute('aria-expanded','false');
+  dropdown.hidden=true;
+}
+
+function openUserMenuDropdown(){
+  const wrap=el('userMenuWrap');
+  const menu=el('userMenu');
+  const dropdown=el('userMenuDropdown');
+  if(!wrap||!menu||!dropdown)return;
+  wrap.classList.add('open');
+  menu.setAttribute('aria-expanded','true');
+  dropdown.hidden=false;
+}
+
+function bindUserMenu(){
+  const wrap=el('userMenuWrap');
+  const menu=el('userMenu');
+  const dropdown=el('userMenuDropdown');
+  if(!wrap||!menu||!dropdown||menu.dataset.bound)return;
+  menu.dataset.bound='1';
+  menu.onclick=e=>{
+    e.stopPropagation();
+    if(wrap.classList.contains('open'))closeUserMenu();
+    else openUserMenuDropdown();
+  };
+  dropdown.querySelectorAll('[data-user-action]').forEach(button=>{
+    button.onclick=async e=>{
+      e.stopPropagation();
+      const action=button.dataset.userAction;
+      closeUserMenu();
+      if(action==='profile'){
+        openModal(`<div class="modal-content"><h2>${esc(state.me?.profile?.displayName||'User')}</h2>
+          <p>@${esc(state.me?.user?.username||'user')}</p>
+          <p class="description">${esc(state.me?.user?.email||'')}</p>
+          <div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button" value="people">People</button></div></div>`,async ev=>{
+          if(ev.submitter?.value==='people')navigate('/people');
+        });
+        return;
+      }
+      if(action==='theme'){
+        showToast('Theme preferences coming soon');
+        return;
+      }
+      if(action==='settings'){
+        if(isOrgRoute(state.route))navigate('/organisation/settings');
+        else navigate('/settings');
+        return;
+      }
+      if(action==='signout'){
+        try{await api('/api/auth/logout',{method:'POST'})}catch{}
+        localStorage.removeItem(TOKEN_KEY);state.token=null;renderLogin();
+      }
+    };
+  });
+  document.addEventListener('click',e=>{
+    if(!wrap.contains(e.target))closeUserMenu();
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape')closeUserMenu();
+  });
+}
+
+function openUserMenu(){
+  openUserMenuDropdown();
 }
 
 function openProjectSwitcher(){
   const rows=(state.projects||[]).map(p=>`<button class="button" style="width:100%;justify-content:flex-start;margin-bottom:6px" value="project:${esc(p.id)}">${esc(p.name)} <small style="color:var(--muted);margin-left:auto">/${esc(p.slug)}</small></button>`).join('')||'<p class="description">No projects yet.</p>';
   openModal(`<div class="modal-content"><h2>Projects</h2><p>Switch the active working context.</p>
     <div style="margin-top:14px">${rows}</div>
-    <div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="new">New project</button></div></div>`,async e=>{
+    <div class="modal-actions">
+      <button class="button" value="home">Organisation home</button>
+      <button class="button" value="cancel">Close</button>
+      <button class="button primary" value="new">New project</button>
+    </div></div>`,async e=>{
     const value=e.submitter?.value;
+    if(value==='home')return navigate('/home');
     if(value==='new')return openCreateProject();
     if(value?.startsWith('project:')){
       const id=value.slice(8);
       try{
         await api('/api/core/context/project',{method:'POST',body:JSON.stringify({projectId:id})});
         await loadWorkspace();
+        navigate('/overview');
         showToast('Project switched');
       }catch(error){showToast(error.message,true)}
     }
@@ -459,35 +545,38 @@ function openCreateProject(){
   });
 }
 
-function openUserMenu(){
-  openModal(`<div class="modal-content"><h2>${esc(state.me?.profile?.displayName||'User')}</h2>
-    <p>@${esc(state.me?.user?.username||'user')}</p>
-    <div class="modal-actions">
-      <button class="button" value="cancel">Close</button>
-      <button class="button" value="people">People</button>
-      <button class="button danger" value="signout">Sign out</button>
-    </div></div>`,async e=>{
-    if(e.submitter?.value==='people')navigate('/people');
-    if(e.submitter?.value==='signout'){
-      try{await api('/api/auth/logout',{method:'POST'})}catch{}
-      localStorage.removeItem(TOKEN_KEY);state.token=null;renderLogin();
-    }
-  });
-}
-
 function renderNavigation(){
   const openCount=openStatuses().length;
-  let html='<p class="nav-group">Project</p><button type="button" class="nav-item" data-route="/overview"><span class="nav-icon">⌂</span>Overview</button>';
-  html+='<p class="nav-group">Code</p><button type="button" class="nav-item" data-route="/files"><span class="nav-icon">▱</span>Repos</button><button type="button" class="nav-item" data-route="/commits"><span class="nav-icon">◉</span>Commits</button><button type="button" class="nav-item" data-route="/source-branches"><span class="nav-icon">⑂</span>Branches</button>';
-  const groups={};state.modules.flatMap(module=>module.navigation||[]).sort((a,b)=>a.order-b.order).forEach(item=>(groups[item.group]??=[]).push(item));
-  Object.entries(groups).forEach(([group,items])=>html+=`<p class="nav-group">${esc(group)}</p>${items.map(item=>{
-    const icon=item.id==='changes'?'⑂':item.id==='pipelines'||item.id==='runs'?'≋':item.id==='runners'?'◉':'≋';
-    const badge=item.id==='changes'&&openCount?`<span class="nav-badge">${openCount}</span>`:'';
-    return `<button type="button" class="nav-item" data-route="${esc(item.route)}"><span class="nav-icon">${icon}</span>${esc(item.label)}${badge}</button>`;
-  }).join('')}`);
-  html+='<p class="nav-group">Settings</p><button type="button" class="nav-item" data-route="/settings"><span class="nav-icon">⚙</span>Project settings</button>';
-  html+='<button type="button" class="nav-item" data-route="/licensing"><span class="nav-icon">▣</span>Licensing</button>';
+  const route=state.route||'/home';
+  let html='';
+  if(isOrgRoute(route)){
+    html+='<p class="nav-group">Organisation</p>';
+    html+='<button type="button" class="nav-item" data-route="/home"><span class="nav-icon">⌂</span>Home</button>';
+    html+='<button type="button" class="nav-item" data-route="/projects"><span class="nav-icon">▦</span>Projects</button>';
+    html+='<button type="button" class="nav-item" data-route="/people"><span class="nav-icon">◎</span>People</button>';
+    html+='<p class="nav-group">Settings</p>';
+    html+='<button type="button" class="nav-item" data-route="/organisation/settings"><span class="nav-icon">⚙</span>Organisation settings</button>';
+  }else{
+    html+='<p class="nav-group">Project</p><button type="button" class="nav-item" data-route="/overview"><span class="nav-icon">⌂</span>Overview</button>';
+    const groups={};
+    state.modules.flatMap(module=>module.navigation||[])
+      .sort((a,b)=>a.order-b.order)
+      .forEach(item=>(groups[item.group]??=[]).push(item));
+    Object.entries(groups).forEach(([group,items])=>html+=`<p class="nav-group">${esc(group)}</p>${items.map(item=>{
+      const icon=item.id==='files'||item.id==='commits'||item.id==='tags'||item.id==='branches'?'▱'
+        :item.id==='changes'?'⑂'
+        :item.id==='pipelines'||item.id==='runs'||item.id==='jobs'||item.id==='tests'||item.id==='artifacts'?'≋'
+        :item.id==='runners'?'◉':'≋';
+      const badge=item.id==='changes'&&openCount?`<span class="nav-badge">${openCount}</span>`:'';
+      return `<button type="button" class="nav-item" data-route="${esc(item.route)}"><span class="nav-icon">${icon}</span>${esc(item.label)}${badge}</button>`;
+    }).join('')}`);
+    html+='<p class="nav-group">Settings</p>';
+    html+='<button type="button" class="nav-item" data-route="/settings/members"><span class="nav-icon">◎</span>Members</button>';
+    html+='<button type="button" class="nav-item" data-route="/settings"><span class="nav-icon">⚙</span>Project settings</button>';
+  }
   el('primaryNav').innerHTML=html;
+  const footer=document.querySelector('.sidebar-footer');
+  if(footer)footer.style.display=isOrgRoute(route)?'none':'';
   setActiveNav(state.route);
 }
 
@@ -507,31 +596,36 @@ async function navigate(route,push=true){
       }
     }
   }
+  renderNavigation();
   setActiveNav(route);
   try{
+    if(route==='/home')return await renderOrgHome();
+    if(route==='/projects')return await renderProjectsPage();
     if(route==='/overview')return await renderOverview();
     if(route==='/changes')return renderChanges();
     if(route==='/queue')return renderQueue();
     if(route.startsWith('/changes/')){const id=route.split('/')[2];state.change=await api(`/api/review/changes/${id}`);state.expandedFiles={};return renderChange()}
-    if(route.startsWith('/files'))return await renderFiles(route);
-    if(route.startsWith('/commits/'))return await renderCommitDetail(route.split('/')[2]);
-    if(route==='/commits')return await renderCommits();
-    if(route==='/source-branches')return await renderBranches();
+    if(route.startsWith('/files')){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderFiles(route)}
+    if(route.startsWith('/commits/')){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderCommitDetail(route.split('/')[2])}
+    if(route==='/commits'){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderCommits()}
+    if(route==='/source-branches'){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderBranches()}
+    if(route==='/tags'){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderTags()}
     if(route==='/pipelines'||route.startsWith('/pipelines/'))return await renderPipelines(route);
     if(route==='/runs')return await renderRuns();
+    if(route==='/jobs')return await renderJobsList();
+    if(route==='/tests')return await renderTestsList();
+    if(route==='/artifacts')return await renderArtifactsList();
     {
       const jobMatch=route.match(/^\/runs\/([^/]+)\/jobs\/([^/]+)(?:\/logs)?\/?$/);
       if(jobMatch)return await renderJobPage(jobMatch[1],jobMatch[2]);
     }
     if(route.startsWith('/runs/'))return await renderRunDetail(route.split('/')[2]);
     if(route==='/runners')return await renderRunners();
-    if(route==='/settings')return await renderSettings();
-    if(route==='/licensing')return await renderLicensing();
+    if(route.startsWith('/organisation/settings'))return await renderOrgSettings(route);
+    if(route.startsWith('/settings'))return await renderProjectSettings(route);
     if(route==='/people')return await renderPeople();
     if(route.startsWith('/invite/'))return await renderInviteAccept(decodeURIComponent(route.slice('/invite/'.length)));
-    if(route==='/audit')return await renderAudit();
-    if(route==='/modules')return await renderModules();
-    return await renderOverview();
+    return await renderOrgHome();
   }catch(error){renderError(error)}
 }
 
@@ -549,6 +643,214 @@ function localStatusCard(){
     <div class="side-stat"><span>Ahead / behind</span><strong>${ab?`${ab.ahead} ahead · ${ab.behind} behind`:'—'}</strong></div>
     <div style="margin-top:12px"><button class="button" id="overviewOpenFolder">Open folder</button></div>
   </div></div>`;
+}
+
+async function openProject(projectId){
+  try{
+    await api('/api/core/context/project',{method:'POST',body:JSON.stringify({projectId})});
+    await loadWorkspace();
+    navigate('/overview');
+  }catch(error){showToast(error.message,true)}
+}
+
+async function toggleProjectStar(projectId,starred){
+  try{
+    if(starred)await api(`/api/projects/${projectId}/star`,{method:'DELETE'});
+    else await api(`/api/projects/${projectId}/star`,{method:'PUT',body:'{}'});
+    state.starredProjects=await api('/api/users/me/starred-projects').catch(()=>[]);
+    return true;
+  }catch(error){showToast(error.message,true);return false}
+}
+
+async function renderOrgHome(){
+  const org=state.context?.organisation;
+  crumbs(orgCrumb('Home'));
+  const projects=state.projects||[];
+  const starredIds=new Set((state.starredProjects||[]).map(p=>p.id));
+  const starred=projects.filter(p=>starredIds.has(p.id));
+  let members=[],runs=[];
+  const jobs=[];
+  jobs.push(api('/api/organisation/members').then(r=>members=r||[]).catch(()=>[]));
+  if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
+  await Promise.all(jobs);
+  const open=openStatuses();
+  const myPrs=open.filter(c=>c.author===actor()||c.reviewers?.some(r=>r.name===actor()));
+  const failedRuns=(runs||[]).filter(r=>['Failed','Cancelled'].includes(r.status)).slice(0,5);
+  const recentRuns=(runs||[]).slice(0,5);
+  el('content').innerHTML=`
+  <div class="list-page-header"><div>
+    <h1>${esc(org?.name||'Organisation')}</h1>
+    <p class="description">Organisation home — projects, pull requests, and build health.</p>
+  </div>
+  <div class="header-actions">
+    <button class="button" data-route="/projects">All projects</button>
+    <button class="button primary" id="homeNewProject">＋ New project</button>
+  </div></div>
+  ${!hasModule('code')&&!hasModule('review')&&!hasModule('pipelines')?`<div class="card" style="margin-bottom:18px"><div class="card-header"><h2>Extend ForgeDeck</h2><button class="button primary" data-route="/organisation/settings/modules">Browse Modules</button></div>
+    <div class="card-body"><p class="description">Add source browsing, code review, build automation, and more when you are ready.</p></div></div>`:''}
+  <div class="home-metrics">
+    <article class="metric-card"><p class="metric-label">Projects</p><p class="metric-value">${projects.length}</p></article>
+    <article class="metric-card"><p class="metric-label">People</p><p class="metric-value">${members.length||'—'}</p></article>
+    ${hasModule('review')?`<article class="metric-card"><p class="metric-label">Open pull requests</p><p class="metric-value">${open.length}</p></article>`:''}
+    ${hasModule('pipelines')?`<article class="metric-card"><p class="metric-label">Recent builds</p><p class="metric-value">${recentRuns.length}</p></article>`:''}
+  </div>
+  <div class="home-grid">
+    <section class="card">
+      <div class="card-header"><h2>Starred projects</h2><button class="button text" data-route="/projects">View all</button></div>
+      <div class="card-body">
+        ${(starred.length?starred:projects.slice(0,6)).map(p=>`
+          <button type="button" class="project-home-row" data-open-project="${esc(p.id)}">
+            <span class="project-avatar">${esc((p.name||'?')[0].toUpperCase())}</span>
+            <span><strong>${esc(p.name)}</strong><small>${esc(p.repositoryMode==='MultiRepository'?'Multi-repo':'Single repo')} · ${esc(p.visibility||'Private')}</small></span>
+            <span class="pill">${starredIds.has(p.id)?'★ Starred':'Project'}</span>
+          </button>`).join('')||'<div class="empty small">No projects yet.</div>'}
+      </div>
+    </section>
+    ${hasModule('review')?`<section class="card">
+      <div class="card-header"><h2>My pull requests</h2><button class="button text" data-route="/changes">Review</button></div>
+      <div class="card-body">
+        ${myPrs.slice(0,6).map(c=>`<button type="button" class="work-row" data-route="/changes/${esc(c.id)}"><span>#${esc(c.externalNumber||c.externalId)} ${esc(c.title)}</span><span class="status ${statusClass(c.status)}">${esc(c.status)}</span></button>`).join('')||'<div class="empty small">No open pull requests assigned to you.</div>'}
+      </div>
+    </section>`:''}
+    ${hasModule('pipelines')?`<section class="card">
+      <div class="card-header"><h2>Build health</h2><button class="button text" data-route="/runs">Runs</button></div>
+      <div class="card-body">
+        ${failedRuns.length?`<p class="description">${failedRuns.length} recent failure${failedRuns.length===1?'':'s'}.</p>`:'<p class="description">No recent build failures.</p>'}
+        ${recentRuns.map(r=>`<button type="button" class="work-row" data-route="/runs/${esc(r.id)}"><span>${esc(r.definitionName)} · ${esc(shortId(r.id))}</span><span class="status ${statusClass(r.status)}">${esc(r.status)}</span></button>`).join('')||'<div class="empty small">No builds yet.</div>'}
+      </div>
+    </section>`:''}
+  </div>`;
+  el('homeNewProject').onclick=()=>openCreateProject();
+  document.querySelectorAll('[data-open-project]').forEach(btn=>btn.onclick=()=>openProject(btn.dataset.openProject));
+}
+
+async function renderProjectsPage(){
+  const org=state.context?.organisation;
+  crumbs(orgCrumb('Projects'));
+  const projects=state.projects||[];
+  const starredIds=new Set((state.starredProjects||[]).map(p=>p.id));
+  let openCount=hasModule('review')?openStatuses().length:0;
+  let latestBuild=null;
+  if(hasModule('pipelines')){
+    try{const runs=await api('/api/pipelines/runs').catch(()=>[]);latestBuild=runs?.[0]||null}catch{}
+  }
+  el('content').innerHTML=`
+  <div class="list-page-header"><div>
+    <h1>Projects</h1>
+    <p class="description">All projects in ${esc(org?.name||'this organisation')}.</p>
+  </div>
+  <div class="header-actions"><button class="button primary" id="projectsNew">＋ New project</button></div></div>
+  <div class="projects-grid">
+    ${projects.map(p=>{
+      const starred=starredIds.has(p.id);
+      const isCurrent=p.id===state.context?.project?.id;
+      return `<article class="project-card">
+        <button type="button" class="project-card-main" data-open-project="${esc(p.id)}">
+          <span class="project-avatar large">${esc((p.name||'?')[0].toUpperCase())}</span>
+          <div>
+            <h2>${esc(p.name)}</h2>
+            <p>${esc(p.description||'No description')}</p>
+            <div class="tag-row">
+              <span class="tag">${esc(p.repositoryMode==='MultiRepository'?'Multi-repository':'Single repository')}</span>
+              <span class="tag">${esc(p.visibility||'Private')}</span>
+            </div>
+          </div>
+        </button>
+        <div class="project-card-meta">
+          ${hasModule('review')&&isCurrent?`<span>Open reviews <strong>${openCount}</strong></span>`:hasModule('review')?'<span>Open reviews <strong>—</strong></span>':''}
+          ${hasModule('pipelines')&&isCurrent?`<span>Build <strong class="${latestBuild?statusClass(latestBuild.status):''}">${latestBuild?esc(latestBuild.status):'—'}</strong></span>`:hasModule('pipelines')?'<span>Build <strong>—</strong></span>':''}
+          <button type="button" class="button compact" data-star-project="${esc(p.id)}" data-starred="${starred?'1':'0'}">${starred?'★ Unstar':'☆ Star'}</button>
+        </div>
+      </article>`;
+    }).join('')||'<div class="empty">No projects yet. Create one to get started.</div>'}
+  </div>`;
+  el('projectsNew').onclick=()=>openCreateProject();
+  document.querySelectorAll('[data-open-project]').forEach(btn=>btn.onclick=()=>openProject(btn.dataset.openProject));
+  document.querySelectorAll('[data-star-project]').forEach(btn=>btn.onclick=async()=>{
+    const ok=await toggleProjectStar(btn.dataset.starProject,btn.dataset.starred==='1');
+    if(ok)renderProjectsPage();
+  });
+}
+
+async function renderTags(){
+  const project=state.context?.project;
+  crumbs(projectCrumb('Code <span>/</span> Tags'));
+  if(!source()){
+    el('content').innerHTML=`<div class="list-page-header"><div><h1>Tags</h1><p>No repository connected.</p></div></div>${repoPickerHtml()}`;
+    bindRepoPicker(()=>renderTags());
+    return;
+  }
+  let tags=[];
+  try{
+    const gitRepos=await api('/api/git/repositories').catch(()=>[]);
+    const native=Array.isArray(gitRepos)?gitRepos[0]:null;
+    if(native?.id)tags=await api(`/api/git/repositories/${native.id}/tags`).catch(()=>[]);
+  }catch{tags=[]}
+  el('content').innerHTML=`
+  <div class="list-page-header"><div><h1>Tags</h1><p>Annotated and lightweight tags for this repository.</p></div></div>
+  ${repoPickerHtml()}
+  <div class="card"><div class="card-body">
+    ${(tags||[]).length?(tags||[]).map(t=>`<div class="work-row"><strong>${esc(t.name||t)}</strong><code>${esc((t.commitSha||t.targetSha||t.sha||'').toString().slice(0,12)||'—')}</code></div>`).join(''):'<div class="empty small">No tags available for this source provider.</div>'}
+  </div></div>`;
+  bindRepoPicker(()=>renderTags());
+}
+
+function flattenRunJobs(runs){
+  const rows=[];
+  (runs||[]).forEach(run=>{(run.jobs||[]).forEach(job=>rows.push({run,job}))});
+  return rows;
+}
+
+async function renderJobsList(){
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  crumbs(projectCrumb('Build <span>/</span> Jobs'));
+  const runs=await api('/api/pipelines/runs');
+  const rows=flattenRunJobs(runs).slice(0,100);
+  el('content').innerHTML=`
+  <div class="list-page-header"><div><h1>Jobs</h1><p>Jobs across recent build runs.</p></div>
+  <div class="header-actions"><button class="button" id="refreshJobs">Refresh</button></div></div>
+  <div class="card">${rows.map(({run,job})=>`<button type="button" class="job-list-row ${statusClass(job.status)}" data-route="/runs/${esc(run.id)}/jobs/${esc(job.id)}">
+    <span class="run-status ${statusClass(job.status)}">${checkIcon(job.status)}</span>
+    <div class="job-list-copy"><h3>${esc(job.name)}</h3><p>${esc(run.definitionName)} · ${esc(shortId(run.id))} · ${esc(job.status)}</p></div>
+    <span class="status ${statusClass(job.status)}">${esc(job.status)}</span>
+  </button>`).join('')||'<div class="empty">No jobs yet.</div>'}</div>`;
+  el('refreshJobs').onclick=renderJobsList;
+}
+
+async function renderTestsList(){
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  crumbs(projectCrumb('Build <span>/</span> Tests'));
+  const runs=await api('/api/pipelines/runs');
+  const rows=[];
+  (runs||[]).forEach(run=>{(run.jobs||[]).forEach(job=>{if(job.testResults)rows.push({run,job,tr:job.testResults})})});
+  el('content').innerHTML=`
+  <div class="list-page-header"><div><h1>Tests</h1><p>Test results published by build jobs.</p></div>
+  <div class="header-actions"><button class="button" id="refreshTests">Refresh</button></div></div>
+  <div class="card"><div class="card-body">
+    ${rows.length?rows.map(({run,job,tr})=>`<button type="button" class="work-row" data-route="/runs/${esc(run.id)}/jobs/${esc(job.id)}">
+      <span><strong>${esc(job.name)}</strong> · ${esc(run.definitionName)}<small>${esc(tr.total??0)} total · ${esc(tr.passed??tr.succeeded??0)} passed · ${esc(tr.failed??0)} failed</small></span>
+      <span class="status ${statusClass((tr.failed||0)>0?'Failed':'Succeeded')}">${(tr.failed||0)>0?'Failed':'Passed'}</span>
+    </button>`).join(''):'<div class="empty">No test results published yet.</div>'}
+  </div></div>`;
+  el('refreshTests').onclick=renderTestsList;
+}
+
+async function renderArtifactsList(){
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  crumbs(projectCrumb('Build <span>/</span> Artifacts'));
+  const runs=await api('/api/pipelines/runs');
+  const rows=[];
+  (runs||[]).forEach(run=>{(run.jobs||[]).forEach(job=>{(job.artifacts||[]).forEach(artifact=>rows.push({run,job,artifact}))})});
+  el('content').innerHTML=`
+  <div class="list-page-header"><div><h1>Artifacts</h1><p>Artifacts published by build jobs.</p></div>
+  <div class="header-actions"><button class="button" id="refreshArtifacts">Refresh</button></div></div>
+  <div class="card"><div class="card-body">
+    ${rows.length?rows.map(({run,job,artifact})=>`<div class="work-row">
+      <span><strong>${esc(artifact.name||artifact.fileName||'artifact')}</strong><small>${esc(job.name)} · ${esc(run.definitionName)} · ${esc(shortId(run.id))}</small></span>
+      <button class="button compact" data-route="/runs/${esc(run.id)}/jobs/${esc(job.id)}">Open job</button>
+    </div>`).join(''):'<div class="empty">No artifacts published yet.</div>'}
+  </div></div>`;
+  el('refreshArtifacts').onclick=renderArtifactsList;
 }
 
 async function renderOverview(){
@@ -595,7 +897,7 @@ async function renderOverview(){
       <div class="header-actions">
         <button class="button" data-route="/files">Code</button>
         ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Run pipeline</button>':''}
-        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create change</button>':''}
+        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create pull request</button>':''}
       </div>
     </div>
   </section>
@@ -614,7 +916,7 @@ async function renderOverview(){
     <article class="metric-card">
       <div class="metric-head">
         <div>
-          <p class="metric-label">Active pipeline jobs</p>
+          <p class="metric-label">Active build jobs</p>
           <p class="metric-value">${runs.filter(r=>['Queued','Running','Waiting'].includes(r.status)).length}</p>
           <p class="metric-trend flat">${runs.length} total runs</p>
         </div>
@@ -684,12 +986,12 @@ async function renderOverview(){
     </div>
 
     <div class="dash-col">
-      <div class="card"><div class="card-header"><h2>Latest pipeline runs</h2><button class="button text" data-route="/runs">View all</button></div><div class="card-body">
+      <div class="card"><div class="card-header"><h2>Latest build runs</h2><button class="button text" data-route="/runs">View all</button></div><div class="card-body">
         ${recentRuns.length?recentRuns.map(run=>`<div class="run-mini" data-route="/runs/${esc(run.id)}">
           <span class="run-status ${statusClass(run.status)}">${checkIcon(run.status)}</span>
           <div style="flex:1;min-width:0"><strong>${esc(run.definitionName||'Pipeline')}</strong><div><code>#${esc(shortId(run.id))}</code> · ${esc(run.ref||'—')}</div></div>
           <div style="text-align:right"><span class="status ${statusClass(run.status)}">${esc(run.status)}</span><div><small style="color:var(--muted)">${esc(durationLabel(run.startedAt,run.completedAt))}</small></div></div>
-        </div>`).join(''):`<div class="empty small">${hasModule('pipelines')?'No runs yet.':'Pipelines module is not enabled.'}</div>`}
+        </div>`).join(''):`<div class="empty small">${hasModule('pipelines')?'No runs yet.':'Build module is not enabled.'}</div>`}
       </div></div>
       <div class="card"><div class="card-header"><h2>Team</h2><button class="button text" data-route="/people">Manage</button></div><div class="card-body">
         ${members.slice(0,5).map(m=>`<div class="team-row"><span class="avatar">${esc(initials(m.profile?.displayName||m.user?.username))}</span><div><strong>${esc(m.profile?.displayName||m.user?.username)}</strong><small>@${esc(m.user?.username)}</small></div><span class="pill">${esc(m.membership?.role||'Member')}</span></div>`).join('')||'<div class="empty small">No members loaded.</div>'}
@@ -699,7 +1001,7 @@ async function renderOverview(){
         <div class="tech-grid">${tech.map(t=>`<div class="tech-chip"><span>${esc(t[0])}</span>${esc(t)}</div>`).join('')}</div>
       </div></div>
       <div class="card"><div class="card-header"><h2>Work items</h2></div><div class="card-body">
-        <div class="work-row"><span>Open changes</span><span class="work-count">${open.length}</span></div>
+        <div class="work-row"><span>Open pull requests</span><span class="work-count">${open.length}</span></div>
         <div class="work-row"><span>Waiting for me</span><span class="work-count">${waiting.length}</span></div>
         <div class="work-row"><span>Approved</span><span class="work-count">${approved.length}</span></div>
         <div class="work-row"><span>Recently merged</span><span class="work-count">${merged.length}</span></div>
@@ -746,7 +1048,7 @@ function relativeTime(value){
 
 async function renderPeople(){
   const tab=state.peopleTab||'members';
-  crumbs(`${esc(state.context?.organisation?.name||'Organisation')} <span>/</span> People`);
+  crumbs(orgCrumb('People'));
   const tabs=`<div class="filterbar">
     <button class="button ${tab==='members'?'primary':''}" id="peopleMembers">Members</button>
     <button class="button ${tab==='teams'?'primary':''}" id="peopleTeams">Teams</button>
@@ -1398,7 +1700,7 @@ async function renderFiles(route){
       <div class="header-actions">
         <button class="button" id="cloneButton">&lt;&gt; Code</button>
         ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Run pipeline</button>':''}
-        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create change</button>':''}
+        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create pull request</button>':''}
       </div>
     </div>
   </section>
@@ -1419,6 +1721,7 @@ async function renderFiles(route){
 
       <div class="card file-browser">
         <div class="file-toolbar">
+          ${repoPickerHtml()}
           <select class="field compact" id="refPicker" aria-label="Branch"></select>
           <div class="file-path">${fileBreadcrumbs(path,reference,repoName)}</div>
           <div class="file-toolbar-actions">
@@ -1473,6 +1776,7 @@ async function renderFiles(route){
 
   el('refPicker').innerHTML=(branches||[]).map(branch=>`<option value="${esc(branch.name)}" ${branch.name===reference?'selected':''}>${esc(branch.name)}${branch.isDefault?' (default)':''}</option>`).join('')||`<option>${esc(reference)}</option>`;
   el('refPicker').onchange=()=>navigate(`/files?ref=${encodeURIComponent(el('refPicker').value)}`);
+  bindRepoPicker(()=>renderFiles(route));
   el('cloneButton').onclick=openCloneMenu;
   el('goToFile').onclick=()=>{
     openModal(`<div class="modal-content"><h2>Go to file</h2>
@@ -1524,9 +1828,11 @@ async function renderCommits(){
   if(!source())return renderNoSource();
   const commits=await api(`/api/source/repositories/${source().id}/commits?branch=${encodeURIComponent(source().defaultBranch)}`);
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Commits</h1><p>${esc(source().defaultBranch)} · GitHub source of truth</p></div></div>
+    ${repoPickerHtml()}
     <div class="card">${commits.map(c=>`<button class="commit-row" data-route="/commits/${esc(c.sha)}" style="width:100%;border:0;background:transparent;cursor:pointer;text-align:left">
       <code>${esc(c.sha.slice(0,7))}</code><div><strong>${esc(c.message.split('\n')[0])}</strong><small>${esc(c.author)} · ${new Date(c.authoredAt).toLocaleString()}</small></div>
     </button>`).join('')}</div>`;
+  bindRepoPicker(()=>renderCommits());
 }
 
 async function renderCommitDetail(sha){
@@ -1550,24 +1856,412 @@ async function renderBranches(){
   crumbs(projectCrumb('Code <span>/</span> Branches'));
   if(!source())return renderNoSource();
   const branches=await api(`/api/source/repositories/${source().id}/branches`);
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Branches</h1><p>Create a GitHub pull request without changing your Git workflow.</p></div></div>
+  el('content').innerHTML=`<div class="list-page-header"><div><h1>Branches</h1><p>Create a pull request without changing your Git workflow.</p></div></div>
+    ${repoPickerHtml()}
     <div class="card">${branches.map(branch=>{
       const skip=branch.isDefault||hasOpenChangeForBranch(branch.name);
-      return `<div class="branch-row"><div><strong>${esc(branch.name)} ${branch.isDefault?'<span class="pill">default</span>':''}${hasOpenChangeForBranch(branch.name)&&!branch.isDefault?'<span class="pill">open change</span>':''}</strong>
+      return `<div class="branch-row"><div><strong>${esc(branch.name)} ${branch.isDefault?'<span class="pill">default</span>':''}${hasOpenChangeForBranch(branch.name)&&!branch.isDefault?'<span class="pill">open PR</span>':''}</strong>
         <small>${esc(branch.author)} · ${new Date(branch.updatedAt).toLocaleString()} · ${esc(branch.headSha.slice(0,7))}${branch.headMessage?` · ${esc(branch.headMessage)}`:''}</small></div>
-        ${skip?'':`<button class="button" data-create-change="${esc(branch.name)}">Create Change</button>`}
+        ${skip?'':`<button class="button" data-create-change="${esc(branch.name)}">Create pull request</button>`}
       </div>`;
     }).join('')}</div>`;
+  bindRepoPicker(()=>renderBranches());
   document.querySelectorAll('[data-create-change]').forEach(button=>button.onclick=()=>openCreateChange(button.dataset.createChange));
 }
 
 function renderNoSource(){el('content').innerHTML='<div class="empty"><h2>No source repository connected</h2><p>Connect the project repository in Settings.</p><button class="button primary" data-route="/settings">Open settings</button></div>'}
 
-async function renderSettings(){
+function orgSettingsSections(){
+  const sections=[
+    {group:'General',items:[
+      {id:'general',route:'/organisation/settings/general',label:'Overview'},
+      {id:'projects',route:'/organisation/settings/projects',label:'Projects'},
+      {id:'users',route:'/organisation/settings/users',label:'Users & Groups'}
+    ]},
+    {group:'Security',items:[
+      {id:'security-auth',route:'/organisation/settings/security',label:'Authentication'},
+      {id:'security-perms',route:'/organisation/settings/permissions',label:'Permissions'}
+    ]},
+    {group:'Platform',items:[
+      {id:'license',route:'/organisation/settings/license',label:'License'},
+      {id:'modules',route:'/organisation/settings/modules',label:'Modules'},
+      {id:'connectors',route:'/organisation/settings/connectors',label:'Connectors'},
+      {id:'audit',route:'/organisation/settings/audit',label:'Auditing'}
+    ]}
+  ];
+  if(hasModule('pipelines')){
+    sections.push({group:'Build',items:[
+      {id:'build',route:'/organisation/settings/build',label:'Agent pools / runners'}
+    ]});
+  }
+  return sections;
+}
+
+function projectSettingsSections(){
+  const sections=[
+    {group:'General',items:[
+      {id:'general',route:'/settings/general',label:'Overview'},
+      {id:'members',route:'/settings/members',label:'Members & Teams'}
+    ]},
+    {group:'Repositories',items:[
+      {id:'repositories',route:'/settings/repositories',label:'Repositories'}
+    ]}
+  ];
+  if(hasModule('review')){
+    sections.push({group:'Review',items:[
+      {id:'review',route:'/settings/review',label:'Policies'}
+    ]});
+  }
+  if(hasModule('pipelines')){
+    sections.push({group:'Build',items:[
+      {id:'build',route:'/settings/build',label:'Runners'}
+    ]});
+  }
+  return sections;
+}
+
+function settingsNavHtml(kind,active){
+  const sections=kind==='org'?orgSettingsSections():projectSettingsSections();
+  return sections.map(section=>`
+    <p class="settings-nav-group">${esc(section.group)}</p>
+    ${section.items.map(item=>`<button type="button" class="settings-nav-item${item.route===active||active.startsWith(item.route+'/')?' active':''}" data-route="${esc(item.route)}">${esc(item.label)}</button>`).join('')}
+  `).join('');
+}
+
+function renderSettingsShell(kind,active,title,description,bodyHtml){
+  const crumb=kind==='org'
+    ?orgCrumb(`Settings <span>/</span> ${esc(title)}`)
+    :projectCrumb(`Settings <span>/</span> ${esc(title)}`);
+  crumbs(crumb);
+  const heading=kind==='org'?title:'Project settings';
+  el('content').innerHTML=`
+  <div class="list-page-header"><div>
+    <h1>${esc(heading)}</h1>
+    <p class="description">${esc(description)}</p>
+  </div></div>
+  <div class="settings-layout">
+    <aside class="settings-nav" aria-label="${kind==='org'?'Organisation':'Project'} settings">
+      ${settingsNavHtml(kind,active)}
+    </aside>
+    <div class="settings-main">${bodyHtml}</div>
+  </div>`;
+  setActiveNav(state.route);
+}
+
+async function renderOrgSettings(route){
+  const path=normalizeRoute(route);
+  const section=path.replace('/organisation/settings/','').split('/')[0]||'general';
+  if(section==='general')return await renderOrgGeneralSettings();
+  if(section==='projects')return await renderOrgProjectsSettings();
+  if(section==='users')return await renderOrgUsersSettings();
+  if(section==='security')return await renderOrgSecuritySettings();
+  if(section==='permissions')return await renderOrgPermissionsSettings();
+  if(section==='license')return await renderLicensing();
+  if(section==='modules')return await renderModules();
+  if(section==='connectors')return await renderConnectors();
+  if(section==='audit')return await renderAudit();
+  if(section==='build')return await renderOrgBuildSettings();
+  return await renderOrgGeneralSettings();
+}
+
+async function renderProjectSettings(route){
+  const path=normalizeRoute(route);
+  const section=path.replace('/settings/','').split('/')[0]||'general';
+  if(section==='general')return await renderProjectGeneralSettings();
+  if(section==='members')return await renderProjectMembersSettings();
+  if(section==='repositories')return await renderProjectRepositoriesSettings();
+  if(section==='review')return await renderProjectReviewSettings();
+  if(section==='build')return await renderProjectBuildSettings();
+  return await renderProjectGeneralSettings();
+}
+
+async function renderOrgGeneralSettings(){
+  const org=await api('/api/organisation');
+  renderSettingsShell('org','/organisation/settings/general','Overview','Organisation profile and defaults.',`
+    <div class="card"><div class="card-header"><h2>Organisation profile</h2></div>
+    <div class="card-body settings-form">
+      <label class="form-label" for="orgName">Name</label>
+      <input class="field" id="orgName" value="${esc(org.name||'')}">
+      <label class="form-label" for="orgDescription">Description</label>
+      <textarea class="field" id="orgDescription" rows="3">${esc(org.description||'')}</textarea>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="button primary" id="orgSave">Save changes</button>
+      </div>
+    </div></div>`);
+  el('orgSave').onclick=async()=>{
+    try{
+      const updated=await api('/api/organisation',{method:'PATCH',body:JSON.stringify({
+        name:el('orgName').value,description:el('orgDescription').value
+      })});
+      if(state.context?.organisation){
+        state.context.organisation.name=updated.name;
+        state.context.organisation.description=updated.description;
+      }
+      el('orgLabel').textContent=updated.name;
+      showToast('Organisation updated');
+      await renderOrgGeneralSettings();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+async function renderOrgProjectsSettings(){
+  const projects=await api('/api/projects');
+  state.projects=projects;
+  renderSettingsShell('org','/organisation/settings/projects','Projects','Create, open, and remove projects.',`
+    <div class="card"><div class="card-header"><h2>Projects</h2>
+      <button class="button primary" id="orgProjectsNew">＋ New project</button>
+    </div>
+    <div class="card-body">
+      ${projects.map(p=>`<div class="module-card">
+        <span class="module-logo">${esc((p.name||'?')[0].toUpperCase())}</span>
+        <div><h3>${esc(p.name)}</h3><p>/${esc(p.slug)} · ${esc(p.visibility||'Private')} · ${esc(p.repositoryMode==='MultiRepository'?'Multi-repo':'Single repo')}</p></div>
+        <div class="settings-row-actions">
+          <button class="button" data-open-project="${esc(p.id)}">Open</button>
+          <button class="button danger" data-delete-project="${esc(p.id)}">Delete</button>
+        </div>
+      </div>`).join('')||'<div class="empty small">No projects yet.</div>'}
+    </div></div>`);
+  el('orgProjectsNew').onclick=()=>openCreateProject();
+  document.querySelectorAll('[data-open-project]').forEach(btn=>btn.onclick=()=>openProject(btn.dataset.openProject));
+  document.querySelectorAll('[data-delete-project]').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('Delete this project? This cannot be undone.'))return;
+    try{
+      await api(`/api/projects/${btn.dataset.deleteProject}`,{method:'DELETE'});
+      showToast('Project deleted');
+      await renderOrgProjectsSettings();
+    }catch(error){showToast(error.message,true)}
+  });
+}
+
+async function renderOrgUsersSettings(){
+  const tab=state.peopleTab||'members';
+  const tabs=`<div class="filterbar">
+    <button class="button ${tab==='members'?'primary':''}" id="peopleMembers">Members</button>
+    <button class="button ${tab==='teams'?'primary':''}" id="peopleTeams">Teams</button>
+    <button class="button ${tab==='invitations'?'primary':''}" id="peopleInvites">Invitations</button>
+  </div>`;
+  let body='';
+  if(tab==='teams'){
+    const teams=await api('/api/teams');
+    body=`${tabs}<div class="card" style="margin-top:12px">${teams.map(t=>`<div class="module-card">
+      <div><h3>${esc(t.name)}</h3><p>/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''}</p></div>
+      <button class="button" data-team="${esc(t.id)}">Open</button>
+    </div>`).join('')||'<div class="empty">No teams yet.</div>'}</div>
+    <p class="description" style="margin-top:12px"><button class="button text" data-route="/people">Open full People page</button></p>`;
+  }else if(tab==='invitations'){
+    const invitations=await api('/api/organisation/invitations');
+    body=`${tabs}<div class="card" style="margin-top:12px">${invitations.map(i=>`<div class="module-card">
+      <div><h3>${esc(i.email)}</h3><p>${esc(i.role)} · expires ${esc(new Date(i.expiresAt).toLocaleString())}${i.acceptedAt?' · accepted':''}</p></div>
+      <span class="module-state">${i.acceptedAt?'Accepted':'Pending'}</span>
+    </div>`).join('')||'<div class="empty">No invitations.</div>'}</div>`;
+  }else{
+    const members=await api('/api/organisation/members');
+    body=`${tabs}<div class="card" style="margin-top:12px">${members.map(m=>`<div class="module-card">
+      <span class="module-logo">${esc(initials(m.profile?.displayName||m.user?.username))}</span>
+      <div><h3>${esc(m.profile?.displayName||m.user?.username)}</h3><p>@${esc(m.user?.username)} · ${esc(m.user?.email)} · ${esc(m.membership?.role)} · ${esc(m.membership?.status)}</p></div>
+      <span class="module-state">${esc(m.membership?.role)}</span>
+    </div>`).join('')||'<div class="empty">No members.</div>'}</div>
+    <div class="modal-actions" style="margin-top:12px"><button class="button primary" id="inviteMember">Invite</button>
+    <button class="button" data-route="/people">Open People</button></div>`;
+  }
+  renderSettingsShell('org','/organisation/settings/users','Users & Groups','Members, teams, and invitations for this organisation.',body);
+  el('peopleMembers').onclick=()=>{state.peopleTab='members';renderOrgUsersSettings()};
+  el('peopleTeams').onclick=()=>{state.peopleTab='teams';renderOrgUsersSettings()};
+  el('peopleInvites').onclick=()=>{state.peopleTab='invitations';renderOrgUsersSettings()};
+  const invite=el('inviteMember');
+  if(invite)invite.onclick=()=>openModal(`<div class="modal-content"><h2>Invite member</h2>
+    <label class="form-label">Email</label><input class="field" id="inviteEmail">
+    <label class="form-label">Role</label><select class="field" id="inviteRole"><option>Member</option><option>Admin</option></select>
+    <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create invite</button></div></div>`,async e=>{
+    if(e.submitter?.value!=='submit')return;
+    try{
+      const created=await api('/api/organisation/invitations',{method:'POST',body:JSON.stringify({
+        email:el('inviteEmail').value,role:el('inviteRole').value
+      })});
+      const link=`${location.origin}${location.pathname}${created.acceptPath}`;
+      openModal(`<div class="modal-content"><h2>Invitation created</h2>
+        <p class="description">Copy this link and share it. The token is shown once.</p>
+        <input class="field" id="inviteLink" value="${esc(link)}" readonly>
+        <div class="modal-actions"><button class="button primary" value="copy">Copy link</button></div></div>`,ev=>{
+        if(ev.submitter?.value==='copy'){navigator.clipboard?.writeText(el('inviteLink').value);showToast('Link copied')}
+      });
+    }catch(error){showToast(error.message,true)}
+  });
+  document.querySelectorAll('[data-team]').forEach(button=>button.onclick=async()=>{
+    const detail=await api(`/api/teams/${button.dataset.team}`);
+    openModal(`<div class="modal-content"><h2>${esc(detail.team.name)}</h2>
+      <p class="description">Members</p>
+      ${(detail.members||[]).map(m=>`<div class="side-stat"><span>${esc(m.profile?.displayName||m.user?.username)}</span><strong>@${esc(m.user?.username)}</strong></div>`).join('')||'<p class="description">No members.</p>'}
+      <label class="form-label">Add member user id</label><input class="field" id="teamAddUserId" placeholder="User GUID">
+      <div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="add">Add member</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='add')return;
+      try{
+        await api(`/api/teams/${button.dataset.team}/members`,{method:'POST',body:JSON.stringify({userId:el('teamAddUserId').value})});
+        showToast('Member added');
+      }catch(error){showToast(error.message,true)}
+    });
+  });
+}
+
+async function renderOrgSecuritySettings(){
+  renderSettingsShell('org','/organisation/settings/security','Authentication','Sign-in methods for this installation.',`
+    <div class="card"><div class="card-header"><h2>Local accounts</h2><span class="pill">Enabled</span></div>
+      <div class="card-body"><p class="description">Username and password authentication is enabled for this organisation.</p></div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Microsoft Entra ID</h2><span class="pill">Coming soon</span></div>
+      <div class="card-body"><p class="description">Entra / OIDC federation is not configured in this tranche. External identity providers will appear here when available.</p></div>
+    </div>`);
+}
+
+async function renderOrgPermissionsSettings(){
+  renderSettingsShell('org','/organisation/settings/permissions','Permissions','Built-in organisation roles (read-only).',`
+    <div class="card"><div class="card-header"><h2>Role summary</h2></div>
+    <div class="card-body">
+      <div class="side-stat"><span>Owner</span><strong>Full organisation control, licensing, and membership.</strong></div>
+      <div class="side-stat"><span>Admin</span><strong>Manage projects, people, and most organisation settings.</strong></div>
+      <div class="side-stat"><span>Member</span><strong>Access granted projects and collaborate on code, review, and build.</strong></div>
+      <p class="description" style="margin-top:12px">Custom roles and fine-grained permission designers are not available yet.</p>
+    </div></div>`);
+}
+
+async function renderOrgBuildSettings(){
+  let runners=[];
+  try{runners=await api('/api/pipelines/runners')}catch{runners=[]}
+  renderSettingsShell('org','/organisation/settings/build','Agent pools / runners','Shared build agents visible to this organisation.',`
+    <div class="card"><div class="card-header"><h2>Runners</h2>
+      <button class="button" data-route="/runners">Open project runners</button>
+    </div>
+    <div class="card-body">
+      ${(runners||[]).map(r=>`<div class="module-card">
+        <div><h3>${esc(r.name||r.id)}</h3><p>${esc(r.status||'Unknown')} · ${esc(r.operatingSystem||r.os||r.platform||'—')}</p></div>
+        <span class="module-state">${esc(r.status||'—')}</span>
+      </div>`).join('')||'<div class="empty small">No runners registered. Open a project and register a runner under Build settings.</div>'}
+    </div></div>`);
+}
+
+async function renderProjectGeneralSettings(){
+  const projectId=state.context?.project?.id;
+  let project=(state.projects||[]).find(p=>p.id===projectId);
+  if(!project){
+    const projects=await api('/api/projects');
+    state.projects=projects;
+    project=projects.find(p=>p.id===projectId);
+  }
+  if(!project)return renderError(new Error('No project selected.'));
+  renderSettingsShell('project','/settings/general','Overview','Name, visibility, and repository mode for this project.',`
+    <div class="card"><div class="card-header"><h2>Project profile</h2></div>
+    <div class="card-body settings-form">
+      <label class="form-label" for="projectName">Name</label>
+      <input class="field" id="projectName" value="${esc(project.name||'')}">
+      <label class="form-label" for="projectSlug">Slug</label>
+      <input class="field" id="projectSlug" value="${esc(project.slug||'')}">
+      <label class="form-label" for="projectDescription">Description</label>
+      <textarea class="field" id="projectDescription" rows="3">${esc(project.description||'')}</textarea>
+      <label class="form-label" for="projectVisibility">Visibility</label>
+      <select class="field" id="projectVisibility">
+        <option value="Private" ${project.visibility==='Private'?'selected':''}>Private</option>
+        <option value="Organisation" ${project.visibility==='Organisation'?'selected':''}>Organisation</option>
+      </select>
+      <label class="form-label" for="projectRepoMode">Repository mode</label>
+      <select class="field" id="projectRepoMode">
+        <option value="SingleRepository" ${project.repositoryMode!=='MultiRepository'?'selected':''}>Single repository</option>
+        <option value="MultiRepository" ${project.repositoryMode==='MultiRepository'?'selected':''}>Multi-repository</option>
+      </select>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="button primary" id="projectSave">Save changes</button>
+      </div>
+    </div></div>`);
+  el('projectSave').onclick=async()=>{
+    try{
+      const updated=await api(`/api/projects/${project.id}`,{method:'PATCH',body:JSON.stringify({
+        name:el('projectName').value,
+        slug:el('projectSlug').value,
+        description:el('projectDescription').value,
+        visibility:el('projectVisibility').value,
+        repositoryMode:el('projectRepoMode').value
+      })});
+      if(state.context?.project){
+        state.context.project.name=updated.name;
+        state.context.project.key=updated.key||state.context.project.key;
+      }
+      state.projects=await api('/api/projects');
+      el('projectLabel').textContent=updated.name;
+      showToast('Project updated');
+      await renderProjectGeneralSettings();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+async function renderProjectMembersSettings(){
+  const projectId=state.context?.project?.id;
+  if(!projectId)return renderError(new Error('No project selected.'));
+  const [members,teams,orgMembers,allTeams]=await Promise.all([
+    api(`/api/projects/${projectId}/members`).catch(()=>[]),
+    api(`/api/projects/${projectId}/teams`).catch(()=>[]),
+    api('/api/organisation/members').catch(()=>[]),
+    api('/api/teams').catch(()=>[])
+  ]);
+  renderSettingsShell('project','/settings/members','Members & Teams','Grant project access to people and teams.',`
+    <div class="card"><div class="card-header"><h2>Members</h2>
+      <button class="button primary" id="addProjectMember">Add member</button>
+    </div>
+    <div class="card-body">
+      ${(members||[]).map(m=>`<div class="module-card">
+        <div><h3>${esc(m.displayName||m.username||m.userId)}</h3><p>@${esc(m.username||'—')} · ${esc(m.email||'')}</p></div>
+        <button class="button danger" data-revoke-member="${esc(m.userId)}">Remove</button>
+      </div>`).join('')||'<div class="empty small">No direct member grants.</div>'}
+    </div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Teams</h2>
+      <button class="button primary" id="addProjectTeam">Add team</button>
+    </div>
+    <div class="card-body">
+      ${(teams||[]).map(t=>`<div class="module-card">
+        <div><h3>${esc(t.name||t.teamId)}</h3><p>/${esc(t.slug||'—')}</p></div>
+        <button class="button danger" data-revoke-team="${esc(t.teamId)}">Remove</button>
+      </div>`).join('')||'<div class="empty small">No team grants.</div>'}
+    </div></div>`);
+  el('addProjectMember').onclick=()=>{
+    const options=(orgMembers||[]).map(m=>`<option value="${esc(m.user?.id||m.userId)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('');
+    openModal(`<div class="modal-content"><h2>Add project member</h2>
+      <label class="form-label">Member</label><select class="field" id="projectMemberId">${options||'<option value="">No members</option>'}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api(`/api/projects/${projectId}/members`,{method:'POST',body:JSON.stringify({userId:el('projectMemberId').value})});
+        showToast('Member added');await renderProjectMembersSettings();
+      }catch(error){showToast(error.message,true)}
+    });
+  };
+  el('addProjectTeam').onclick=()=>{
+    const options=(allTeams||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
+    openModal(`<div class="modal-content"><h2>Add project team</h2>
+      <label class="form-label">Team</label><select class="field" id="projectTeamId">${options||'<option value="">No teams</option>'}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api(`/api/projects/${projectId}/teams`,{method:'POST',body:JSON.stringify({teamId:el('projectTeamId').value})});
+        showToast('Team added');await renderProjectMembersSettings();
+      }catch(error){showToast(error.message,true)}
+    });
+  };
+  document.querySelectorAll('[data-revoke-member]').forEach(btn=>btn.onclick=async()=>{
+    try{
+      await api(`/api/projects/${projectId}/members/${btn.dataset.revokeMember}`,{method:'DELETE'});
+      showToast('Member removed');await renderProjectMembersSettings();
+    }catch(error){showToast(error.message,true)}
+  });
+  document.querySelectorAll('[data-revoke-team]').forEach(btn=>btn.onclick=async()=>{
+    try{
+      await api(`/api/projects/${projectId}/teams/${btn.dataset.revokeTeam}`,{method:'DELETE'});
+      showToast('Team removed');await renderProjectMembersSettings();
+    }catch(error){showToast(error.message,true)}
+  });
+}
+
+async function renderProjectRepositoriesSettings(){
   const integration=await api('/api/core/integrations/github');
-  crumbs(projectCrumb('Settings <span>/</span> Source repositories'));
   const local=state.local;
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Project settings</h1><p>Configure the local working copy and GitHub as the authoritative source provider.</p></div></div>
+  renderSettingsShell('project','/settings/repositories','Repositories','Local working copy and GitHub source providers.',`
   <div class="panel-grid"><div>
     <div class="card"><div class="card-header"><h2>Local repository</h2>
       ${local?.associated?`<div style="display:flex;gap:8px"><button class="button" id="settingsOpenFolder">Open folder</button><button class="button danger" id="disconnectLocal">Disconnect</button></div>`:`<button class="button primary" id="connectLocal">Connect local repository</button>`}
@@ -1587,7 +2281,7 @@ async function renderSettings(){
     <p class="description">${integration.configured?'A PAT is encrypted at rest. Its value is never returned by the API.':'Public repositories work without a token. Add a PAT for private repositories and merge operations.'}</p>
     <button class="button ${integration.configured?'':'primary'}" id="credentialButton">${integration.configured?'Replace token':'Add token'}</button>
     ${integration.configured?'<button class="button danger" id="deleteCredential">Delete</button>':''}
-  </div></div></aside></div>`;
+  </div></div></aside></div>`);
   const connectLocal=el('connectLocal');if(connectLocal)connectLocal.onclick=openConnectLocal;
   const disconnectLocal=el('disconnectLocal');if(disconnectLocal)disconnectLocal.onclick=disconnectLocalRepository;
   const settingsOpenFolder=el('settingsOpenFolder');if(settingsOpenFolder)settingsOpenFolder.onclick=openLocalFolder;
@@ -1596,43 +2290,161 @@ async function renderSettings(){
   if(el('deleteCredential'))el('deleteCredential').onclick=deleteCredential;
 }
 
+async function renderProjectReviewSettings(){
+  if(!hasModule('review'))return renderError(new Error('Review module is not enabled.'));
+  const policy=await api('/api/review/policy');
+  const multi=!!policy.multiApprovalLicensed;
+  renderSettingsShell('project','/settings/review','Policies','Pull request approval requirements for this project.',`
+    <div class="card"><div class="card-header"><h2>Approval policy</h2>
+      ${multi?'':'<span class="pill">Community</span>'}
+    </div>
+    <div class="card-body settings-form">
+      <label class="form-label" for="minimumApprovals">Minimum approvals</label>
+      <input class="field" id="minimumApprovals" type="number" min="1" value="${esc(String(policy.minimumApprovals??1))}" ${multi?'':'disabled'}>
+      <p class="description">${multi
+        ?`Active policy: ${esc(policy.activePolicy||'Multi-approval')}.`
+        :'Multi-approval controls require an Enterprise Review licence. Single approval is active.'}</p>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="button primary" id="saveReviewPolicy" ${multi?'':'disabled'}>Save policy</button>
+      </div>
+    </div></div>`);
+  const save=el('saveReviewPolicy');
+  if(save&&!save.disabled)save.onclick=async()=>{
+    try{
+      await api('/api/review/policy',{method:'PUT',body:JSON.stringify({minimumApprovals:Number(el('minimumApprovals').value)||1})});
+      showToast('Review policy saved');
+      await renderProjectReviewSettings();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+async function renderProjectBuildSettings(){
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  renderSettingsShell('project','/settings/build','Runners','Build agents registered for this project.',`
+    <div class="card"><div class="card-header"><h2>Build runners</h2>
+      <button class="button primary" data-route="/runners">Open runners</button>
+    </div>
+    <div class="card-body">
+      <p class="description">Manage runner registration, tokens, and revocation on the Build runners page.</p>
+    </div></div>`);
+}
+
+async function renderSettings(){
+  return renderProjectSettings('/settings/repositories');
+}
+
 async function renderAudit(){
-  crumbs(projectCrumb('Audit'));
   const audit=await api('/api/core/audit');
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Audit log</h1><p>Security and workflow actions, separate from Change activity.</p></div></div>
-    <div class="card">${audit.map(item=>`<div class="audit-row"><span class="event-icon">◎</span><div><strong>${esc(item.actor)}</strong> <code>${esc(item.action)}</code><br><small>${esc(item.module)} · ${esc(item.resource)}</small></div><small>${new Date(item.timestamp).toLocaleString()}</small></div>`).join('')||'<div class="empty">No audited actions yet.</div>'}</div>`;
+  renderSettingsShell('org','/organisation/settings/audit','Audit log','Security and workflow actions, separate from Change activity.',`
+    <div class="card">${audit.map(item=>`<div class="audit-row"><span class="event-icon">◎</span><div><strong>${esc(item.actor)}</strong> <code>${esc(item.action)}</code><br><small>${esc(item.module)} · ${esc(item.resource)}</small></div><small>${new Date(item.timestamp).toLocaleString()}</small></div>`).join('')||'<div class="empty">No audited actions yet.</div>'}</div>`);
 }
 
 async function renderModules(){
-  crumbs(projectCrumb('Modules'));
-  const platform=await api('/api/platform/modules');
-  state.modules=platform.modules;
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Runtime composition</h1><p>Installed modules and the capabilities this installation is entitled to use.</p></div></div>
-    <div class="card" id="modulesList">${state.modules.map(module=>`<div class="module-card" data-module-id="${esc(module.id)}" data-edition="${esc(module.edition||'Community')}">
-      <span class="module-logo">${esc(module.name[0])}</span>
+  const catalogue=await api('/api/platform/extensions/modules');
+  const installed=catalogue.filter(x=>x.installed);
+  const available=catalogue.filter(x=>!x.installed);
+  const card=item=>`
+    <div class="module-card" data-extension-id="${esc(item.extensionId)}" data-extension-state="${esc(item.state)}">
+      <span class="module-logo">${esc((item.name||'?')[0])}</span>
       <div>
-        <h3>${esc(module.name)} <span class="pill module-edition">${esc(module.edition||'Community')}</span></h3>
-        <p data-capabilities>${(module.capabilities||[]).map(esc).join(' · ')||'No granted capabilities'}</p>
+        <h3>${esc(item.name)} <span class="pill module-edition">${esc(editionLabel(item.edition))}</span></h3>
+        <p>${esc(item.summary)}</p>
+        <p class="description">${(item.highlights||[]).map(esc).join(' · ')}</p>
+        <p class="description">${item.installed?(item.enabled?'Enabled':'Installed · Disabled'):(item.bundled?'Available bundled package':'Not bundled')}</p>
       </div>
-      <span class="module-state">● Enabled</span>
-    </div>`).join('')}
-    <div class="module-card" data-module-id="github-connector" data-edition="Community"><span class="module-logo">G</span><div><h3>GitHub Connector <span class="pill module-edition">Community</span></h3><p>Repository source · change source · real GitHub REST API</p></div><span class="module-state">● Available</span></div></div>`;
+      <div class="settings-row-actions">
+        ${!item.installed&&item.bundled?`<button class="button primary" data-ext-install="${esc(item.extensionId)}">Install</button>`:''}
+        ${item.installed&&!item.enabled?`<button class="button primary" data-ext-enable="${esc(item.extensionId)}">Enable</button>`:''}
+        ${item.enabled?`<button class="button" data-ext-disable="${esc(item.extensionId)}">Disable</button>`:''}
+        ${item.installed&&!item.enabled?`<button class="button danger" data-ext-uninstall="${esc(item.extensionId)}">Uninstall</button>`:''}
+        ${item.restartRequired?'<span class="pill">Restart required</span>':''}
+      </div>
+    </div>`;
+  renderSettingsShell('org','/organisation/settings/modules','Modules','Install product capabilities. Navigation appears only for enabled Modules.',`
+    <div class="card"><div class="card-header"><h2>Installed</h2></div>
+      <div class="card-body" id="modulesList">${installed.map(card).join('')||'<div class="empty small">No modules installed yet.</div>'}</div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Available</h2></div>
+      <div class="card-body">${available.map(card).join('')||'<div class="empty small">No additional modules available.</div>'}</div>
+    </div>`);
+  wireExtensionActions(renderModules);
+}
+
+async function renderConnectors(){
+  const catalogue=await api('/api/platform/extensions/connectors');
+  const installed=catalogue.filter(x=>x.installed);
+  const available=catalogue.filter(x=>!x.installed);
+  const card=item=>`
+    <div class="module-card" data-extension-id="${esc(item.extensionId)}">
+      <span class="module-logo">${esc((item.name||'?')[0])}</span>
+      <div>
+        <h3>${esc(item.name)}</h3>
+        <p>${esc(item.summary)}</p>
+        <p class="description">${item.installed?(item.enabled?'Installed · Enabled':'Installed · Disabled'):(item.bundled?'Available':'Coming soon')}</p>
+      </div>
+      <div class="settings-row-actions">
+        ${!item.installed&&item.bundled?`<button class="button primary" data-ext-install="${esc(item.extensionId)}">Install</button>`:''}
+        ${item.installed&&!item.enabled?`<button class="button primary" data-ext-enable="${esc(item.extensionId)}">Enable</button>`:''}
+        ${item.enabled?`<button class="button" data-ext-disable="${esc(item.extensionId)}">Disable</button>`:''}
+        ${item.installed&&!item.enabled?`<button class="button danger" data-ext-uninstall="${esc(item.extensionId)}">Uninstall</button>`:''}
+      </div>
+    </div>`;
+  renderSettingsShell('org','/organisation/settings/connectors','Connectors','Connect external systems. Connectors do not add top-level Project navigation.',`
+    <div class="card"><div class="card-header"><h2>Installed</h2></div>
+      <div class="card-body">${installed.map(card).join('')||'<div class="empty small">No connectors installed.</div>'}</div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Available</h2></div>
+      <div class="card-body">${available.map(card).join('')||'<div class="empty small">No additional connectors listed.</div>'}</div>
+    </div>`);
+  wireExtensionActions(renderConnectors);
+}
+
+function wireExtensionActions(rerender){
+  document.querySelectorAll('[data-ext-install]').forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.extInstall;
+    openModal(`<div class="modal-content"><h2>Install extension?</h2>
+      <p class="description"><code>${esc(id)}</code> will be installed and enabled. Database migrations may run.</p>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Install</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api(`/api/platform/extensions/${encodeURIComponent(id)}/install`,{method:'POST',body:JSON.stringify({enable:true})});
+        showToast('Extension installed');
+        await reloadComposition();
+        await rerender();
+      }catch(error){showToast(error.message,true)}
+    });
+  });
+  document.querySelectorAll('[data-ext-enable]').forEach(btn=>btn.onclick=async()=>{
+    try{
+      await api(`/api/platform/extensions/${encodeURIComponent(btn.dataset.extEnable)}/enable`,{method:'POST',body:'{}'});
+      showToast('Extension enabled');await reloadComposition();await rerender();
+    }catch(error){showToast(error.message,true)}
+  });
+  document.querySelectorAll('[data-ext-disable]').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('Disable this extension? Data is retained.'))return;
+    try{
+      await api(`/api/platform/extensions/${encodeURIComponent(btn.dataset.extDisable)}/disable`,{method:'POST',body:'{}'});
+      showToast('Extension disabled');await reloadComposition();await rerender();
+    }catch(error){showToast(error.message,true)}
+  });
+  document.querySelectorAll('[data-ext-uninstall]').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('Uninstall this extension? Data is preserved by default.'))return;
+    try{
+      await api(`/api/platform/extensions/${encodeURIComponent(btn.dataset.extUninstall)}/uninstall`,{method:'POST',body:JSON.stringify({preserveData:true})});
+      showToast('Extension uninstalled');await reloadComposition();await rerender();
+    }catch(error){showToast(error.message,true)}
+  });
 }
 
 async function renderLicensing(){
-  crumbs(`${esc(state.context?.organisation?.name||'Organisation')} <span>/</span> Licensing`);
   const licence=await api('/api/licensing');
   const modules=(licence.modules||[]).map(m=>`
-    <tr data-licence-module="${esc(m.moduleId||m.name)}" data-edition="${esc(m.edition)}"><td>${esc(m.name)}</td><td><span class="pill">${esc(m.edition)}</span></td><td>${m.installed?'Installed':'Not installed'}</td></tr>`).join('');
-  el('content').innerHTML=`
-  <div class="list-page-header"><div>
-    <h1>Licensing</h1>
-    <p class="description">Licensing is capability and module based for this installation.</p>
-  </div></div>
+    <tr data-licence-module="${esc(m.moduleId||m.name)}" data-edition="${esc(m.edition)}"><td>${esc(m.name)}</td><td><span class="pill">${esc(editionLabel(m.edition))}</span></td><td>${m.installed?'Installed':'Not installed'}</td></tr>`).join('');
+  renderSettingsShell('org','/organisation/settings/license','License','Licensing is capability and module based for this installation.',`
   <div class="card" id="licensingStatus">
     <div class="card-header"><h2>Current licence</h2><span class="pill" id="licensingStatusPill">${esc(licence.status)}</span></div>
     <div class="card-body setup-summary">
-      <div><span>Type</span><strong id="licensingMode">${esc(licence.mode)}</strong></div>
+      <div><span>Type</span><strong id="licensingMode">${esc(licenceModeLabel(licence.mode))}</strong></div>
       <div><span>Customer</span><strong>${esc(licence.customerId||'—')}</strong></div>
       <div><span>Expires</span><strong>${licence.expiresAt?esc(new Date(licence.expiresAt).toLocaleDateString()):'—'}</strong></div>
       <div><span>Capabilities</span><strong id="licensingCapabilityCount">${licence.capabilityCount??0} enabled</strong></div>
@@ -1644,31 +2456,37 @@ async function renderLicensing(){
     <div class="card-body"><table class="data-table" id="licensingModules"><thead><tr><th>Module</th><th>Licence</th><th>Installed</th></tr></thead><tbody>${modules||'<tr><td colspan="3">No modules</td></tr>'}</tbody></table></div>
   </div>
   <div class="card" style="margin-top:16px">
-    <div class="card-header"><h2>${licence.mode==='Commercial'?'Replace licence':'Add commercial licence'}</h2></div>
+    <div class="card-header"><h2>${licence.mode==='Commercial'?'Replace Enterprise licence':'Upload Enterprise licence'}</h2></div>
     <div class="card-body">
       <label class="form-label">Licence JSON</label>
       <textarea class="field" id="licensingPayload" rows="6" placeholder="Paste signed licence JSON"></textarea>
       <div class="modal-actions" style="margin-top:14px">
         <button class="button" id="licensingCommunity">Use Community</button>
-        ${licence.mode==='Commercial'?`<button class="button" id="licensingRemove">Remove commercial</button>`:''}
+        ${licence.mode==='Commercial'?`<button class="button" id="licensingRemove">Remove Enterprise</button>`:''}
         <button class="button primary" id="licensingInstall">Validate &amp; install</button>
       </div>
     </div>
-  </div>`;
+  </div>`);
   el('licensingCommunity').onclick=async()=>{
     try{await api('/api/licensing/community',{method:'POST',body:'{}'});showToast('Community licence active');await renderLicensing()}
     catch(error){showToast(error.message,true)}
   };
   el('licensingInstall').onclick=async()=>{
-    try{await api('/api/licensing/commercial',{method:'POST',body:JSON.stringify({payload:el('licensingPayload').value})});showToast('Licence installed');await renderLicensing()}
+    try{await api('/api/licensing/commercial',{method:'POST',body:JSON.stringify({payload:el('licensingPayload').value})});showToast('Enterprise licence installed');await renderLicensing()}
     catch(error){showToast(error.message,true)}
   };
   const remove=el('licensingRemove');
   if(remove)remove.onclick=async()=>{
-    if(!confirm('Remove the commercial licence and continue with Community?'))return;
-    try{await api('/api/licensing/commercial',{method:'DELETE'});showToast('Commercial licence removed');await renderLicensing()}
+    if(!confirm('Remove the Enterprise licence and continue with Community?'))return;
+    try{await api('/api/licensing/commercial',{method:'DELETE'});showToast('Enterprise licence removed');await renderLicensing()}
     catch(error){showToast(error.message,true)}
   };
+}
+
+function refreshSettingsAfterSourceChange(){
+  if(state.route?.startsWith('/settings'))return renderProjectSettings(state.route);
+  if(state.route==='/overview')return renderOverview();
+  return renderProjectRepositoriesSettings();
 }
 
 function shortId(id){return String(id||'').replace(/-/g,'').slice(0,8)}
@@ -1682,7 +2500,7 @@ function durationLabel(started,completed){
 function triggerLabels(triggers){return (triggers||[]).map(t=>typeof t==='number'?['Manual','Push','ChangeOpened','ChangeUpdated'][t]||t:t).join(', ')}
 
 async function renderPipelines(route){
-  if(!hasModule('pipelines'))return renderError(new Error('Pipelines module is not enabled.'));
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
   const project=state.context?.project;
   const [definitions,runs]=await Promise.all([
     api('/api/pipelines/definitions'),
@@ -1691,7 +2509,7 @@ async function renderPipelines(route){
   const id=route.split('/')[2];
   const selected=id?definitions.find(d=>d.id===id):null;
   if(!state.pipelinesFilter)state.pipelinesFilter='all';
-  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Pipelines${selected?` <span>/</span> ${esc(selected.name)}`:''}`);
+  crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')} <span>/</span> Build <span>/</span> Pipelines${selected?` <span>/</span> ${esc(selected.name)}`:''}`);
 
   const latestByDef={};
   (runs||[]).forEach(run=>{
@@ -1770,7 +2588,7 @@ async function renderPipelines(route){
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 17l4-10h8l4 10H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 17v3M15 17v3M8 10h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </div>
         <div>
-          <h1>Pipelines <span class="pill visibility-pill">Public</span></h1>
+          <h1>Build <span class="pill visibility-pill">Public</span></h1>
           <p class="project-desc">Monitor, run, and review CI/CD workflows for this project.</p>
         </div>
       </div>
@@ -1965,10 +2783,10 @@ function openRunPipeline(definitionId){
 }
 
 async function renderRuns(){
-  if(!hasModule('pipelines'))return renderError(new Error('Pipelines module is not enabled.'));
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
   const runs=await api('/api/pipelines/runs');
-  crumbs(projectCrumb('Automation <span>/</span> Runs'));
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Runs</h1><p>Recent pipeline executions.</p></div>
+  crumbs(projectCrumb('Build <span>/</span> Runs'));
+  el('content').innerHTML=`<div class="list-page-header"><div><h1>Runs</h1><p>Recent build pipeline executions.</p></div>
     <button class="button" id="refreshRuns">Refresh</button></div>
     <div class="card">${runs.map(run=>`<article class="run-row" data-route="/runs/${esc(run.id)}">
       <span class="run-status ${statusClass(run.status)}">${checkIcon(run.status)}</span>
@@ -1980,12 +2798,12 @@ async function renderRuns(){
 }
 
 async function renderRunDetail(runId){
-  if(!hasModule('pipelines'))return renderError(new Error('Pipelines module is not enabled.'));
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
   clearInterval(state.runPoll);
   const run=await api(`/api/pipelines/runs/${runId}`);
   const running=isActiveStatus(run.status)||(run.jobs||[]).some(j=>isActiveStatus(j.status));
   const failedJob=(run.jobs||[]).find(j=>j.status==='Failed');
-  crumbs(projectCrumb(`Automation <span>/</span> <button class="button text" data-route="/runs">Runs</button> <span>/</span> ${esc(shortId(run.id))}`));
+  crumbs(projectCrumb(`Build <span>/</span> <button class="button text" data-route="/runs">Runs</button> <span>/</span> ${esc(shortId(run.id))}`));
   el('content').innerHTML=`<div class="run-summary">
     <div class="list-page-header">
       <div>
@@ -2058,7 +2876,7 @@ function stepShouldOpen(step, logs){
 }
 
 async function renderJobPage(runId, jobId){
-  if(!hasModule('pipelines'))return renderError(new Error('Pipelines module is not enabled.'));
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
   clearInterval(state.runPoll);
   const run=await api(`/api/pipelines/runs/${runId}`);
   const job=run.jobs?.find(j=>j.id===jobId);
@@ -2106,7 +2924,7 @@ async function renderJobPage(runId, jobId){
     ? renderStepBlock(null, steps.length?'Job output':'Output', job.status, durationLabel(job.startedAt, job.completedAt), null, orphanLogs.length?orphanLogs:visibleLogs, true)
     : '';
 
-  crumbs(projectCrumb(`Automation <span>/</span> <button class="button text" data-route="/runs">Runs</button> <span>/</span> <button class="button text" data-route="/runs/${esc(runId)}">${esc(shortId(runId))}</button> <span>/</span> ${esc(job.name)}`));
+  crumbs(projectCrumb(`Build <span>/</span> <button class="button text" data-route="/runs">Runs</button> <span>/</span> <button class="button text" data-route="/runs/${esc(runId)}">${esc(shortId(runId))}</button> <span>/</span> ${esc(job.name)}`));
   el('content').innerHTML=`<div class="job-page">
     <header class="job-page-header">
       <div class="job-page-heading">
@@ -2205,9 +3023,9 @@ async function downloadArtifact(runId,jobId,artifactId,name){
 }
 
 async function renderRunners(){
-  if(!hasModule('pipelines'))return renderError(new Error('Pipelines module is not enabled.'));
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
   const runners=await api('/api/pipelines/runners');
-  crumbs(projectCrumb('Automation <span>/</span> Runners'));
+  crumbs(projectCrumb('Build <span>/</span> Runners'));
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Runners</h1><p>Self-hosted workers connected to this control plane.</p></div>
     <div class="header-actions"><button class="button" id="refreshRunners">Refresh</button><button class="button primary" id="addRunner">＋ Add Runner</button></div></div>
     <div class="card">${runners.map(r=>`<article class="pipeline-row">
@@ -2399,7 +3217,7 @@ function openConnect(){
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Connect</button></div></div>`,async event=>{
     if(event.submitter?.value==='submit')try{
       await api('/api/source/repositories',{method:'POST',body:JSON.stringify({providerId:'github',url:el('repositoryUrl').value})});
-      state.connections=await api('/api/source/repositories');showToast('Repository connected');renderSettings();
+      state.connections=await api('/api/source/repositories');showToast('Repository connected');refreshSettingsAfterSourceChange();
     }catch(error){showToast(error.kind?`${error.kind}: ${error.message}`:error.message,true)}
   });
 }
@@ -2421,7 +3239,7 @@ function openConnectLocal(){
       state.local=await api('/api/projects/current/local-repository');
       state.connections=await api('/api/source/repositories');
       showToast('Local repository associated');
-      if(state.route==='/settings')renderSettings();else renderOverview();
+      refreshSettingsAfterSourceChange();
     }catch(error){showToast(error.kind?`${error.kind}: ${error.message}`:error.message,true)}
   });
   el('detectLocal').onclick=async()=>{
@@ -2442,7 +3260,7 @@ async function disconnectLocalRepository(){
     await api('/api/projects/current/local-repository',{method:'DELETE'});
     state.local=await api('/api/projects/current/local-repository');
     showToast('Local repository disconnected');
-    renderSettings();
+    refreshSettingsAfterSourceChange();
   }catch(error){showToast(error.kind?`${error.kind}: ${error.message}`:error.message,true)}
 }
 
@@ -2460,13 +3278,13 @@ function openCredential(){
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Save token</button></div></div>`,async event=>{
     if(event.submitter?.value==='submit')try{
       await api('/api/core/integrations/github',{method:'PUT',body:JSON.stringify({token:el('githubToken').value})});
-      showToast('GitHub credential saved');renderSettings();
+      showToast('GitHub credential saved');refreshSettingsAfterSourceChange();
     }catch(error){showToast(error.kind?`${error.kind}: ${error.message}`:error.message,true)}
   });
 }
 
 async function deleteCredential(){
-  try{await api('/api/core/integrations/github',{method:'DELETE'});showToast('GitHub credential deleted');renderSettings()}
+  try{await api('/api/core/integrations/github',{method:'DELETE'});showToast('GitHub credential deleted');refreshSettingsAfterSourceChange()}
   catch(error){showToast(error.kind?`${error.kind}: ${error.message}`:error.message,true)}
 }
 

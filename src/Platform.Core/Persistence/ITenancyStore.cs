@@ -46,6 +46,10 @@ public interface ITenancyStore
     Project? FindProjectBySlug(string slug);
     IReadOnlyList<Project> ListProjects();
     void DeleteProject(Guid id);
+    IReadOnlyList<Guid> ListStarredProjectIds(Guid userId);
+    bool IsProjectStarred(Guid userId, Guid projectId);
+    void StarProject(Guid userId, Guid projectId);
+    void UnstarProject(Guid userId, Guid projectId);
     void SaveProjectUserAccess(ProjectUserAccess access);
     void DeleteProjectUserAccess(Guid projectId, Guid userId);
     IReadOnlyList<ProjectUserAccess> ListProjectUserAccess(Guid projectId);

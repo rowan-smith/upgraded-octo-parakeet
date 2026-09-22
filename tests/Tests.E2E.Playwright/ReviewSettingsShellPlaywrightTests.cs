@@ -197,9 +197,10 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
-        await Ui.ClickAsync(page.Locator("#commandButton"));
+        await Ui.EnsureProjectNavAsync(page);
+        await Ui.ClickAsync(page.Locator("#globalSearch"));
         await Assertions.Expect(page.Locator(".modal-content h2")).ToHaveTextAsync("Quick switcher");
-        await page.Locator("button[value='changes']").ClickAsync();
+        await Ui.ClickAsync(page.Locator("#switcherChanges, button[value='changes']").First);
         await Ui.ExpectVisible(page, "h1", "Pull Requests");
     }
 
@@ -216,7 +217,7 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
     }
 
     [Fact]
-    public async Task Modules_page_lists_enabled_modules_and_github_connector()
+    public async Task Modules_page_lists_installed_product_modules()
     {
         await using var host = ForgeDeckHost.StartSeeded();
         await using var session = await host.NewPageAsync(browser.Browser);
@@ -224,7 +225,22 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
 
         await Ui.OpenModulesAsync(page);
         await Assertions.Expect(page.Locator(".module-card").First).ToBeVisibleAsync();
-        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("GitHub Connector");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Review");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Build");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Code");
+        await Assertions.Expect(page.Locator("#content")).Not.ToContainTextAsync("GitHub");
+    }
+
+    [Fact]
+    public async Task Connectors_page_lists_github_separately_from_modules()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.GoToHashAsync(page, "/organisation/settings/connectors");
+        await Ui.ExpectVisible(page, "h1", "Connectors");
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("GitHub");
         await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Enabled");
     }
 
@@ -252,7 +268,7 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
 
         await page.GotoAsync("/#/pipelines");
         await Ui.WaitForAppIdleAsync(page);
-        await Ui.ExpectVisible(page, "h1", "Pipelines");
+        await Ui.ExpectVisible(page, "h1", "Build");
 
         await page.GotoAsync("/#/runners");
         await Ui.WaitForAppIdleAsync(page);
@@ -264,6 +280,47 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
     }
 
     [Fact]
+    public async Task Org_and_project_settings_trees_and_legacy_aliases()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.EnsureOrgNavAsync(page);
+        await Ui.NavigateAsync(page, "/organisation/settings");
+        await Ui.ExpectVisible(page, "h1", "Overview");
+        await Assertions.Expect(page.Locator(".settings-nav [data-route='/organisation/settings/general']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#orgName")).ToBeVisibleAsync();
+
+        await Ui.NavigateAsync(page, "/organisation/settings/license");
+        await Ui.ExpectVisible(page, "h1", "License");
+        await Assertions.Expect(page.Locator("#licensingMode")).ToBeVisibleAsync();
+
+        await page.GotoAsync("/#/licensing");
+        await Ui.WaitForAppIdleAsync(page);
+        await Ui.ExpectVisible(page, "h1", "License");
+
+        await page.GotoAsync("/#/modules");
+        await Ui.WaitForAppIdleAsync(page);
+        await Ui.ExpectVisible(page, "h1", "Modules");
+
+        await page.GotoAsync("/#/audit");
+        await Ui.WaitForAppIdleAsync(page);
+        await Ui.ExpectVisible(page, "h1", "Audit log");
+
+        await Ui.GoToHashAsync(page, "/settings/general");
+        await Ui.ExpectVisible(page, "h1", "Project settings");
+        await Assertions.Expect(page.Locator(".settings-nav [data-route='/settings/general']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#projectName")).ToBeVisibleAsync();
+
+        await Ui.NavigateAsync(page, "/settings/repositories");
+        await Assertions.Expect(page.Locator("#connectRepository")).ToBeVisibleAsync();
+
+        await Ui.NavigateAsync(page, "/settings/review");
+        await Assertions.Expect(page.Locator("#minimumApprovals")).ToBeVisibleAsync();
+    }
+
+    [Fact]
     public async Task User_menu_shows_signed_in_identity()
     {
         await using var host = ForgeDeckHost.StartSeeded();
@@ -271,10 +328,11 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
         var page = session.Page;
 
         await Ui.ClickAsync(page.Locator("#userMenu"));
-        await Assertions.Expect(page.Locator("#modal[open] button[value='signout']")).ToBeVisibleAsync();
-        await Assertions.Expect(page.Locator("#modal[open]")).ToContainTextAsync("@maya");
-        await page.Locator("#modal[open] button[value='cancel']").ClickAsync();
-        await Ui.ExpectModalClosedAsync(page);
+        await Assertions.Expect(page.Locator("#userMenuDropdown:not([hidden]) button[value='signout']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#userMenuDropdown")).ToContainTextAsync("Profile");
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await page.Keyboard.PressAsync("Escape");
+        await Assertions.Expect(page.Locator("#userMenuDropdown")).ToBeHiddenAsync();
     }
 
     [Fact]
@@ -286,7 +344,7 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
 
         await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
         await Ui.ClickAsync(page.Locator("#userMenu"));
-        await Ui.ClickAsync(page.Locator("button[value='signout']"));
+        await Ui.ClickAsync(page.Locator("#userMenuDropdown button[value='signout']"));
         await Ui.ExpectVisible(page, "h1", "Sign in");
 
         await Ui.SignInAsync(page, "maya@northstar.dev", "demo");

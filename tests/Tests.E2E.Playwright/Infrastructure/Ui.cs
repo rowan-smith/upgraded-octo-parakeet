@@ -54,25 +54,51 @@ internal static class Ui
         await page.Locator("#setupProjectSlug").FillAsync("platform");
         await page.Locator("#setupCreateProject").ClickAsync();
 
-        await ExpectVisible(page, "h1", "Connect your repository");
-        await page.Locator("#setupSkipRepos").ClickAsync();
-
-        await ExpectVisible(page, "h1", "Enabled module setup");
-        await page.Locator("#setupSkipModules").ClickAsync();
-
         await ExpectVisible(page, "h1", "Setup Complete");
         await page.Locator("#setupOpenWorkspace").ClickAsync();
 
         await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
         await ExpectVisible(page, "#orgLabel", org);
         await ExpectVisible(page, "#projectLabel", "Platform");
-        await ExpectVisible(page, "#userHandle", $"@{username}");
+        await Assertions.Expect(page.Locator("#userHandle")).ToHaveTextAsync($"@{username}");
     }
 
     public static async Task OpenLicensingAsync(IPage page)
     {
-        await NavigateAsync(page, "/licensing");
-        await ExpectVisible(page, "h1", "Licensing");
+        await EnsureOrgNavAsync(page);
+        await GoToHashAsync(page, "/organisation/settings/license");
+        await ExpectVisible(page, "h1", "License");
+    }
+
+    public static async Task EnsureOrgNavAsync(IPage page)
+    {
+        if (await page.Locator("#primaryNav [data-route='/home']").CountAsync() > 0)
+            return;
+        await page.EvaluateAsync("() => location.hash = '#/home'");
+        await page.WaitForFunctionAsync("() => document.querySelector(\"#primaryNav [data-route='/home']\")");
+    }
+
+    public static async Task EnsureProjectNavAsync(IPage page)
+    {
+        if (await page.Locator("#primaryNav [data-route='/overview']").CountAsync() > 0)
+            return;
+        await page.EvaluateAsync("() => location.hash = '#/overview'");
+        await page.WaitForFunctionAsync("() => document.querySelector(\"#primaryNav [data-route='/overview']\")");
+    }
+
+    public static async Task GoToHashAsync(IPage page, string route)
+    {
+        var path = route.StartsWith('#') ? route[1..] : route;
+        if (!path.StartsWith('/')) path = "/" + path;
+        await page.EvaluateAsync("(value) => { location.hash = value; }", path);
+        await page.WaitForFunctionAsync(
+            @"(expected) => {
+                const hash = (location.hash || '').replace(/^#/, '');
+                return hash === expected || hash === expected.replace(/\/$/, '');
+            }",
+            path);
+        await page.Locator("#content h1").First.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = 15000 });
+        await WaitForAppIdleAsync(page);
     }
 
     public static async Task SignInAsync(IPage page, string email, string password)
@@ -97,60 +123,70 @@ internal static class Ui
 
     public static async Task OpenPeopleAsync(IPage page)
     {
-        await ClickAsync(page.Locator(".sidebar-footer [data-route='/people']"));
+        await EnsureOrgNavAsync(page);
+        await NavigateAsync(page, "/people");
         await ExpectVisible(page, "h1", "People");
+    }
+
+    public static async Task OpenAuditAsync(IPage page)
+    {
+        await EnsureOrgNavAsync(page);
+        await GoToHashAsync(page, "/organisation/settings/audit");
+        await ExpectVisible(page, "h1", "Audit log");
+    }
+
+    public static async Task OpenModulesAsync(IPage page)
+    {
+        await EnsureOrgNavAsync(page);
+        await GoToHashAsync(page, "/organisation/settings/modules");
+        await ExpectVisible(page, "h1", "Modules");
     }
 
     public static async Task OpenPipelinesAsync(IPage page)
     {
+        await EnsureProjectNavAsync(page);
         await NavigateAsync(page, "/pipelines");
-        await ExpectVisible(page, "h1", "Pipelines");
+        await ExpectVisible(page, "h1", "Build");
     }
 
     public static async Task OpenRunsAsync(IPage page)
     {
+        await EnsureProjectNavAsync(page);
         await NavigateAsync(page, "/runs");
         await ExpectVisible(page, "h1", "Runs");
     }
 
     public static async Task OpenRunnersAsync(IPage page)
     {
+        await EnsureProjectNavAsync(page);
         await NavigateAsync(page, "/runners");
         await ExpectVisible(page, "h1", "Runners");
     }
 
     public static async Task OpenChangesAsync(IPage page)
     {
+        await EnsureProjectNavAsync(page);
         await NavigateAsync(page, "/changes");
         await ExpectVisible(page, "h1", "Pull Requests");
     }
 
     public static async Task OpenQueueAsync(IPage page)
     {
+        await EnsureProjectNavAsync(page);
         await NavigateAsync(page, "/queue");
         await ExpectVisible(page, "h1", "Review queue");
     }
 
     public static async Task OpenSettingsAsync(IPage page)
     {
-        await NavigateAsync(page, "/settings");
+        await EnsureProjectNavAsync(page);
+        await GoToHashAsync(page, "/settings/repositories");
         await ExpectVisible(page, "h1", "Project settings");
-    }
-
-    public static async Task OpenAuditAsync(IPage page)
-    {
-        await ClickAsync(page.Locator(".sidebar-footer [data-route='/audit']"));
-        await ExpectVisible(page, "h1", "Audit log");
-    }
-
-    public static async Task OpenModulesAsync(IPage page)
-    {
-        await ClickAsync(page.Locator(".sidebar-footer [data-route='/modules']"));
-        await ExpectVisible(page, "h1", "Runtime composition");
     }
 
     public static async Task OpenOverviewAsync(IPage page)
     {
+        await EnsureProjectNavAsync(page);
         await NavigateAsync(page, "/overview");
         await Assertions.Expect(page.Locator("#content h1").First).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
         await Assertions.Expect(page.Locator(".project-hero")).ToBeVisibleAsync();

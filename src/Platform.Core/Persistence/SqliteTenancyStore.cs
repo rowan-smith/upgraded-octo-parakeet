@@ -192,6 +192,37 @@ public sealed class SqliteTenancyStore : ITenancyStore
     public Project? FindProject(Guid id) => QueryOne("SELECT * FROM core_projects WHERE id=$value", MapProject, ("$value", id));
     public Project? FindProjectBySlug(string slug) => QueryOne("SELECT * FROM core_projects WHERE slug=$value COLLATE NOCASE", MapProject, ("$value", slug));
     public IReadOnlyList<Project> ListProjects() => QueryMany("SELECT * FROM core_projects WHERE archived_at IS NULL ORDER BY name", MapProject);
+
+    public IReadOnlyList<Guid> ListStarredProjectIds(Guid userId) =>
+        QueryMany(
+            "SELECT project_id FROM core_user_project_stars WHERE user_id=$user ORDER BY starred_at DESC",
+            r => Guid.Parse(r.GetString(0)),
+            ("$user", userId));
+
+    public bool IsProjectStarred(Guid userId, Guid projectId)
+    {
+        using var connection = _connections.Open();
+        using var command = Command(connection, """
+            SELECT 1 FROM core_user_project_stars WHERE user_id=$user AND project_id=$project LIMIT 1
+            """, null, ("$user", userId), ("$project", projectId));
+        return command.ExecuteScalar() is not null;
+    }
+
+    public void StarProject(Guid userId, Guid projectId) =>
+        Execute("""
+            INSERT INTO core_user_project_stars(user_id, project_id, starred_at)
+            VALUES($user, $project, $at)
+            ON CONFLICT(user_id, project_id) DO NOTHING
+            """,
+            ("$user", userId),
+            ("$project", projectId),
+            ("$at", DateTimeOffset.UtcNow));
+
+    public void UnstarProject(Guid userId, Guid projectId) =>
+        Execute(
+            "DELETE FROM core_user_project_stars WHERE user_id=$user AND project_id=$project",
+            ("$user", userId),
+            ("$project", projectId));
     public void DeleteProject(Guid id) => Execute("DELETE FROM core_projects WHERE id=$value", ("$value", id));
     public void SaveProjectUserAccess(ProjectUserAccess value) => Execute("""
         INSERT INTO core_project_user_access(id,project_id,user_id,granted_at) VALUES($id,$project,$user,$granted)

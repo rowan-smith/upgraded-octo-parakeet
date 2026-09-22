@@ -323,17 +323,95 @@ public static class TenancyEndpoints
             return Results.NoContent();
         });
 
+        app.MapGet("/api/users/me/starred-projects", (ITenancyStore store, PlatformContextStore context) =>
+        {
+            var ids = store.ListStarredProjectIds(context.User.Id);
+            var projects = ids
+                .Select(store.FindProject)
+                .Where(project => project is not null)
+                .Cast<Project>()
+                .ToArray();
+            return Results.Ok(projects);
+        });
+        app.MapGet("/api/projects/{id:guid}/star", (Guid id, ITenancyStore store, PlatformContextStore context) =>
+        {
+            if (store.FindProject(id) is null) return Results.NotFound();
+            return Results.Ok(new { starred = store.IsProjectStarred(context.User.Id, id) });
+        });
+        app.MapPut("/api/projects/{id:guid}/star", (Guid id, ITenancyStore store, PlatformContextStore context, ProjectAccessService access) =>
+        {
+            var project = store.FindProject(id);
+            if (project is null) return Results.NotFound();
+            var role = store.GetMembership(context.User.Id)?.Role ?? OrganisationRole.Member;
+            try { access.EnsureAccess(project, context.User.Id, role); }
+            catch (UnauthorizedAccessException) { return PermissionAuthorizer.Forbidden(); }
+            store.StarProject(context.User.Id, id);
+            return Results.Ok(new { starred = true });
+        });
+        app.MapDelete("/api/projects/{id:guid}/star", (Guid id, ITenancyStore store, PlatformContextStore context) =>
+        {
+            if (store.FindProject(id) is null) return Results.NotFound();
+            store.UnstarProject(context.User.Id, id);
+            return Results.Ok(new { starred = false });
+        });
+
         app.MapPost("/api/projects/{projectId:guid}/members", (Guid projectId, ProjectMemberRequest request, ProjectService projects, PermissionAuthorizer authorizer, HttpContext http) =>
         {
             if (!authorizer.Has(http, OrganisationPermissions.ProjectsManage)) return PermissionAuthorizer.Forbidden();
             try { projects.GrantUser(projectId, request.UserId); return Results.NoContent(); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
         });
+        app.MapGet("/api/projects/{projectId:guid}/members", (Guid projectId, ITenancyStore store, ProjectAccessService access, PlatformContextStore context) =>
+        {
+            var project = store.FindProject(projectId);
+            if (project is null) return Results.NotFound();
+            var role = store.GetMembership(context.User.Id)?.Role ?? OrganisationRole.Member;
+            try { access.EnsureAccess(project, context.User.Id, role); }
+            catch (UnauthorizedAccessException) { return PermissionAuthorizer.Forbidden(); }
+            var members = store.ListProjectUserAccess(projectId)
+                .Select(accessRow =>
+                {
+                    var user = store.FindUser(accessRow.UserId);
+                    var profile = store.GetProfile(accessRow.UserId);
+                    return new
+                    {
+                        userId = accessRow.UserId,
+                        username = user?.Username,
+                        email = user?.Email,
+                        displayName = profile?.DisplayName ?? user?.Username,
+                        grantedAt = accessRow.GrantedAt
+                    };
+                })
+                .ToArray();
+            return Results.Ok(members);
+        });
         app.MapDelete("/api/projects/{projectId:guid}/members/{userId:guid}", (Guid projectId, Guid userId, ProjectService projects, PermissionAuthorizer authorizer, HttpContext http) =>
         {
             if (!authorizer.Has(http, OrganisationPermissions.ProjectsManage)) return PermissionAuthorizer.Forbidden();
             projects.RevokeUser(projectId, userId);
             return Results.NoContent();
+        });
+        app.MapGet("/api/projects/{projectId:guid}/teams", (Guid projectId, ITenancyStore store, ProjectAccessService access, PlatformContextStore context) =>
+        {
+            var project = store.FindProject(projectId);
+            if (project is null) return Results.NotFound();
+            var role = store.GetMembership(context.User.Id)?.Role ?? OrganisationRole.Member;
+            try { access.EnsureAccess(project, context.User.Id, role); }
+            catch (UnauthorizedAccessException) { return PermissionAuthorizer.Forbidden(); }
+            var teams = store.ListProjectTeamAccess(projectId)
+                .Select(accessRow =>
+                {
+                    var team = store.FindTeam(accessRow.TeamId);
+                    return new
+                    {
+                        teamId = accessRow.TeamId,
+                        name = team?.Name,
+                        slug = team?.Slug,
+                        grantedAt = accessRow.GrantedAt
+                    };
+                })
+                .ToArray();
+            return Results.Ok(teams);
         });
         app.MapPost("/api/projects/{projectId:guid}/teams", (Guid projectId, ProjectTeamRequest request, ProjectService projects, PermissionAuthorizer authorizer, HttpContext http) =>
         {

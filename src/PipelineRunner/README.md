@@ -16,13 +16,13 @@ dotnet run --project src/PipelineRunner -- --url http://localhost:5262 --token <
 
 ### Launch profiles
 
-| Profile | Project | Purpose |
-|---------|---------|---------|
-| `http` | Platform.Api | Default dogfood — real runner mode on :5262 |
-| `Simulated` | Platform.Api | UI/dev without a local runner process |
-| `Full` | Platform.Api | Git + Review + Pipelines modules enabled |
-| `Local` | PipelineRunner | Reuses `.runner/credentials.json` if present |
-| `Register` | PipelineRunner | First-time join (replace token in launchSettings) |
+| Profile     | Project        | Purpose                                           |
+|-------------|----------------|---------------------------------------------------|
+| `http`      | Platform.Api   | Default dogfood — real runner mode on :5262       |
+| `Simulated` | Platform.Api   | UI/dev without a local runner process             |
+| `Full`      | Platform.Api   | Git + Review + Pipelines modules enabled          |
+| `Local`     | PipelineRunner | Reuses `.runner/credentials.json` if present      |
+| `Register`  | PipelineRunner | First-time join (replace token in launchSettings) |
 
 In Rider, use compound run config **Platform + Runner** (`.run/`) to start both.
 

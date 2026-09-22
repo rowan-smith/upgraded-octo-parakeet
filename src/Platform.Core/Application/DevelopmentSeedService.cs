@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Platform.Core.Context;
 using Platform.Core.Domain;
+using Platform.Core.Extensions;
 using Platform.Core.Persistence;
 
 namespace Platform.Core.Application;
@@ -11,7 +12,8 @@ public sealed class DevelopmentSeedService(
     ITenancyStore store,
     IPasswordHasher<UserAccount> passwords,
     ProjectService projects,
-    PlatformContextStore context)
+    PlatformContextStore context,
+    ExtensionLifecycleService? extensions = null)
 {
     public void SeedIfEnabled(bool isDevelopment)
     {
@@ -49,5 +51,6 @@ public sealed class DevelopmentSeedService(
             new OrganisationView(organisation.Id, organisation.Name, "northstar"),
             new ProjectView(project.Id, organisation.Id, project.Name, project.Key, null),
             PlatformContextStore.ToPlatformUser(user, profile, OrganisationRole.Owner));
+        extensions?.SeedDogfoodDefaults(user.Email);
     }
 }

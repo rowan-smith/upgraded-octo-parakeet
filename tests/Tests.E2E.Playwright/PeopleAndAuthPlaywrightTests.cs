@@ -14,7 +14,7 @@ public sealed class AuthenticationPlaywrightTests(PlaywrightBrowserFixture brows
         await Ui.CompleteSetupAsync(page, email: "auth-owner@example.com", username: "authowner");
 
         await Ui.ClickAsync(page.Locator("#userMenu"));
-        await Ui.ClickAsync(page.Locator("button[value='signout']"));
+        await Ui.ClickAsync(page.Locator("#userMenuDropdown button[value='signout']"));
         await Ui.ExpectVisible(page, "h1", "Sign in");
 
         await Ui.SignInAsync(page, "auth-owner@example.com", "password123");
@@ -31,7 +31,7 @@ public sealed class AuthenticationPlaywrightTests(PlaywrightBrowserFixture brows
         await Ui.CompleteSetupAsync(page, email: "wrong-pw@example.com", username: "wrongpw");
 
         await Ui.ClickAsync(page.Locator("#userMenu"));
-        await Ui.ClickAsync(page.Locator("button[value='signout']"));
+        await Ui.ClickAsync(page.Locator("#userMenuDropdown button[value='signout']"));
         await Ui.ExpectVisible(page, "h1", "Sign in");
 
         await page.Locator("#loginEmail").FillAsync("wrong-pw@example.com");

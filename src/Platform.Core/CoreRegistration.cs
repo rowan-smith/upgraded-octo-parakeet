@@ -15,6 +15,7 @@ using Platform.Core.Application;
 using Platform.Core.Capabilities;
 using Platform.Core.Context;
 using Platform.Core.Events;
+using Platform.Core.Extensions;
 using Platform.Core.Identity;
 using Platform.Core.Integrations;
 using Platform.Core.Licensing;
@@ -29,12 +30,9 @@ public static class CoreRegistration
     {
         services.AddSingleton<AuditStore>();
         services.AddSingleton<IEnumerable<IPlatformModule>>(modules);
+        ExtensionLifecycleService.RememberLoaded(modules);
         services.Configure<LicensingOptions>(configuration.GetSection(LicensingOptions.SectionName));
         services.Configure<BootstrapOptions>(configuration.GetSection(BootstrapOptions.SectionName));
-        if (configuration.GetSection(BootstrapOptions.SectionName).Exists() == false)
-        {
-            // Defaults: admin/admin with development warning.
-        }
         services.AddSingleton<ManagedLicenceEntitlementStore>();
         services.AddSingleton<ILicenceEntitlementStore>(sp => sp.GetRequiredService<ManagedLicenceEntitlementStore>());
         services.AddSingleton<LicenceService>();
@@ -51,6 +49,8 @@ public static class CoreRegistration
         services.AddSingleton<IDbConnectionFactory>(new SqliteConnectionFactory(connectionString));
         services.AddSingleton<CoreSchemaInitializer>();
         services.AddSingleton<ITenancyStore, SqliteTenancyStore>();
+        services.AddSingleton<IExtensionRegistry, SqliteExtensionRegistry>();
+        services.AddSingleton<ExtensionLifecycleService>();
         services.AddSingleton<IPasswordHasher<Platform.Core.Domain.UserAccount>, PasswordHasher<Platform.Core.Domain.UserAccount>>();
         services.AddSingleton<SetupService>();
         services.AddSingleton<AuthService>();

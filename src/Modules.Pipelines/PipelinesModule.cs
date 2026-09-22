@@ -13,11 +13,14 @@ namespace Modules.Pipelines;
 public sealed class PipelinesModule : IPlatformModule
 {
     public ModuleManifest Manifest { get; } = new(
-        "pipelines", "Pipelines", "0.2.0", "Community", ["Pipelines.BasicExecution"],
+        "pipelines", "Build", "0.2.0", "Community", ["Pipelines.BasicExecution"],
         [
-            new("pipelines", "Pipelines", "/pipelines", "Automation", 10),
-            new("runs", "Runs", "/runs", "Automation", 20),
-            new("runners", "Runners", "/runners", "Automation", 30)
+            new("pipelines", "Pipelines", "/pipelines", "Build", 10),
+            new("runs", "Runs", "/runs", "Build", 20),
+            new("jobs", "Jobs", "/jobs", "Build", 25),
+            new("tests", "Tests", "/tests", "Build", 26),
+            new("artifacts", "Artifacts", "/artifacts", "Build", 27),
+            new("runners", "Runners", "/runners", "Build", 30)
         ],
         [new("change", "checks", "Checks", "/api/review/changes/{id}/checks", 50)]);
 

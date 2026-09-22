@@ -53,9 +53,9 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.CompleteSetupWithCommercialLicenceAsync(page, payload, org: "Northstar Commercial", email: "comm@example.com", username: "commercial");
 
         await Ui.OpenLicensingAsync(page);
-        await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Commercial");
+        await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Enterprise");
         await Assertions.Expect(page.Locator("#licensingStatusPill")).ToHaveTextAsync("Active");
-        await Assertions.Expect(page.Locator("tr[data-licence-module='review']")).ToContainTextAsync("Commercial");
+        await Assertions.Expect(page.Locator("tr[data-licence-module='review']")).ToContainTextAsync("Enterprise");
         await Assertions.Expect(page.Locator("tr[data-licence-module='pipelines']")).ToContainTextAsync("Community");
 
         await Ui.OpenModulesAsync(page);
@@ -110,13 +110,13 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
             username: "replaceowner");
 
         await Ui.OpenLicensingAsync(page);
-        await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Commercial");
+        await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Enterprise");
 
         await page.Locator("#licensingPayload").FillAsync("{ \"not\": \"a licence\" }");
         await page.Locator("#licensingInstall").ClickAsync();
         await Ui.ExpectToastAsync(page, "Licence could not be validated");
-        await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Commercial");
-        await Assertions.Expect(page.Locator("tr[data-licence-module='review']")).ToContainTextAsync("Commercial");
+        await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Enterprise");
+        await Assertions.Expect(page.Locator("tr[data-licence-module='review']")).ToContainTextAsync("Enterprise");
 
         var policy = await GetJsonAsync(page, "/api/review/policy");
         Assert.True(policy.GetProperty("multiApprovalLicensed").GetBoolean());
@@ -140,7 +140,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.OpenLicensingAsync(page);
         page.Dialog += async (_, dialog) => await dialog.AcceptAsync();
         await page.Locator("#licensingRemove").ClickAsync();
-        await Ui.ExpectToastAsync(page, "Commercial licence removed");
+        await Ui.ExpectToastAsync(page, "Enterprise licence removed");
         await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Community");
         await Assertions.Expect(page.Locator("tr[data-licence-module='review']")).ToContainTextAsync("Community");
 
@@ -180,7 +180,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.OpenLicensingAsync(page);
         await page.Locator("#licensingPayload").FillAsync(licences.CreateCommercialJson());
         await page.Locator("#licensingInstall").ClickAsync();
-        await Ui.ExpectToastAsync(page, "Licence installed");
+        await Ui.ExpectToastAsync(page, "Enterprise licence installed");
 
         var allowed = await page.EvaluateAsync<JsonElement>("""
             async () => {
@@ -222,7 +222,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         await page.Locator("#licensingPayload").FillAsync(licences.CreateCommercialJson(
             reviewCapabilities: [KnownCapabilities.Review.MultiApproval, KnownCapabilities.Review.CodeOwners]));
         await page.Locator("#licensingInstall").ClickAsync();
-        await Ui.ExpectToastAsync(page, "Licence installed");
+        await Ui.ExpectToastAsync(page, "Enterprise licence installed");
 
         var commercial = await GetJsonAsync(page, "/api/platform/modules");
         var caps = commercial.GetProperty("capabilities").EnumerateArray().Select(c => c.GetString()).ToHashSet();

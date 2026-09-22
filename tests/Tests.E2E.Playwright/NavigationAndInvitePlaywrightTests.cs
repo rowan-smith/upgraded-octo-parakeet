@@ -28,9 +28,13 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
+        await Ui.EnsureProjectNavAsync(page);
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/changes']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/pipelines']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/runs']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#primaryNav .nav-group").Filter(new LocatorFilterOptions { HasTextString = "Build" })).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#primaryNav [data-route='/tags']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#primaryNav [data-route='/repositories']")).ToHaveCountAsync(0);
     }
 
     [Fact]
@@ -40,12 +44,14 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
+        await Ui.EnsureProjectNavAsync(page);
         await page.Locator("#primaryNav [data-route='/changes']").ClickAsync();
         await Ui.ExpectVisible(page, "h1", "Pull Requests");
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pull Requests");
 
         await page.Locator("#primaryNav [data-route='/pipelines']").ClickAsync();
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pipelines");
+        await Ui.ExpectVisible(page, "h1", "Build");
     }
 
     [Fact]
@@ -55,14 +61,31 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
-        await Ui.ClickAsync(page.Locator(".sidebar-footer [data-route='/people']"));
+        await Ui.OpenPeopleAsync(page);
         await Ui.ExpectVisible(page, "h1", "People");
 
-        await Ui.ClickAsync(page.Locator(".sidebar-footer [data-route='/audit']"));
+        await Ui.OpenAuditAsync(page);
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Audit");
 
-        await Ui.ClickAsync(page.Locator(".sidebar-footer [data-route='/modules']"));
+        await Ui.OpenModulesAsync(page);
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Modules");
+    }
+
+    [Fact]
+    public async Task Org_home_and_projects_routes_render()
+    {
+        await using var host = ForgeDeckHost.StartSeeded();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await Ui.EnsureOrgNavAsync(page);
+        await page.Locator("#primaryNav [data-route='/home']").ClickAsync();
+        await Assertions.Expect(page.Locator("#content h1").First).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator(".home-metrics")).ToBeVisibleAsync();
+
+        await page.Locator("#primaryNav [data-route='/projects']").ClickAsync();
+        await Ui.ExpectVisible(page, "h1", "Projects");
+        await Assertions.Expect(page.Locator(".projects-grid")).ToBeVisibleAsync();
     }
 
     [Fact]
@@ -72,6 +95,7 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
+        await Ui.EnsureProjectNavAsync(page);
         await page.Locator("#primaryNav [data-route='/files']").ClickAsync();
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Repositories");
         await Assertions.Expect(page.Locator(".file-browser").Or(page.Locator("#content h1")).First).ToBeVisibleAsync();
@@ -90,7 +114,7 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
-        await page.Locator("#primaryNav [data-route='/overview']").ClickAsync();
+        await Ui.OpenOverviewAsync(page);
         await Assertions.Expect(page.Locator("#content h1").First).ToContainTextAsync("Atlas");
         await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Northstar");
     }

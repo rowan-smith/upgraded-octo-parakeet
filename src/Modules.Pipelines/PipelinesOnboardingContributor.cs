@@ -8,7 +8,7 @@ namespace Modules.Pipelines;
 public sealed class PipelinesOnboardingContributor : IOnboardingContributor
 {
     public string Id => "pipelines-setup";
-    public string Title => "Configure Pipelines";
+    public string Title => "Configure Build";
     public int Order => 20;
     public bool IsRequired => false;
     public string? RequiredCapability => null;

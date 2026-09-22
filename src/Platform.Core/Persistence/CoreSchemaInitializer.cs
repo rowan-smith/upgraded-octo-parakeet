@@ -218,8 +218,28 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     correlation_id TEXT NOT NULL,
                     metadata TEXT
                 );
+                CREATE TABLE IF NOT EXISTS core_user_project_stars (
+                    user_id TEXT NOT NULL REFERENCES core_users(id) ON DELETE CASCADE,
+                    project_id TEXT NOT NULL REFERENCES core_projects(id) ON DELETE CASCADE,
+                    starred_at TEXT NOT NULL,
+                    PRIMARY KEY(user_id, project_id)
+                );
+                CREATE TABLE IF NOT EXISTS core_extensions (
+                    extension_id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    runtime_id TEXT,
+                    installed_version TEXT,
+                    state TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    installed_at TEXT,
+                    installed_by TEXT,
+                    updated_at TEXT NOT NULL,
+                    last_error TEXT,
+                    restart_required INTEGER NOT NULL DEFAULT 0
+                );
                 CREATE INDEX IF NOT EXISTS ix_core_audit_timestamp ON core_audit(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS ix_core_licences_status ON core_licences(status);
+                CREATE INDEX IF NOT EXISTS ix_core_user_project_stars_user ON core_user_project_stars(user_id);
                 """;
             command.ExecuteNonQuery();
             EnsureColumn(connection, "core_instance", "instance_id", "TEXT");

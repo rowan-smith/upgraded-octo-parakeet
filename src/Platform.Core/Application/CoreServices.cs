@@ -66,7 +66,7 @@ public sealed class SetupService(
         var hasRepositories = projects.Any(project => store.ListRepositories(project.Id).Count != 0);
         var opts = bootstrapOptions.Value;
         var moduleSteps = ResolveModuleSteps();
-        var steps = BuildSteps(organisation is not null, hasLicence, hasOwner, projects.Count != 0, hasRepositories, moduleSteps);
+        var steps = BuildSteps(organisation is not null, hasLicence, hasOwner, projects.Count != 0, moduleSteps);
 
         return new SetupStatus(
             instance.State == InstanceState.Initialised,
@@ -256,18 +256,18 @@ public sealed class SetupService(
     }
 
     private static IReadOnlyList<SetupStepStatus> BuildSteps(
-        bool hasOrg, bool hasLicence, bool hasOwner, bool hasProjects, bool hasRepos, IReadOnlyList<OnboardingStepView> moduleSteps)
+        bool hasOrg, bool hasLicence, bool hasOwner, bool hasProjects, IReadOnlyList<OnboardingStepView> moduleSteps)
     {
+        // First-run stays Core-only: Organisation → Licence → Owner → optional Project → Finish.
+        // Module/connector configuration happens later in Settings → Modules / Connectors.
+        _ = moduleSteps;
         var steps = new List<(string Id, string Title, bool Complete)>
         {
             ("organisation", "Organisation", hasOrg),
             ("licence", "Licence", hasLicence),
             ("owner", "Owner", hasOwner),
             ("project", "Project", hasProjects),
-            ("repositories", "Repositories", hasRepos),
-            ("members", "Members", hasOwner),
-            ("modules", "Modules", moduleSteps.Count == 0 || moduleSteps.Where(s => s.IsAvailable).All(s => s.IsComplete)),
-            ("finish", "Finish", hasOwner && hasProjects)
+            ("finish", "Finish", hasOwner)
         };
 
         var currentSet = false;
@@ -277,7 +277,7 @@ public sealed class SetupService(
             var locked = false;
             if (id == "licence") locked = !hasOrg;
             else if (id == "owner") locked = !hasLicence;
-            else if (id is "project" or "repositories" or "members" or "modules" or "finish") locked = !hasOwner;
+            else if (id is "project" or "finish") locked = !hasOwner;
 
             var current = !complete && !locked && !currentSet;
             if (current) currentSet = true;
