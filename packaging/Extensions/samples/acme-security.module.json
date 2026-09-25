@@ -1,0 +1,24 @@
+{
+  "apiVersion": "platform.dev/v1",
+  "kind": "Module",
+  "metadata": {
+    "id": "acme.security",
+    "name": "Acme Security Scanner",
+    "version": "2.4.1",
+    "publisher": "Acme"
+  },
+  "compatibility": { "platform": ">=0.1 <2.0" },
+  "runtime": { "type": "out-of-process", "image": "acme-security:2.4.1" },
+  "permissions": [ "repository.read", "build.read", "project.read", "review.status.write" ],
+  "events": {
+    "subscribes": [ "repository.push", "build.completed" ],
+    "publishes": [ "security.scan.completed" ]
+  },
+  "provides": [ "security-scanning" ],
+  "extensionPoints": [ "review.checks", "review.tabs" ],
+  "licensing": {
+    "provider": "module",
+    "feature": "security-scanning",
+    "moduleId": "acme.security"
+  }
+}

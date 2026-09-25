@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>ForgeDeck.Deploy.Team</RootNamespace>
+    <AssemblyName>ForgeDeck.Deploy.Team</AssemblyName>
+    <ForgeDeckCommercial>true</ForgeDeckCommercial>
+    <PackageLicenseExpression></PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <Description>ForgeDeck Deploy Team Edition extensions (proprietary).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="LICENSE" Pack="true" PackagePath="" />
+    <None Include="..\..\..\..\LICENSE" Link="COMMERCIAL-LICENSE.txt" Pack="true" PackagePath="COMMERCIAL-LICENSE.txt" />
+    <None Include="..\extension.json" Link="forgedeck.deploy.team.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\..\community\src\Modules\Deploy\ForgeDeck.Deploy\ForgeDeck.Deploy.csproj" />
+    <ProjectReference Include="..\..\..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

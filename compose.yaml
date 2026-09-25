@@ -7,8 +7,15 @@ services:
       Modules__git__Enabled: "false"
       Modules__review__Enabled: "true"
       Modules__pipelines__Enabled: "false"
+      Modules__deploy__Enabled: "false"
       Modules__checks-demo__Enabled: "false"
       ConnectionStrings__Platform: "Data Source=/app/data/forgedeck.db"
+      ConnectionStrings__Git: "Data Source=/app/data/forgedeck.db"
+      ConnectionStrings__Review: "Data Source=/app/data/forgedeck.db"
+      ConnectionStrings__Build: "Data Source=/app/data/forgedeck.db"
+      ConnectionStrings__Deploy: "Data Source=/app/data/forgedeck.db"
+      Deployment__Profile: "appliance"
+      FORGEDECK_DEPLOYMENT_PROFILE: "appliance"
       Data__ProtectionKeysPath: "/app/data/keys"
     volumes:
       - forgedeck-data:/app/data

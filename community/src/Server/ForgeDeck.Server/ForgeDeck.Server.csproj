@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ForgeDeck.Server</RootNamespace>
+    <AssemblyName>ForgeDeck.Server</AssemblyName>
+    <!-- Community by default. IncludeTeam / IncludeEnterprise ship commercial packages. FOSS_ONLY=1 forces Community. -->
+    <IncludeTeam Condition="'$(FOSS_ONLY)' == 'true' or '$(FOSS_ONLY)' == '1'">false</IncludeTeam>
+    <IncludeEnterprise Condition="'$(FOSS_ONLY)' == 'true' or '$(FOSS_ONLY)' == '1'">false</IncludeEnterprise>
+    <IncludeEnterprise Condition="'$(IncludeEnterprise)' == '' and ('$(IncludeCommercial)' == 'true' or '$(IncludeEE)' == 'true')">true</IncludeEnterprise>
+    <IncludeTeam Condition="'$(IncludeTeam)' == '' and '$(IncludeEnterprise)' == 'true'">true</IncludeTeam>
+    <IncludeTeam Condition="'$(IncludeTeam)' == ''">false</IncludeTeam>
+    <IncludeEnterprise Condition="'$(IncludeEnterprise)' == ''">false</IncludeEnterprise>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+    <ProjectReference Include="..\..\Core\ForgeDeck.Core\ForgeDeck.Core.csproj" />
+    <ProjectReference Include="..\..\Web\ForgeDeck.Web\ForgeDeck.Web.csproj" />
+    <ProjectReference Include="..\..\Modules\Review\ForgeDeck.Review\ForgeDeck.Review.csproj" />
+    <ProjectReference Include="..\..\Modules\ChecksDemo\ForgeDeck.ChecksDemo\ForgeDeck.ChecksDemo.csproj" />
+    <ProjectReference Include="..\..\Connectors\GitHub\ForgeDeck.Connector.GitHub\ForgeDeck.Connector.GitHub.csproj" />
+    <ProjectReference Include="..\..\Modules\Build\ForgeDeck.Build\ForgeDeck.Build.csproj" />
+    <ProjectReference Include="..\..\Modules\Deploy\ForgeDeck.Deploy\ForgeDeck.Deploy.csproj" />
+    <ProjectReference Include="..\..\Modules\Git\ForgeDeck.Git\ForgeDeck.Git.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IncludeTeam)' == 'true'">
+    <ProjectReference Include="..\..\..\..\commercial\team\Modules\Review.Team\ForgeDeck.Review.Team\ForgeDeck.Review.Team.csproj" />
+    <ProjectReference Include="..\..\..\..\commercial\team\Modules\Build.Team\ForgeDeck.Build.Team\ForgeDeck.Build.Team.csproj" />
+    <ProjectReference Include="..\..\..\..\commercial\team\Modules\Deploy.Team\ForgeDeck.Deploy.Team\ForgeDeck.Deploy.Team.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IncludeEnterprise)' == 'true'">
+    <ProjectReference Include="..\..\..\..\commercial\enterprise\Modules\Review.Enterprise\ForgeDeck.Review.Enterprise\ForgeDeck.Review.Enterprise.csproj" />
+    <ProjectReference Include="..\..\..\..\commercial\enterprise\Modules\Build.Enterprise\ForgeDeck.Build.Enterprise\ForgeDeck.Build.Enterprise.csproj" />
+    <ProjectReference Include="..\..\..\..\commercial\enterprise\Modules\Deploy.Enterprise\ForgeDeck.Deploy.Enterprise\ForgeDeck.Deploy.Enterprise.csproj" />
+  </ItemGroup>
+
+</Project>

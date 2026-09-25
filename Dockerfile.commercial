@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet restore ForgeDeck.slnx
+# Full commercial image: identical binaries for Team/Enterprise; entitlements come from the signed licence.
+RUN dotnet publish community/src/Server/ForgeDeck.Server/ForgeDeck.Server.csproj \
+    -c Release -o /app --no-restore -p:IncludeEnterprise=true
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "ForgeDeck.Server.dll"]

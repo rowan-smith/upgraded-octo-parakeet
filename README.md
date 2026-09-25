@@ -1,24 +1,41 @@
-﻿# Modular Software Delivery Platform
+# Modular Software Delivery Platform
 
 ## Licensing
 
-ForgeDeck follows GitLab-style open-core source separation:
+ForgeDeck uses an open-core model with proprietary commercial layers:
 
-- **Community Edition (CE)** — everything outside [`/ee`](ee/): [AGPL-3.0-only](licenses/AGPL-3.0.txt)
-- **Enterprise Edition (EE)** — everything under [`/ee`](ee/): [EE License](ee/LICENSE) (proprietary, source-available, sellable)
+- **Community** — [`community/`](community/) + [`sdk/`](sdk/): [AGPL-3.0-only](licenses/AGPL-3.0.txt)
+- **Team / Enterprise** — [`commercial/`](commercial/): [commercial licence](LICENSE.enterprise) (proprietary; lawyer review before release)
 
-Default builds are CE. EE: `dotnet run --project src/Platform.Api -p:IncludeEE=true`.  
-`FOSS_ONLY=1` forces CE. See [LICENSE.md](LICENSE.md).
+```text
+Community can build independently.
+Team and Enterprise are additive proprietary packages.
+Community never references commercial source.
+```
 
-Runtime EE capability activation still needs a signed entitlement file; that is separate from copyright licensing.
+Default: Community. Team: `-p:IncludeTeam=true`. Enterprise: `-p:IncludeEnterprise=true` (transitional host flags).  
+Commercial air-gap image: `Dockerfile.commercial` (full packages; licence decides entitlements).  
+`FOSS_ONLY=1` forces Community. See [LICENSE.md](LICENSE.md), [entitlements](docs/architecture/entitlements.md), and [commercial protection](docs/architecture/commercial-protection.md).
+
+Runtime commercial capabilities still need a signed entitlement file; that is separate from copyright licensing.
 
 ## Implementation status
 
-The current .NET 10 modular monolith implements Core, native Git, Review, Pipelines, a GitHub source-provider adapter, capability discovery, RBAC checks, correlated audit, versioned domain events, and the dynamic web shell.
+The current .NET 10 modular monolith implements Core, native Git, Review, Build (pipelines), a GitHub source-provider adapter, capability discovery, RBAC checks, correlated audit, versioned domain events, and the dynamic web shell.
 
-Optional modules integrate only through public contracts: Review emits `ChangeOpened`, Git emits `PushReceived`, Pipelines subscribes, and Review discovers results through `ICheckProvider`. No optional module references another optional module.
+Optional modules integrate only through public contracts. No optional module references another optional module.
 
-Run locally with `dotnet run --project src/Platform.Api`, or use `docker compose up --build`. Run `dotnet test ForgeDeck.slnx` for the module composition and workflow tests.
+Run locally with 
+
+```bash
+dotnet run --project community/src/Server/ForgeDeck.Server
+```
+or use
+```bash
+docker compose up --build
+```
+
+Run `dotnet test ForgeDeck.slnx` for the module composition and workflow tests.
 
 Each feature module follows a consistent `Domain`, `Application`, `Infrastructure`, and `Api` structure. See [the architecture guide](docs/architecture.md) before extending the platform.
 
@@ -1498,7 +1515,7 @@ GitHub Issues
 Changes may reference work items:
 
 ```text
-AXO-184
+FD-184
 ```
 
 Relevant lifecycle information may be pushed to ticket providers:
@@ -1689,10 +1706,10 @@ Suggested structure:
 ```text
 src/
 
-Platform.Core/
-Platform.Contracts/
-Platform.Api/
-Platform.Web/
+ForgeDeck.Core/
+ForgeDeck.Contracts/
+ForgeDeck.Server/
+ForgeDeck.Web/
 
 Modules/
 
@@ -1725,7 +1742,7 @@ Connectors/
 
 Workers/
 
-  PipelineRunner/
+  ForgeDeck.Runner/
   DeploymentAgent/
 ```
 

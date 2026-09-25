@@ -1,10 +1,12 @@
-# Enterprise Edition development
+# Enterprise / commercial development
 
-ForgeDeck mirrors GitLab's CE/EE separation:
+Proprietary code lives under `commercial/` (Team + Enterprise).
 
-- Put proprietary product code only under `/ee`
-- Guard EE capabilities with `ICapabilityService` / signed entitlements
-- Without a licence, EE builds must behave like CE for gated features
-- Force CE with `FOSS_ONLY=1` or by omitting `-p:IncludeEE=true`
+```bash
+dotnet run --project community/src/Server/ForgeDeck.Server -p:IncludeTeam=true
+dotnet run --project community/src/Server/ForgeDeck.Server -p:IncludeEnterprise=true
+```
 
-See `/ee/README.md` and `LICENSE.md`.
+See [architecture/commercial-protection.md](architecture/commercial-protection.md) and [LICENSE.md](../LICENSE.md).
+
+Have commercial licence terms reviewed by a software-licensing lawyer before release.

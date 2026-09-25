@@ -1,4 +1,4 @@
-﻿# Phase 2 — Working Local Pipelines for Review
+# Phase 2 — Working Local Pipelines for Review
 
 ## 1. Objective
 
@@ -572,7 +572,7 @@ or:
 separate container/process launched locally
 ```
 
-It must not execute arbitrary pipeline commands inside `Platform.Api`.
+It must not execute arbitrary pipeline commands inside `ForgeDeck.Server`.
 
 ---
 
@@ -2978,7 +2978,7 @@ Control plane + local runner are implemented and modular (events + `ICheckProvid
 
 **In place:** runner register/heartbeat/revoke, cancel with ack, isolated workspace + SHA checkout, definition CRUD, manual runs with repository URL, ChangeOpened/Updated/Push triggers, supersede, TRX + artifacts (upload/download), Checks + RequiredChecks merge gate, live run polling UI, `ArtifactReference`, Simulated vs Runner modes (`Development` defaults to Runner).
 
-**Dogfood notes:** start Platform.Api before PipelineRunner; use a fresh registration token; set GitHub credential for private clones. Opt-in smokes: `FORGEDECK_DOCKER_SMOKE=1`, `FORGEDECK_GITHUB_SMOKE=1` (+ `_MUTATE=1` for write path).
+**Dogfood notes:** start ForgeDeck.Server before ForgeDeck.Runner; use a fresh registration token; set GitHub credential for private clones. Opt-in smokes: `FORGEDECK_DOCKER_SMOKE=1`, `FORGEDECK_GITHUB_SMOKE=1` (+ `_MUTATE=1` for write path).
 
 ---
 

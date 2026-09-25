@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  community:
+    name: Community (no commercial/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Remove commercial source
+        run: rm -rf commercial
+      - name: Build Community
+        run: |
+          dotnet restore community/src/Server/ForgeDeck.Server/ForgeDeck.Server.csproj
+          dotnet build community/src/Server/ForgeDeck.Server/ForgeDeck.Server.csproj -c Release --no-restore
+          dotnet build community/src/Runner/ForgeDeck.Runner/ForgeDeck.Runner.csproj -c Release
+          dotnet build community/tests/Core.Tests/Core.Tests.csproj -c Release
+          dotnet build community/tests/Integration.Tests/Integration.Tests.csproj -c Release
+          dotnet build community/tests/E2E.Tests/E2E.Tests.csproj -c Release
+      - name: Test Community
+        run: |
+          dotnet test community/tests/Core.Tests/Core.Tests.csproj -c Release --no-build
+          dotnet test community/tests/Integration.Tests/Integration.Tests.csproj -c Release --no-build
+          dotnet test community/tests/E2E.Tests/E2E.Tests.csproj -c Release --no-build
+
+  team:
+    name: Team host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build with Team
+        run: dotnet build community/src/Server/ForgeDeck.Server/ForgeDeck.Server.csproj -c Release -p:IncludeTeam=true
+      - name: Team tests
+        run: |
+          dotnet test commercial/tests/Review.Team.Tests/Review.Team.Tests.csproj -c Release
+          dotnet test commercial/tests/Build.Team.Tests/Build.Team.Tests.csproj -c Release
+          dotnet test commercial/tests/Deploy.Team.Tests/Deploy.Team.Tests.csproj -c Release
+
+  full:
+    name: Full solution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build
+        run: dotnet build ForgeDeck.slnx -c Release
+      - name: Test (exclude Playwright)
+        run: dotnet test ForgeDeck.slnx -c Release --no-build --filter "FullyQualifiedName!~Playwright"
+
+  enterprise-host:
+    name: Enterprise host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build Server with Enterprise
+        run: dotnet build community/src/Server/ForgeDeck.Server/ForgeDeck.Server.csproj -c Release -p:IncludeEnterprise=true
+      - name: Commercial tests
+        run: |
+          dotnet test commercial/tests/Review.Team.Tests/Review.Team.Tests.csproj -c Release
+          dotnet test commercial/tests/Review.Enterprise.Tests/Review.Enterprise.Tests.csproj -c Release
+          dotnet test commercial/tests/Build.Team.Tests/Build.Team.Tests.csproj -c Release
+          dotnet test commercial/tests/Build.Enterprise.Tests/Build.Enterprise.Tests.csproj -c Release
+          dotnet test commercial/tests/Deploy.Team.Tests/Deploy.Team.Tests.csproj -c Release
+          dotnet test commercial/tests/Deploy.Enterprise.Tests/Deploy.Enterprise.Tests.csproj -c Release
+
+  commercial-scan:
+    name: Commercial artifact scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build commercial packages (Release, no PDBs in publish)
+        run: |
+          dotnet publish commercial/team/Modules/Review.Team/ForgeDeck.Review.Team/ForgeDeck.Review.Team.csproj -c Release -o /tmp/fd-team -p:DebugType=None -p:DebugSymbols=false
+          dotnet publish commercial/enterprise/Modules/Review.Enterprise/ForgeDeck.Review.Enterprise/ForgeDeck.Review.Enterprise.csproj -c Release -o /tmp/fd-ent -p:DebugType=None -p:DebugSymbols=false
+          dotnet publish commercial/team/Modules/Build.Team/ForgeDeck.Build.Team/ForgeDeck.Build.Team.csproj -c Release -o /tmp/fd-build-team -p:DebugType=None -p:DebugSymbols=false
+          dotnet publish commercial/enterprise/Modules/Build.Enterprise/ForgeDeck.Build.Enterprise/ForgeDeck.Build.Enterprise.csproj -c Release -o /tmp/fd-build-ent -p:DebugType=None -p:DebugSymbols=false
+          dotnet publish commercial/team/Modules/Deploy.Team/ForgeDeck.Deploy.Team/ForgeDeck.Deploy.Team.csproj -c Release -o /tmp/fd-deploy-team -p:DebugType=None -p:DebugSymbols=false
+          dotnet publish commercial/enterprise/Modules/Deploy.Enterprise/ForgeDeck.Deploy.Enterprise/ForgeDeck.Deploy.Enterprise.csproj -c Release -o /tmp/fd-deploy-ent -p:DebugType=None -p:DebugSymbols=false
+      - name: Scan
+        shell: pwsh
+        run: |
+          ./packaging/Extensions/scan-commercial-package.ps1 -Path /tmp/fd-team
+          ./packaging/Extensions/scan-commercial-package.ps1 -Path /tmp/fd-ent
+          ./packaging/Extensions/scan-commercial-package.ps1 -Path /tmp/fd-build-team
+          ./packaging/Extensions/scan-commercial-package.ps1 -Path /tmp/fd-build-ent
+          ./packaging/Extensions/scan-commercial-package.ps1 -Path /tmp/fd-deploy-team
+          ./packaging/Extensions/scan-commercial-package.ps1 -Path /tmp/fd-deploy-ent

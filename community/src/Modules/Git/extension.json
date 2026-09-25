@@ -1,0 +1,11 @@
+{
+  "id": "forgedeck.git",
+  "name": "Git",
+  "type": "module",
+  "version": "0.1.0",
+  "edition": "community",
+  "minimumCoreVersion": "0.1.0",
+  "provides": [
+    "git"
+  ]
+}

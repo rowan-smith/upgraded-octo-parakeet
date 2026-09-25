@@ -1,0 +1,55 @@
+# Overlay for team-split topology (Core/SCM + Build + Deploy hosts).
+# Usage: docker compose -f compose.yaml -f compose.team-split.yaml --profile team-split up --build
+# See docs/architecture/deployment-topology.md
+
+services:
+  platform:
+    environment:
+      Modules__pipelines__Enabled: "false"
+      ConnectionStrings__Platform: "Data Source=/app/data/platform.db"
+      ConnectionStrings__Git: "Data Source=/app/data/git.db"
+      ConnectionStrings__Review: "Data Source=/app/data/review.db"
+      Deployment__Profile: "team-split"
+      FORGEDECK_DEPLOYMENT_PROFILE: "team-split"
+
+  build:
+    profiles: ["team-split"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      Modules__git__Enabled: "false"
+      Modules__review__Enabled: "false"
+      Modules__pipelines__Enabled: "true"
+      ConnectionStrings__Platform: "Data Source=/app/data/platform.db"
+      ConnectionStrings__Build: "Data Source=/app/data/build.db"
+      FORGEDECK_DEPLOYMENT_PROFILE: "team-split"
+      ASPNETCORE_URLS: "http://+:8081"
+    ports:
+      - "8081:8081"
+    volumes:
+      - forgedeck-build-data:/app/data
+    restart: unless-stopped
+
+  deploy:
+    profiles: ["team-split"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      Modules__git__Enabled: "false"
+      Modules__review__Enabled: "false"
+      Modules__pipelines__Enabled: "false"
+      ConnectionStrings__Platform: "Data Source=/app/data/platform.db"
+      ConnectionStrings__Deploy: "Data Source=/app/data/deploy.db"
+      FORGEDECK_DEPLOYMENT_PROFILE: "team-split"
+      ASPNETCORE_URLS: "http://+:8082"
+    ports:
+      - "8082:8082"
+    volumes:
+      - forgedeck-deploy-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  forgedeck-build-data:
+  forgedeck-deploy-data:

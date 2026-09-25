@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Core.Tests</RootNamespace>
+    <AssemblyName>Core.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Core\ForgeDeck.Core\ForgeDeck.Core.csproj" />
+    <ProjectReference Include="..\..\src\Web\ForgeDeck.Web\ForgeDeck.Web.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Review\ForgeDeck.Review\ForgeDeck.Review.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Build\ForgeDeck.Build\ForgeDeck.Build.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Deploy\ForgeDeck.Deploy\ForgeDeck.Deploy.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Git\ForgeDeck.Git\ForgeDeck.Git.csproj" />
+    <ProjectReference Include="..\..\src\Runner\ForgeDeck.Runner\ForgeDeck.Runner.csproj" />
+  </ItemGroup>
+
+</Project>

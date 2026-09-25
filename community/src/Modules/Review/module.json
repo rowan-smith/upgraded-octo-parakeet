@@ -1,0 +1,41 @@
+{
+  "apiVersion": "platform.dev/v1",
+  "kind": "Module",
+  "metadata": {
+    "id": "forgedeck.review",
+    "name": "Review",
+    "version": "0.3.0",
+    "publisher": "ForgeDeck"
+  },
+  "compatibility": {
+    "platform": ">=0.1 <2.0"
+  },
+  "runtime": {
+    "type": "in-process"
+  },
+  "edition": "Community",
+  "permissions": [
+    "project.read",
+    "repository.read",
+    "review.read",
+    "review.create",
+    "review.status.write",
+    "build.read"
+  ],
+  "events": {
+    "subscribes": [ "build.started", "build.completed", "build.failed" ],
+    "publishes": [ "review.created", "review.updated", "review.approved", "review.merged" ]
+  },
+  "provides": [ "review" ],
+  "capabilities": [ "Review.BasicApproval" ],
+  "extensionPoints": [
+    "platform.navigation",
+    "review.tabs",
+    "review.checks",
+    "review.merge-gates"
+  ],
+  "licensing": {
+    "provider": "platform",
+    "moduleId": "review"
+  }
+}

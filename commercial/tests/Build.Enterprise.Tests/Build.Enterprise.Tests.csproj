@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Build.Enterprise.Tests</RootNamespace>
+    <AssemblyName>Build.Enterprise.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\community\src\Modules\Build\ForgeDeck.Build\ForgeDeck.Build.csproj" />
+    <ProjectReference Include="..\..\..\community\src\Core\ForgeDeck.Core\ForgeDeck.Core.csproj" />
+    <ProjectReference Include="..\..\team\Modules\Build.Team\ForgeDeck.Build.Team\ForgeDeck.Build.Team.csproj" />
+    <ProjectReference Include="..\..\enterprise\Modules\Build.Enterprise\ForgeDeck.Build.Enterprise\ForgeDeck.Build.Enterprise.csproj" />
+    <ProjectReference Include="..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

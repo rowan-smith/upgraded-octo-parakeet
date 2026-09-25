@@ -1,43 +1,38 @@
-# ForgeDeck licensing (GitLab-style open core)
-
-ForgeDeck uses the same consumer / commercial source separation model as GitLab:
+# ForgeDeck licensing
 
 | Tree | Edition | License |
 |------|---------|---------|
-| Everything **outside** `/ee` | Community Edition (CE) | **AGPL-3.0-only** — [licenses/AGPL-3.0.txt](licenses/AGPL-3.0.txt) |
-| Everything **under** `/ee` | Enterprise Edition (EE) | **EE License** (proprietary, source-available) — [ee/LICENSE](ee/LICENSE) |
+| [`community/`](community/) + [`sdk/`](sdk/) | Community | **AGPL-3.0-only** |
+| [`commercial/`](commercial/) | Team + Enterprise (proprietary) | [LICENSE.enterprise](LICENSE.enterprise) / [commercial/LICENSE](commercial/LICENSE) |
 
-## Community Edition (CE)
+**Have the commercial licence text reviewed by a software-licensing lawyer before public release.**
 
-Default build. Public / self-hostable under AGPL-3.0-only.
-
-```bash
-dotnet run --project src/Platform.Api
-# or explicitly:
-FOSS_ONLY=1 dotnet run --project src/Platform.Api
-```
-
-## Enterprise Edition (EE)
-
-Includes `/ee` assemblies. Production use of EE code requires a commercial
-subscription / agreement (see `ee/LICENSE`). Runtime commercial capabilities
-also require a signed entitlement file.
+## Community
 
 ```bash
-dotnet run --project src/Platform.Api -p:IncludeEE=true
+dotnet run --project community/src/Server/ForgeDeck.Server
+FOSS_ONLY=1 dotnet run --project community/src/Server/ForgeDeck.Server
 ```
 
-Without a valid entitlement, an EE build still behaves like CE for gated
-capabilities (same idea as unlicensed GitLab EE).
+## Team
+
+```bash
+dotnet run --project community/src/Server/ForgeDeck.Server -p:IncludeTeam=true
+```
+
+## Enterprise (transitional host flag)
+
+```bash
+dotnet run --project community/src/Server/ForgeDeck.Server -p:IncludeEnterprise=true
+```
+
+Prefer `Dockerfile.commercial` for air-gapped commercial deployments: one image, entitlements from the signed licence ([docs/architecture/entitlements.md](docs/architecture/entitlements.md)).
+
+Runtime entitlement (`forgedeck.lic`) is separate from source licensing. See [docs/architecture/commercial-protection.md](docs/architecture/commercial-protection.md).
 
 ## Rules
 
-1. Sellable / proprietary product code belongs only under `/ee`.
-2. CE must never take a compile-time dependency on `/ee`.
-3. AGPL does not grant rights to `/ee` source; the EE License does not relicense CE.
-4. You may remove `/ee` after cloning to obtain a CE-only tree.
-
-## Contributors
-
-- Contributions outside `/ee` are under AGPL-3.0-only.
-- Contributions under `/ee` are under the EE License (or a contributor agreement).
+1. Proprietary product code belongs only under `commercial/`.
+2. Community must never take a compile-time dependency on `commercial/` (except Server conditional IncludeTeam/IncludeEnterprise — transitional).
+3. Removing `commercial/` leaves a viable Community product.
+4. Do not encode a global Team/Enterprise edition in application code — use per-module entitlements / capabilities.

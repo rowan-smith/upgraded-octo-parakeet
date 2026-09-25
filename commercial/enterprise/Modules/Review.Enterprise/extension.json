@@ -1,0 +1,20 @@
+{
+  "id": "forgedeck.review.enterprise",
+  "name": "Review Enterprise",
+  "type": "module-extension",
+  "version": "0.1.0",
+  "edition": "enterprise",
+  "minimumCoreVersion": "0.1.0",
+  "requires": [
+    "forgedeck.review >= 0.2.0",
+    "forgedeck.review.team >= 0.1.0"
+  ],
+  "provides": [
+    "Review.PathPolicy",
+    "Review.ConditionalPolicy",
+    "Review.PolicyComposition",
+    "Review.ReviewDismissal",
+    "Review.SeparationOfDuties",
+    "Review.ComplianceExport"
+  ]
+}

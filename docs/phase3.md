@@ -1,4 +1,4 @@
-﻿# Phase 3 — Working Local Deployment
+# Phase 3 — Working Local Deployment
 
 ## 1. Objective
 
@@ -2018,8 +2018,8 @@ Developer Machine
 ┌──────────────────────────┐
 │ Active Dev Environment   │
 │                          │
-│ Platform.Api             │
-│ Platform.Web             │
+│ ForgeDeck.Server             │
+│ ForgeDeck.Web             │
 │ Database                 │
 │ Pipeline Runner          │
 │ Deployment Agent         │

@@ -1,0 +1,12 @@
+{
+  "id": "forgedeck.build",
+  "name": "Build",
+  "type": "module",
+  "version": "0.2.0",
+  "edition": "community",
+  "minimumCoreVersion": "0.1.0",
+  "provides": [
+    "build",
+    "Pipelines.BasicExecution"
+  ]
+}

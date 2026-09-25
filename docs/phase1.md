@@ -1,4 +1,4 @@
-﻿# Phase 1 — Working Review for Local Repository
+# Phase 1 — Working Review for Local Repository
 
 ## 1. Objective
 
@@ -566,9 +566,9 @@ Example:
 platform / main
 
 src/
-├── Platform.Api/
-├── Platform.Core/
-├── Platform.Contracts/
+├── ForgeDeck.Server/
+├── ForgeDeck.Core/
+├── ForgeDeck.Contracts/
 ├── Modules/
 │   └── Review/
 └── Connectors/
@@ -596,7 +596,7 @@ src/Modules/Review/Change.cs
 main
 a71c991
 
-  1  namespace Platform.Review;
+  1  namespace ForgeDeck.Review;
   2
   3  public sealed class Change
   4  {
@@ -975,7 +975,7 @@ Example:
 
 ```text
 Rowan
-Should this provider abstraction move into Platform.Contracts?
+Should this provider abstraction move into ForgeDeck.Contracts?
 
     Alex
     Yes, that makes sense.
@@ -1601,10 +1601,10 @@ Target structure:
 ```text
 src/
 
-Platform.Core/
-Platform.Contracts/
-Platform.Api/
-Platform.Web/
+ForgeDeck.Core/
+ForgeDeck.Contracts/
+ForgeDeck.Server/
+ForgeDeck.Web/
 
 Modules/
 

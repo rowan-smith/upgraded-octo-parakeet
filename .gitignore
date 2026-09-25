@@ -6,6 +6,7 @@
 *.suo
 .runner/
 keys/licence-private.pem
+keys/package-private.pem
 data/licence.json
 *.db
 /.idea/

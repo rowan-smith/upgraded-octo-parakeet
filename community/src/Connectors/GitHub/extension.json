@@ -1,0 +1,13 @@
+{
+  "id": "forgedeck.github",
+  "name": "GitHub",
+  "type": "connector",
+  "version": "0.1.0",
+  "edition": "community",
+  "minimumCoreVersion": "0.1.0",
+  "provides": [
+    "github",
+    "ISourceProvider",
+    "IChangeProvider"
+  ]
+}

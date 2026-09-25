@@ -1,26 +1,64 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/Connectors.GitHub/Connectors.GitHub.csproj" />
-    <Project Path="src/Modules.ChecksDemo/Modules.ChecksDemo.csproj" />
-    <Project Path="src/Modules.Git/Modules.Git.csproj" />
-    <Project Path="src/Modules.Pipelines/Modules.Pipelines.csproj" />
-    <Project Path="src/Modules.Review/Modules.Review.csproj" />
-    <Project Path="src/PipelineRunner/PipelineRunner.csproj" />
-    <Project Path="src/Platform.Api/Platform.Api.csproj" />
-    <Project Path="src/Platform.Contracts/Platform.Contracts.csproj" />
-    <Project Path="src/Platform.Core/Platform.Core.csproj" />
-    <Project Path="src/Platform.Web/Platform.Web.csproj" />
+﻿<Solution>
+  <Folder Name="/SolutionItems/">
+    <File Path=".gitignore" />
+    <File Path="compose.yaml" />
+    <File Path="Dockerfile" />
+    <File Path="LICENSE" />
+    <File Path="LICENSE.enterprise" />
+    <File Path="LICENSE.md" />
+    <File Path="NOTICE" />
+    <File Path="README.md" />
   </Folder>
-  <Folder Name="/ee/">
-    <Project Path="ee/Modules.Review.Commercial/Modules.Review.Commercial.csproj" />
+  <Folder Name="/SDK/">
+    <Project Path="sdk/ForgeDeck.Contracts/ForgeDeck.Contracts.csproj" />
   </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/Tests.E2E/Tests.E2E.csproj" />
-    <Project Path="tests/Tests.E2E.Playwright/Tests.E2E.Playwright.csproj" />
-    <Project Path="tests/Tests.Integration/Tests.Integration.csproj" />
-    <Project Path="tests/Tests.Unit/Tests.Unit.csproj" />
+  <Folder Name="/Community/Core/">
+    <Project Path="community/src/Core/ForgeDeck.Core/ForgeDeck.Core.csproj" />
   </Folder>
-  <Folder Name="/tools/">
+  <Folder Name="/Community/Server/">
+    <Project Path="community/src/Server/ForgeDeck.Server/ForgeDeck.Server.csproj" />
+  </Folder>
+  <Folder Name="/Community/Web/">
+    <Project Path="community/src/Web/ForgeDeck.Web/ForgeDeck.Web.csproj" />
+  </Folder>
+  <Folder Name="/Community/Modules/">
+    <Project Path="community/src/Modules/Git/ForgeDeck.Git/ForgeDeck.Git.csproj" />
+    <Project Path="community/src/Modules/Review/ForgeDeck.Review/ForgeDeck.Review.csproj" />
+    <Project Path="community/src/Modules/Build/ForgeDeck.Build/ForgeDeck.Build.csproj" />
+    <Project Path="community/src/Modules/Deploy/ForgeDeck.Deploy/ForgeDeck.Deploy.csproj" />
+    <Project Path="community/src/Modules/ChecksDemo/ForgeDeck.ChecksDemo/ForgeDeck.ChecksDemo.csproj" />
+  </Folder>
+  <Folder Name="/Community/Connectors/">
+    <Project Path="community/src/Connectors/GitHub/ForgeDeck.Connector.GitHub/ForgeDeck.Connector.GitHub.csproj" />
+  </Folder>
+  <Folder Name="/Community/Runner/">
+    <Project Path="community/src/Runner/ForgeDeck.Runner/ForgeDeck.Runner.csproj" />
+  </Folder>
+  <Folder Name="/Commercial/Team/">
+    <Project Path="commercial/team/Modules/Review.Team/ForgeDeck.Review.Team/ForgeDeck.Review.Team.csproj" />
+    <Project Path="commercial/team/Modules/Build.Team/ForgeDeck.Build.Team/ForgeDeck.Build.Team.csproj" />
+    <Project Path="commercial/team/Modules/Deploy.Team/ForgeDeck.Deploy.Team/ForgeDeck.Deploy.Team.csproj" />
+  </Folder>
+  <Folder Name="/Commercial/Enterprise/">
+    <Project Path="commercial/enterprise/Modules/Review.Enterprise/ForgeDeck.Review.Enterprise/ForgeDeck.Review.Enterprise.csproj" />
+    <Project Path="commercial/enterprise/Modules/Build.Enterprise/ForgeDeck.Build.Enterprise/ForgeDeck.Build.Enterprise.csproj" />
+    <Project Path="commercial/enterprise/Modules/Deploy.Enterprise/ForgeDeck.Deploy.Enterprise/ForgeDeck.Deploy.Enterprise.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Community/">
+    <Project Path="community/tests/Core.Tests/Core.Tests.csproj" />
+    <Project Path="community/tests/Integration.Tests/Integration.Tests.csproj" />
+    <Project Path="community/tests/E2E.Tests/E2E.Tests.csproj" />
+    <Project Path="community/tests/E2E.Playwright.Tests/E2E.Playwright.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Commercial/">
+    <Project Path="commercial/tests/Review.Team.Tests/Review.Team.Tests.csproj" />
+    <Project Path="commercial/tests/Review.Enterprise.Tests/Review.Enterprise.Tests.csproj" />
+    <Project Path="commercial/tests/Build.Team.Tests/Build.Team.Tests.csproj" />
+    <Project Path="commercial/tests/Build.Enterprise.Tests/Build.Enterprise.Tests.csproj" />
+    <Project Path="commercial/tests/Deploy.Team.Tests/Deploy.Team.Tests.csproj" />
+    <Project Path="commercial/tests/Deploy.Enterprise.Tests/Deploy.Enterprise.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tools/">
     <Project Path="tools/LicenceSigner/LicenceSigner.csproj" />
   </Folder>
 </Solution>

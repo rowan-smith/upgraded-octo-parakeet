@@ -1,0 +1,18 @@
+{
+  "id": "forgedeck.deploy.enterprise",
+  "name": "Deploy Enterprise",
+  "type": "module-extension",
+  "version": "0.1.0",
+  "edition": "enterprise",
+  "minimumCoreVersion": "0.1.0",
+  "requires": [
+    "forgedeck.deploy >= 0.1.0",
+    "forgedeck.deploy.team >= 0.1.0"
+  ],
+  "provides": [
+    "Deploy.MultiSite",
+    "Deploy.AdvancedRollback",
+    "Deploy.ChangeWindow",
+    "Deploy.ComplianceAudit"
+  ]
+}

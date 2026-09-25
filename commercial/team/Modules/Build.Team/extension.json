@@ -1,0 +1,17 @@
+{
+  "id": "forgedeck.build.team",
+  "name": "Build Team",
+  "type": "module-extension",
+  "version": "0.1.0",
+  "edition": "team",
+  "minimumCoreVersion": "0.1.0",
+  "requires": [
+    "forgedeck.build >= 0.2.0"
+  ],
+  "provides": [
+    "Build.Concurrent",
+    "Build.Schedules",
+    "Build.ProtectedSecrets",
+    "Build.SharedRunners"
+  ]
+}

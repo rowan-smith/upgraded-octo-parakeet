@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Platform.Contracts\Platform.Contracts.csproj" />
-    <ProjectReference Include="..\..\src\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+    <ProjectReference Include="..\..\community\src\Core\ForgeDeck.Core\ForgeDeck.Core.csproj" />
   </ItemGroup>
 
 </Project>

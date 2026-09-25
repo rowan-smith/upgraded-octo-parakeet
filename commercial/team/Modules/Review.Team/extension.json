@@ -1,0 +1,16 @@
+{
+  "id": "forgedeck.review.team",
+  "name": "Review Team",
+  "type": "module-extension",
+  "version": "0.1.0",
+  "edition": "team",
+  "minimumCoreVersion": "0.1.0",
+  "requires": [
+    "forgedeck.review >= 0.2.0"
+  ],
+  "provides": [
+    "Review.MultiApproval",
+    "Review.TeamApproval",
+    "Review.CodeOwners"
+  ]
+}
