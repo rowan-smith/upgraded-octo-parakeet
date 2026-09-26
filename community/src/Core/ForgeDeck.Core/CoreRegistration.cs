@@ -84,7 +84,11 @@ public static class CoreRegistration
         services.AddSingleton<IModuleHost, CompositeModuleHost>();
         services.AddSingleton<ISearchService, SearchService>();
         services.AddSingleton<RoleService>();
-        services.AddSingleton<EffectivePermissionService>();
+        services.AddSingleton<IPermissionDefinitionRegistry, PermissionDefinitionRegistry>();
+        services.AddSingleton<PermissionService>();
+        services.AddSingleton<IPermissionService>(sp => sp.GetRequiredService<PermissionService>());
+        services.AddSingleton<EffectivePermissionService>(sp =>
+            new EffectivePermissionService(sp.GetRequiredService<PermissionService>()));
         return services;
     }
 

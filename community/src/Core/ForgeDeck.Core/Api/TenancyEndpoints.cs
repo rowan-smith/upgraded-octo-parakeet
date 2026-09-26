@@ -365,6 +365,137 @@ public static class TenancyEndpoints
 
             return Results.Ok(memberships.List().Select(item => new { item.User, item.Profile, item.Membership }));
         });
+        app.MapGet("/api/organisation/members/{userId:guid}", async (
+            Guid userId,
+            MembershipService memberships,
+            ITenancyStore store,
+            ProjectAccessService access,
+            IPermissionService permissions,
+            PermissionAuthorizer authorizer,
+            HttpContext http) =>
+        {
+            if (!authorizer.Has(http, OrganisationPermissions.UsersRead))
+            {
+                return PermissionAuthorizer.Forbidden();
+            }
+
+            var row = memberships.List().FirstOrDefault(item => item.User.Id == userId);
+            if (row.User is null)
+            {
+                return Results.NotFound();
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var teamMemberships = store.ListUserTeamMemberships(userId)
+                .Select(tm =>
+                {
+                    var team = store.FindTeam(tm.TeamId);
+                    var assignment = store.ListRoleAssignments(userId, ScopeType.Team, tm.TeamId).FirstOrDefault();
+                    var role = assignment is null ? null : store.FindAccessRole(assignment.RoleId);
+                    return new
+                    {
+                        teamId = tm.TeamId,
+                        teamName = team?.Name,
+                        teamSlug = team?.Slug,
+                        roleId = role?.Id,
+                        roleName = role?.Name,
+                        roleSlug = role?.Slug,
+                        joinedAt = tm.JoinedAt,
+                        expiresAt = tm.ExpiresAt,
+                        active = tm.IsEffectivelyActive(now)
+                    };
+                })
+                .ToArray();
+
+            var orgRole = row.Membership.Role;
+            var projects = store.ListProjects()
+                .Where(project => access.CanAccess(project, userId, orgRole))
+                .Select(project =>
+                {
+                    var direct = store.ListProjectUserAccess(project.Id)
+                        .FirstOrDefault(g => g.UserId == userId && g.IsEffectivelyActive(now));
+                    var teamAccess = store.ListProjectTeamAccess(project.Id)
+                        .Where(g => g.IsEffectivelyActive(now))
+                        .Where(g => store.ListUserTeamMemberships(userId)
+                            .Any(tm => tm.TeamId == g.TeamId && tm.IsEffectivelyActive(now)))
+                        .Select(g =>
+                        {
+                            var team = store.FindTeam(g.TeamId);
+                            var role = g.RoleId is Guid rid ? store.FindAccessRole(rid) : null;
+                            return new
+                            {
+                                teamId = g.TeamId,
+                                teamName = team?.Name,
+                                roleName = role?.Name,
+                                relationship = g.Relationship.ToString()
+                            };
+                        })
+                        .ToArray();
+                    var roles = new List<string>();
+                    if (direct?.RoleId is Guid directRoleId && store.FindAccessRole(directRoleId) is { } directRole)
+                    {
+                        roles.Add(directRole.Name);
+                    }
+
+                    foreach (var inherited in teamAccess.Where(t => !string.IsNullOrWhiteSpace(t.roleName)))
+                    {
+                        if (!roles.Contains(inherited.roleName!, StringComparer.OrdinalIgnoreCase))
+                        {
+                            roles.Add(inherited.roleName!);
+                        }
+                    }
+
+                    var accessType = direct is not null && teamAccess.Length > 0
+                        ? "Direct + Team"
+                        : direct is not null
+                            ? "Direct"
+                            : teamAccess.Length > 0
+                                ? "Inherited"
+                                : "Organisation";
+                    return new
+                    {
+                        projectId = project.Id,
+                        name = project.Name,
+                        slug = project.Slug,
+                        accessType,
+                        roles,
+                        sources = teamAccess,
+                        expiresAt = direct?.ExpiresAt
+                    };
+                })
+                .ToArray();
+
+            var effective = await permissions.GetEffectivePermissionsAsync(userId, ResourceScope.Organisation);
+            var directGrants = store.ListPermissionGrantsForUser(userId)
+                .Where(g => !g.IsExpired(now))
+                .Select(g => new
+                {
+                    id = g.Id,
+                    permissionId = g.PermissionId,
+                    scopeType = g.ScopeType.ToString(),
+                    scopeId = g.ScopeId,
+                    expiresAt = g.ExpiresAt,
+                    grantedAt = g.GrantedAt
+                })
+                .ToArray();
+
+            return Results.Ok(new
+            {
+                user = row.User,
+                profile = row.Profile,
+                membership = row.Membership,
+                teams = teamMemberships,
+                projects,
+                permissions = effective.Permissions.OrderBy(p => p).ToArray(),
+                directGrants,
+                summary = new
+                {
+                    teams = teamMemberships.Length,
+                    projects = projects.Length,
+                    directPermissions = directGrants.Length
+                }
+            });
+        });
         app.MapPost("/api/organisation/members", (CreateMemberRequest request, MembershipService memberships, PlatformContextStore context, PermissionAuthorizer authorizer, HttpContext http) =>
         {
             if (!authorizer.Has(http, OrganisationPermissions.UsersManage))
@@ -497,7 +628,17 @@ public static class TenancyEndpoints
                 return Results.NotFound();
             }
 
-            return Results.Ok(new { team, members = teams.ListMembers(id).Select(m => new { m.User, m.Profile }) });
+            return Results.Ok(new
+            {
+                team,
+                members = teams.ListMembers(id).Select(m => new
+                {
+                    m.User,
+                    m.Profile,
+                    membership = new { m.Membership.JoinedAt, m.Membership.ExpiresAt },
+                    role = m.Role is null ? null : new { m.Role.Id, m.Role.Name, m.Role.Slug }
+                })
+            });
         });
         app.MapPost("/api/teams", (CreateTeamRequest request, TeamService teams, PermissionAuthorizer authorizer, HttpContext http) =>
         {
@@ -531,15 +672,21 @@ public static class TenancyEndpoints
             teams.Delete(id);
             return Results.NoContent();
         });
-        app.MapPost("/api/teams/{id:guid}/members", (Guid id, TeamMemberRequest request, TeamService teams, PermissionAuthorizer authorizer, HttpContext http) =>
+        app.MapPost("/api/teams/{id:guid}/members", (Guid id, TeamMemberRequest request, TeamService teams, PermissionAuthorizer authorizer, PlatformContextStore context, HttpContext http) =>
         {
-            if (!authorizer.Has(http, OrganisationPermissions.TeamsManage))
+            if (!authorizer.Has(http, OrganisationPermissions.TeamsManage)
+                && !authorizer.Has(http, OrganisationPermissions.TeamMembersManage))
             {
                 return PermissionAuthorizer.Forbidden();
             }
 
-            try { teams.AddMember(id, request.UserId); return Results.NoContent(); }
+            try
+            {
+                teams.AddMember(id, request.UserId, request.RoleId, context.User.Id, request.ExpiresAt);
+                return Results.NoContent();
+            }
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
         });
         app.MapDelete("/api/teams/{id:guid}/members/{userId:guid}", (Guid id, Guid userId, TeamService teams, PermissionAuthorizer authorizer, HttpContext http) =>
@@ -572,15 +719,35 @@ public static class TenancyEndpoints
             catch (UnauthorizedAccessException) { return PermissionAuthorizer.Forbidden(); }
             return Results.Ok(project);
         });
-        app.MapPost("/api/projects", (CreateProjectRequest request, ProjectService projects, PlatformContextStore context, PermissionAuthorizer authorizer, HttpContext http) =>
+        app.MapPost("/api/projects", async (
+            CreateProjectRequest request,
+            ProjectService projects,
+            PlatformContextStore context,
+            PermissionAuthorizer authorizer,
+            IPermissionService permissions,
+            HttpContext http) =>
         {
-            if (!authorizer.Has(http, OrganisationPermissions.ProjectsCreate))
+            var canCreateOrgWide = authorizer.Has(http, OrganisationPermissions.ProjectsCreate);
+            if (request.OwningTeamId is Guid owningTeamId)
+            {
+                var canCreateForTeam = canCreateOrgWide
+                    || await permissions.HasPermissionAsync(
+                        context.User.Id,
+                        OrganisationPermissions.TeamProjectsCreate,
+                        ResourceScope.ForTeam(owningTeamId));
+                if (!canCreateForTeam)
+                {
+                    return PermissionAuthorizer.Forbidden();
+                }
+            }
+            else if (!canCreateOrgWide)
             {
                 return PermissionAuthorizer.Forbidden();
             }
 
             try { return Results.Ok(projects.CreateProject(request, context.User.Id)); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (KeyNotFoundException ex) { return Results.NotFound(new { error = ex.Message }); }
         });
         app.MapGet("/api/projects/{projectId:guid}/modules", (Guid projectId, ProjectService projects, ProjectAccessService access, ITenancyStore store, PlatformContextStore context) =>
         {
@@ -785,7 +952,11 @@ public static class TenancyEndpoints
                         slug = team?.Slug,
                         roleId,
                         roleName = roleId is Guid id ? store.FindAccessRole(id)?.Name : null,
-                        grantedAt = accessRow.GrantedAt
+                        relationship = accessRow.Relationship.ToString(),
+                        owning = accessRow.Relationship == ProjectTeamRelationship.Owner
+                            || project.OwningTeamId == accessRow.TeamId,
+                        grantedAt = accessRow.GrantedAt,
+                        expiresAt = accessRow.ExpiresAt
                     };
                 })
                 .ToArray();
@@ -906,7 +1077,7 @@ public sealed record CreateInvitationRequest(string Email, OrganisationRole Role
 public sealed record AcceptInvitationRequest(string Username, string DisplayName, string Password);
 public sealed record CreateTeamRequest(string Name, string? Slug, string? Description, Guid? RoleId = null);
 public sealed record UpdateTeamRequest(string? Name, string? Slug, string? Description, Guid? RoleId = null, bool? ClearRole = null);
-public sealed record TeamMemberRequest(Guid UserId);
+public sealed record TeamMemberRequest(Guid UserId, Guid? RoleId = null, DateTimeOffset? ExpiresAt = null);
 public sealed record ProjectMemberRequest(Guid UserId, Guid? RoleId = null);
 public sealed record ProjectTeamRequest(Guid TeamId, Guid? RoleId = null);
 

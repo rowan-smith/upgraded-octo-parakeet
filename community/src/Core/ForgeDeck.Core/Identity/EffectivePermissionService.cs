@@ -1,81 +1,41 @@
 using ForgeDeck.Core.Application;
-using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Persistence;
 
 namespace ForgeDeck.Core.Identity;
 
 /// <summary>
-/// Resolves the permissions a user actually holds. The organisation membership role is always the ceiling; when a
-/// project context exists, the union of the roles attached to that user's applicable project and team grants narrows
-/// the ceiling further. Grants without a role do not narrow anything.
+/// Compatibility façade over <see cref="PermissionService"/>. Effective permissions are the additive union of
+/// applicable organisation, team, and project grants — not an organisation ceiling intersected with grant roles.
 /// </summary>
-public sealed class EffectivePermissionService(ITenancyStore store, RoleService roles, ProjectAccessService? access = null)
+public sealed class EffectivePermissionService
 {
-    private static readonly HashSet<string> None = new(StringComparer.OrdinalIgnoreCase);
+    private readonly PermissionService _permissions;
 
-    public IReadOnlySet<string> ForUser(Guid userId, Guid? projectId = null)
+    public EffectivePermissionService(ITenancyStore store, RoleService roles, ProjectAccessService? access = null)
+        : this(store, roles, new PermissionDefinitionRegistry(), access)
     {
-        var membership = store.GetMembership(userId);
-        if (membership is null || membership.Status != MembershipStatus.Active)
-        {
-            return None;
-        }
-
-        var ceiling = OrganisationPermissions.ForRole(membership.Role);
-        if (projectId is not Guid id)
-        {
-            return ceiling;
-        }
-
-        var project = store.FindProject(id);
-        if (project is null)
-        {
-            return ceiling;
-        }
-
-        // A project the user cannot reach contributes nothing; project access itself is enforced by ProjectAccessService.
-        if (access is not null && !access.CanAccess(project, userId, membership.Role))
-        {
-            return ceiling;
-        }
-
-        roles.EnsureSystemRoles();
-        var granted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var narrowed = false;
-
-        foreach (var grant in store.ListProjectUserAccess(id).Where(row => row.UserId == userId))
-        {
-            if (Permissions(grant.RoleId) is { } permissions)
-            {
-                granted.UnionWith(permissions);
-                narrowed = true;
-            }
-        }
-
-        var teamGrants = store.ListProjectTeamAccess(id);
-        foreach (var teamMembership in store.ListUserTeamMemberships(userId))
-        {
-            var grant = teamGrants.FirstOrDefault(row => row.TeamId == teamMembership.TeamId);
-            if (grant is null)
-            {
-                continue;
-            }
-
-            // The grant's own role wins; otherwise the role attached to the group applies.
-            if (Permissions(grant.RoleId ?? store.FindTeam(teamMembership.TeamId)?.RoleId) is { } permissions)
-            {
-                granted.UnionWith(permissions);
-                narrowed = true;
-            }
-        }
-
-        // No role anywhere on the applicable grants means nothing narrows the organisation ceiling.
-        return narrowed ? Intersect(ceiling, granted) : ceiling;
     }
 
-    public bool Has(Guid userId, string permission, Guid? projectId = null) =>
-        ForUser(userId, projectId).Contains(permission);
+    public EffectivePermissionService(
+        ITenancyStore store,
+        RoleService roles,
+        IPermissionDefinitionRegistry registry,
+        ProjectAccessService? access = null)
+    {
+        _permissions = new PermissionService(store, roles, registry, access);
+    }
 
+    public EffectivePermissionService(PermissionService permissions) => _permissions = permissions;
+
+    public IReadOnlySet<string> ForUser(Guid userId, Guid? projectId = null) =>
+        _permissions.ForUser(userId, projectId);
+
+    public bool Has(Guid userId, string permission, Guid? projectId = null) =>
+        _permissions.Has(userId, permission, projectId);
+
+    public PermissionService Service => _permissions;
+
+    [Obsolete("Additive RBAC no longer intersects organisation ceilings with grant roles.")]
     public static IReadOnlySet<string> Intersect(IReadOnlySet<string> ceiling, IEnumerable<string> granted)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -89,7 +49,4 @@ public sealed class EffectivePermissionService(ITenancyStore store, RoleService 
 
         return result;
     }
-
-    private IReadOnlySet<string>? Permissions(Guid? roleId) =>
-        roleId is Guid id ? store.FindAccessRole(id)?.Permissions : null;
 }

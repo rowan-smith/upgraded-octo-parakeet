@@ -15,6 +15,12 @@ public sealed class RoleService(ITenancyStore store)
         return store.ListAccessRoles();
     }
 
+    public IReadOnlyList<AccessRole> List(ScopeType scopeType, Guid? ownerId = null)
+    {
+        EnsureSystemRoles();
+        return store.ListAccessRoles(scopeType, ownerId);
+    }
+
     public AccessRole? Find(Guid id)
     {
         EnsureSystemRoles();
@@ -27,7 +33,15 @@ public sealed class RoleService(ITenancyStore store)
         return store.FindAccessRoleBySlug(slug);
     }
 
-    public AccessRole Create(string name, string? slug, IEnumerable<string>? permissions, string? description = null)
+    public AccessRole Create(
+        string name,
+        string? slug,
+        IEnumerable<string>? permissions,
+        string? description = null,
+        ScopeType scopeType = ScopeType.Organisation,
+        RoleOwnerType? ownerType = null,
+        Guid? ownerId = null,
+        Guid? defaultProjectRoleId = null)
     {
         EnsureSystemRoles();
         if (string.IsNullOrWhiteSpace(name))
@@ -46,18 +60,34 @@ public sealed class RoleService(ITenancyStore store)
             throw new ArgumentException("Role slug is already in use.");
         }
 
+        if (defaultProjectRoleId is Guid defaultId && store.FindAccessRole(defaultId) is null)
+        {
+            throw new KeyNotFoundException("Default project role not found.");
+        }
+
         var role = new AccessRole
         {
             Name = name.Trim(),
             Slug = normalized,
             Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
-            Permissions = PermissionCatalogue.Normalise(permissions)
+            Permissions = PermissionCatalogue.Normalise(permissions),
+            ScopeType = scopeType,
+            OwnerType = ownerType,
+            OwnerId = ownerId,
+            DefaultProjectRoleId = defaultProjectRoleId
         };
         store.SaveAccessRole(role);
         return role;
     }
 
-    public AccessRole Update(Guid id, string? name, IEnumerable<string>? permissions, string? description = null, string? slug = null)
+    public AccessRole Update(
+        Guid id,
+        string? name,
+        IEnumerable<string>? permissions,
+        string? description = null,
+        string? slug = null,
+        Guid? defaultProjectRoleId = null,
+        bool clearDefaultProjectRole = false)
     {
         EnsureSystemRoles();
         var role = store.FindAccessRole(id) ?? throw new KeyNotFoundException("Role not found.");
@@ -98,6 +128,20 @@ public sealed class RoleService(ITenancyStore store)
             role.Permissions = PermissionCatalogue.Normalise(permissions);
         }
 
+        if (clearDefaultProjectRole)
+        {
+            role.DefaultProjectRoleId = null;
+        }
+        else if (defaultProjectRoleId is Guid defaultId)
+        {
+            if (store.FindAccessRole(defaultId) is null)
+            {
+                throw new KeyNotFoundException("Default project role not found.");
+            }
+
+            role.DefaultProjectRoleId = defaultId;
+        }
+
         role.UpdatedAt = DateTimeOffset.UtcNow;
         store.SaveAccessRole(role);
         return role;
@@ -123,6 +167,95 @@ public sealed class RoleService(ITenancyStore store)
         team.UpdatedAt = DateTimeOffset.UtcNow;
         store.SaveTeam(team);
     }
+
+    public RoleAssignment AssignRole(
+        Guid userId,
+        Guid roleId,
+        ScopeType scopeType,
+        Guid? scopeId,
+        Guid? assignedByUserId = null,
+        DateTimeOffset? expiresAt = null)
+    {
+        EnsureSystemRoles();
+        var role = store.FindAccessRole(roleId) ?? throw new KeyNotFoundException("Role not found.");
+        if (role.ScopeType != scopeType)
+        {
+            throw new ArgumentException($"Role '{role.Slug}' cannot be assigned in {scopeType} scope.");
+        }
+
+        if (scopeType != ScopeType.Organisation && scopeId is null)
+        {
+            throw new ArgumentException("Scope id is required for team and project role assignments.");
+        }
+
+        if (scopeType == ScopeType.Team && scopeId is Guid teamId)
+        {
+            _ = store.FindTeam(teamId) ?? throw new KeyNotFoundException("Team not found.");
+            if (store.ListUserTeamMemberships(userId).All(m => m.TeamId != teamId))
+            {
+                throw new InvalidOperationException("User must be a team member before receiving a team role.");
+            }
+        }
+
+        if (scopeType == ScopeType.Project && scopeId is Guid projectId)
+        {
+            _ = store.FindProject(projectId) ?? throw new KeyNotFoundException("Project not found.");
+        }
+
+        // Replace existing assignment of the same role in the same scope.
+        foreach (var existing in store.ListRoleAssignments(userId, scopeType, scopeId)
+                     .Where(a => a.RoleId == roleId))
+        {
+            store.DeleteRoleAssignment(existing.Id);
+        }
+
+        var assignment = new RoleAssignment
+        {
+            UserId = userId,
+            RoleId = roleId,
+            ScopeType = scopeType,
+            ScopeId = scopeId,
+            AssignedByUserId = assignedByUserId,
+            ExpiresAt = expiresAt
+        };
+        store.SaveRoleAssignment(assignment);
+        return assignment;
+    }
+
+    public PermissionGrant GrantPermission(
+        Guid userId,
+        string permissionId,
+        ScopeType scopeType,
+        Guid? scopeId,
+        Guid? grantedByUserId = null,
+        DateTimeOffset? expiresAt = null)
+    {
+        EnsureSystemRoles();
+        var normalised = PermissionCatalogue.Normalise([permissionId]).First();
+        if (!PermissionCatalogue.AllowsScope(normalised, scopeType))
+        {
+            throw new ArgumentException($"Permission '{normalised}' cannot be granted at {scopeType} scope.");
+        }
+
+        if (store.GetMembership(userId) is null)
+        {
+            throw new KeyNotFoundException("User is not an organisation member.");
+        }
+
+        var grant = new PermissionGrant
+        {
+            UserId = userId,
+            PermissionId = normalised,
+            ScopeType = scopeType,
+            ScopeId = scopeId,
+            GrantedByUserId = grantedByUserId,
+            ExpiresAt = expiresAt
+        };
+        store.SavePermissionGrant(grant);
+        return grant;
+    }
+
+    public void RevokePermissionGrant(Guid grantId) => store.DeletePermissionGrant(grantId);
 
     /// <summary>Validates an optional role reference before it is attached to a team or grant.</summary>
     public Guid? Require(Guid? roleId)
@@ -155,6 +288,7 @@ public sealed class RoleService(ITenancyStore store)
                 return;
             }
 
+            // First pass: create roles without default project role links.
             foreach (var definition in SystemAccessRoles.Definitions)
             {
                 if (store.FindAccessRoleBySlug(definition.Slug) is not null)
@@ -168,8 +302,29 @@ public sealed class RoleService(ITenancyStore store)
                     Slug = definition.Slug,
                     Description = definition.Description,
                     IsSystem = true,
+                    ScopeType = definition.ScopeType,
                     Permissions = new HashSet<string>(definition.Permissions, StringComparer.OrdinalIgnoreCase)
                 });
+            }
+
+            // Second pass: wire default project role links and refresh permissions for existing system roles.
+            foreach (var definition in SystemAccessRoles.Definitions)
+            {
+                var role = store.FindAccessRoleBySlug(definition.Slug);
+                if (role is null || !role.IsSystem)
+                {
+                    continue;
+                }
+
+                role.Permissions = new HashSet<string>(definition.Permissions, StringComparer.OrdinalIgnoreCase);
+                role.ScopeType = definition.ScopeType;
+                if (definition.DefaultProjectRoleSlug is string defaultSlug)
+                {
+                    role.DefaultProjectRoleId = store.FindAccessRoleBySlug(defaultSlug)?.Id;
+                }
+
+                role.UpdatedAt = DateTimeOffset.UtcNow;
+                store.SaveAccessRole(role);
             }
 
             _seeded = true;

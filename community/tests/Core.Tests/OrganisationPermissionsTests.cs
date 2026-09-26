@@ -28,12 +28,13 @@ public sealed class OrganisationPermissionsTests
     }
 
     [Fact]
-    public void Member_has_read_and_module_access_only()
+    public void Member_has_minimal_organisation_access_only()
     {
         var permissions = OrganisationPermissions.ForRole(OrganisationRole.Member);
         Assert.Contains(OrganisationPermissions.OrganisationRead, permissions);
         Assert.Contains(OrganisationPermissions.UsersRead, permissions);
-        Assert.Contains("review.read", permissions);
+        Assert.Contains(OrganisationPermissions.ProjectsReadAccessible, permissions);
+        Assert.DoesNotContain("review.read", permissions);
         Assert.DoesNotContain(OrganisationPermissions.UsersManage, permissions);
         Assert.DoesNotContain(OrganisationPermissions.TeamsManage, permissions);
         Assert.DoesNotContain(OrganisationPermissions.ProjectsCreate, permissions);

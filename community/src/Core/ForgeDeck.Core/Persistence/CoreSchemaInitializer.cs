@@ -264,9 +264,31 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     enabled INTEGER NOT NULL DEFAULT 1,
                     PRIMARY KEY(project_id, extension_id)
                 );
+                CREATE TABLE IF NOT EXISTS core_role_assignments (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES core_users(id) ON DELETE CASCADE,
+                    role_id TEXT NOT NULL REFERENCES core_access_roles(id) ON DELETE CASCADE,
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT,
+                    expires_at TEXT,
+                    assigned_at TEXT NOT NULL,
+                    assigned_by_user_id TEXT REFERENCES core_users(id)
+                );
+                CREATE TABLE IF NOT EXISTS core_permission_grants (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES core_users(id) ON DELETE CASCADE,
+                    permission_id TEXT NOT NULL,
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT,
+                    expires_at TEXT,
+                    granted_at TEXT NOT NULL,
+                    granted_by_user_id TEXT REFERENCES core_users(id)
+                );
                 CREATE INDEX IF NOT EXISTS ix_core_audit_timestamp ON core_audit(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS ix_core_licences_status ON core_licences(status);
                 CREATE INDEX IF NOT EXISTS ix_core_user_project_stars_user ON core_user_project_stars(user_id);
+                CREATE INDEX IF NOT EXISTS ix_core_role_assignments_user ON core_role_assignments(user_id);
+                CREATE INDEX IF NOT EXISTS ix_core_permission_grants_user ON core_permission_grants(user_id);
                 """;
             command.ExecuteNonQuery();
             EnsureColumn(connection, "core_instance", "instance_id", "TEXT");
@@ -275,10 +297,24 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
             EnsureColumn(connection, "core_instance", "setup_completed_at", "TEXT");
             EnsureColumn(connection, "core_instance", "modules_acknowledged_at", "TEXT");
             EnsureColumn(connection, "core_projects", "repository_mode", "TEXT NOT NULL DEFAULT 'SingleRepository'");
+            EnsureColumn(connection, "core_projects", "owning_team_id", "TEXT");
             EnsureColumn(connection, "core_user_profiles", "theme", "TEXT NOT NULL DEFAULT 'system'");
             EnsureColumn(connection, "core_teams", "role_id", "TEXT");
+            EnsureColumn(connection, "core_memberships", "expires_at", "TEXT");
+            EnsureColumn(connection, "core_memberships", "created_by_user_id", "TEXT");
+            EnsureColumn(connection, "core_team_memberships", "expires_at", "TEXT");
+            EnsureColumn(connection, "core_team_memberships", "created_by_user_id", "TEXT");
             EnsureColumn(connection, "core_project_user_access", "role_id", "TEXT");
+            EnsureColumn(connection, "core_project_user_access", "expires_at", "TEXT");
+            EnsureColumn(connection, "core_project_user_access", "granted_by_user_id", "TEXT");
             EnsureColumn(connection, "core_project_team_access", "role_id", "TEXT");
+            EnsureColumn(connection, "core_project_team_access", "expires_at", "TEXT");
+            EnsureColumn(connection, "core_project_team_access", "granted_by_user_id", "TEXT");
+            EnsureColumn(connection, "core_project_team_access", "relationship", "TEXT NOT NULL DEFAULT 'Access'");
+            EnsureColumn(connection, "core_access_roles", "scope_type", "TEXT NOT NULL DEFAULT 'Organisation'");
+            EnsureColumn(connection, "core_access_roles", "owner_type", "TEXT");
+            EnsureColumn(connection, "core_access_roles", "owner_id", "TEXT");
+            EnsureColumn(connection, "core_access_roles", "default_project_role_id", "TEXT");
             // Backfill defaults only after columns exist.
             using (var seedId = connection.CreateCommand())
             {

@@ -42,7 +42,8 @@ public sealed record CreateProjectRequest(
     string? Description,
     ProjectVisibility Visibility = ProjectVisibility.Private,
     RepositoryMode RepositoryMode = RepositoryMode.SingleRepository,
-    IReadOnlyList<string>? EnabledModuleIds = null);
+    IReadOnlyList<string>? EnabledModuleIds = null,
+    Guid? OwningTeamId = null);
 public sealed record SetupModulesRequest(IReadOnlyList<string>? ExtensionIds, bool Skip = false);
 public sealed record ProjectModulesUpdateRequest(IReadOnlyList<string> EnabledExtensionIds);
 public sealed record CreateRepositoryRequest(string Name, string? Slug, string? DefaultBranch, string ProviderType, string? ExternalRepositoryId,
@@ -465,7 +466,7 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
     public void ChangeRole(Guid userId, OrganisationRole role)
     {
         var membership = store.GetMembership(userId) ?? throw new KeyNotFoundException("Membership not found.");
-        EnsureOwnerRemains(membership, role, membership.Status);
+        EnsureOwnerRemains(membership, role, membership.Status, membership.ExpiresAt);
         membership.Role = role;
         store.SaveMembership(membership);
     }
@@ -473,7 +474,7 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
     public void ChangeStatus(Guid userId, MembershipStatus status)
     {
         var membership = store.GetMembership(userId) ?? throw new KeyNotFoundException("Membership not found.");
-        EnsureOwnerRemains(membership, membership.Role, status);
+        EnsureOwnerRemains(membership, membership.Role, status, membership.ExpiresAt);
         membership.Status = status;
         store.SaveMembership(membership);
 
@@ -481,6 +482,7 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
         user.Status = status switch
         {
             MembershipStatus.Suspended => UserStatus.Suspended,
+            MembershipStatus.Expired => UserStatus.Suspended,
             MembershipStatus.Active => UserStatus.Active,
             _ => user.Status
         };
@@ -488,10 +490,18 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
         store.SaveUser(user);
     }
 
+    public void SetExpiration(Guid userId, DateTimeOffset? expiresAt)
+    {
+        var membership = store.GetMembership(userId) ?? throw new KeyNotFoundException("Membership not found.");
+        EnsureOwnerRemains(membership, membership.Role, membership.Status, expiresAt);
+        membership.ExpiresAt = expiresAt;
+        store.SaveMembership(membership);
+    }
+
     public void Remove(Guid userId)
     {
         var membership = store.GetMembership(userId) ?? throw new KeyNotFoundException("Membership not found.");
-        EnsureOwnerRemains(membership, OrganisationRole.Member, MembershipStatus.Suspended);
+        EnsureOwnerRemains(membership, OrganisationRole.Member, MembershipStatus.Suspended, membership.ExpiresAt);
         foreach (var team in store.ListUserTeamMemberships(userId))
         {
             store.DeleteTeamMembership(team.TeamId, userId);
@@ -515,17 +525,25 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
         store.SaveUser(user);
     }
 
-    private void EnsureOwnerRemains(OrganisationMembership current, OrganisationRole newRole, MembershipStatus newStatus)
+    private void EnsureOwnerRemains(
+        OrganisationMembership current,
+        OrganisationRole newRole,
+        MembershipStatus newStatus,
+        DateTimeOffset? newExpiresAt)
     {
         if (current.Role != OrganisationRole.Owner || current.Status != MembershipStatus.Active ||
-            (newRole == OrganisationRole.Owner && newStatus == MembershipStatus.Active))
+            (newRole == OrganisationRole.Owner && newStatus == MembershipStatus.Active &&
+             (newExpiresAt is null || newExpiresAt > DateTimeOffset.UtcNow)))
         {
             return;
         }
 
-        if (store.ListMemberships().Count(m => m.Role == OrganisationRole.Owner && m.Status == MembershipStatus.Active) <= 1)
+        if (store.ListMemberships().Count(m =>
+                m.Role == OrganisationRole.Owner
+                && m.Status == MembershipStatus.Active
+                && (m.ExpiresAt is null || m.ExpiresAt > DateTimeOffset.UtcNow)) <= 1)
         {
-            throw new InvalidOperationException("The last active owner cannot be demoted, suspended, or removed.");
+            throw new InvalidOperationException("The last active owner cannot be demoted, suspended, expired, or removed.");
         }
     }
 }
@@ -540,6 +558,11 @@ public sealed class ProjectService(ITenancyStore store, ExtensionLifecycleServic
             throw new ArgumentException("Project slug is invalid.");
         }
 
+        if (request.OwningTeamId is Guid owningTeamId && store.FindTeam(owningTeamId) is null)
+        {
+            throw new KeyNotFoundException("Owning team not found.");
+        }
+
         var project = new Project
         {
             Id = id ?? Guid.NewGuid(),
@@ -549,10 +572,22 @@ public sealed class ProjectService(ITenancyStore store, ExtensionLifecycleServic
             Description = request.Description?.Trim(),
             Visibility = request.Visibility,
             RepositoryMode = request.RepositoryMode,
+            OwningTeamId = request.OwningTeamId,
             CreatedByUserId = userId
         };
         store.SaveProject(project);
         store.SaveProjectUserAccess(new ProjectUserAccess { ProjectId = project.Id, UserId = userId });
+        if (request.OwningTeamId is Guid teamId)
+        {
+            store.SaveProjectTeamAccess(new ProjectTeamAccess
+            {
+                ProjectId = project.Id,
+                TeamId = teamId,
+                Relationship = ProjectTeamRelationship.Owner,
+                RoleId = store.FindAccessRoleBySlug(SystemAccessRoles.Developer)?.Id
+            });
+        }
+
         ApplyEnabledModules(project.Id, request.EnabledModuleIds);
         return project;
     }
@@ -743,7 +778,10 @@ public sealed class ProjectAccessService(ITenancyStore store)
             return true;
         }
 
-        return store.ListUserTeamMemberships(userId).Any(membership => store.HasProjectTeamAccess(project.Id, membership.TeamId));
+        var now = DateTimeOffset.UtcNow;
+        return store.ListUserTeamMemberships(userId)
+            .Where(membership => membership.IsEffectivelyActive(now))
+            .Any(membership => store.HasProjectTeamAccess(project.Id, membership.TeamId));
     }
 
     public void EnsureAccess(Project project, Guid userId, OrganisationRole role)
@@ -832,25 +870,98 @@ public sealed class TeamService(ITenancyStore store)
         return store.FindAccessRole(id) is null ? throw new KeyNotFoundException("Role not found.") : id;
     }
 
-    public void AddMember(Guid teamId, Guid userId)
+    public void AddMember(Guid teamId, Guid userId, Guid? teamRoleId = null, Guid? createdByUserId = null, DateTimeOffset? expiresAt = null, bool assignDefaultTeamRole = true)
     {
         var team = store.FindTeam(teamId) ?? throw new KeyNotFoundException("Team not found.");
         var membership = store.GetMembership(userId) ?? throw new KeyNotFoundException("User is not an organisation member.");
-        if (membership.Status != MembershipStatus.Active)
+        if (!membership.IsEffectivelyActive())
         {
             throw new InvalidOperationException("Only active organisation members can join teams.");
         }
 
-        store.SaveTeamMembership(new TeamMembership { TeamId = team.Id, UserId = userId });
+        store.SaveTeamMembership(new TeamMembership
+        {
+            TeamId = team.Id,
+            UserId = userId,
+            CreatedByUserId = createdByUserId,
+            ExpiresAt = expiresAt
+        });
+
+        var roleId = teamRoleId
+                     ?? (assignDefaultTeamRole ? store.FindAccessRoleBySlug(SystemAccessRoles.TeamMember)?.Id : null);
+        if (roleId is Guid id)
+        {
+            // Replace any prior team role for this membership.
+            foreach (var prior in store.ListRoleAssignments(userId, ScopeType.Team, teamId))
+            {
+                store.DeleteRoleAssignment(prior.Id);
+            }
+
+            store.SaveRoleAssignment(new RoleAssignment
+            {
+                UserId = userId,
+                RoleId = id,
+                ScopeType = ScopeType.Team,
+                ScopeId = teamId,
+                AssignedByUserId = createdByUserId,
+                ExpiresAt = expiresAt
+            });
+        }
+    }
+
+    public void SetMemberExpiration(Guid teamId, Guid userId, DateTimeOffset? expiresAt)
+    {
+        var membership = store.ListTeamMemberships(teamId).FirstOrDefault(m => m.UserId == userId)
+            ?? throw new KeyNotFoundException("Team membership not found.");
+        membership.ExpiresAt = expiresAt;
+        store.SaveTeamMembership(membership);
+    }
+
+    public void ChangeMemberRole(Guid teamId, Guid userId, Guid teamRoleId, Guid? assignedByUserId = null)
+    {
+        _ = store.FindTeam(teamId) ?? throw new KeyNotFoundException("Team not found.");
+        if (store.ListTeamMemberships(teamId).All(m => m.UserId != userId))
+        {
+            throw new KeyNotFoundException("Team membership not found.");
+        }
+
+        var role = store.FindAccessRole(teamRoleId) ?? throw new KeyNotFoundException("Role not found.");
+        if (role.ScopeType != ScopeType.Team)
+        {
+            throw new ArgumentException("Only team-scoped roles can be assigned to team members.");
+        }
+
+        foreach (var prior in store.ListRoleAssignments(userId, ScopeType.Team, teamId))
+        {
+            store.DeleteRoleAssignment(prior.Id);
+        }
+
+        store.SaveRoleAssignment(new RoleAssignment
+        {
+            UserId = userId,
+            RoleId = teamRoleId,
+            ScopeType = ScopeType.Team,
+            ScopeId = teamId,
+            AssignedByUserId = assignedByUserId
+        });
     }
 
     public void RemoveMember(Guid teamId, Guid userId) => store.DeleteTeamMembership(teamId, userId);
 
-    public IReadOnlyList<(UserAccount User, UserProfile? Profile)> ListMembers(Guid teamId) =>
-        store.ListTeamMemberships(teamId)
-            .Select(item => (store.FindUser(item.UserId)!, store.GetProfile(item.UserId)))
-            .Where(item => item.Item1 is not null)
+    public IReadOnlyList<(UserAccount User, UserProfile? Profile, TeamMembership Membership, AccessRole? Role)> ListMembers(Guid teamId)
+    {
+        return store.ListTeamMemberships(teamId)
+            .Select(item =>
+            {
+                var user = store.FindUser(item.UserId)!;
+                var profile = store.GetProfile(item.UserId);
+                var assignment = store.ListRoleAssignments(item.UserId, ScopeType.Team, teamId).FirstOrDefault();
+                var role = assignment is null ? null : store.FindAccessRole(assignment.RoleId);
+                return (user, profile, item, role);
+            })
+            .Where(item => item.user is not null)
             .ToArray();
+    }
 }
 
 public sealed record InvitationCreated(Invitation Invitation, string RawToken);

@@ -35,7 +35,19 @@ public interface ITenancyStore
     AccessRole? FindAccessRole(Guid id);
     AccessRole? FindAccessRoleBySlug(string slug);
     IReadOnlyList<AccessRole> ListAccessRoles();
+    IReadOnlyList<AccessRole> ListAccessRoles(ScopeType scopeType, Guid? ownerId = null);
     void DeleteAccessRole(Guid id);
+
+    void SaveRoleAssignment(RoleAssignment assignment);
+    void DeleteRoleAssignment(Guid id);
+    void DeleteRoleAssignmentsForRole(Guid roleId);
+    IReadOnlyList<RoleAssignment> ListRoleAssignments(Guid userId, ScopeType? scopeType = null, Guid? scopeId = null);
+    IReadOnlyList<RoleAssignment> ListRoleAssignmentsForScope(ScopeType scopeType, Guid scopeId);
+
+    void SavePermissionGrant(PermissionGrant grant);
+    void DeletePermissionGrant(Guid id);
+    IReadOnlyList<PermissionGrant> ListPermissionGrantsForUser(Guid userId);
+    IReadOnlyList<PermissionGrant> ListPermissionGrants(ScopeType scopeType, Guid? scopeId = null);
 
     void SaveTeam(Team team);
     Team? FindTeam(Guid id);
@@ -59,6 +71,7 @@ public interface ITenancyStore
     void SaveProjectUserAccess(ProjectUserAccess access);
     void DeleteProjectUserAccess(Guid projectId, Guid userId);
     IReadOnlyList<ProjectUserAccess> ListProjectUserAccess(Guid projectId);
+    IReadOnlyList<ProjectUserAccess> ListUserProjectAccess(Guid userId);
     bool HasProjectUserAccess(Guid projectId, Guid userId);
     void SaveProjectTeamAccess(ProjectTeamAccess access);
     void DeleteProjectTeamAccess(Guid projectId, Guid teamId);

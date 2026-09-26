@@ -1,4 +1,4 @@
-const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],starredProjects:[],selectedConnectionId:null,setup:null,me:null,tab:'overview',route:'/home',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',changesTab:'open',overviewPrFilter:'open',searchHits:[],searchIndex:0};
+const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],starredProjects:[],selectedConnectionId:null,setup:null,me:null,permissions:[],tab:'overview',route:'/home',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',memberDetailTab:'overview',teamDetailTab:'overview',projectAccessTab:'teams',changesTab:'open',overviewPrFilter:'open',searchHits:[],searchIndex:0};
 const DEFAULT_LOCAL_PATH='C:\\Users\\rowan\\RiderProjects\\upgraded-octo-parakeet';
 const TOKEN_KEY='forgedeck.token';
 const el=id=>document.getElementById(id);
@@ -84,6 +84,7 @@ async function loadWorkspace(){
     api('/api/users/me/starred-projects').catch(()=>[])
   ]);
   state.modules=platform.modules;state.context=context;state.connections=connections;state.local=local;state.projects=projects;state.me=me;state.starredProjects=starred||[];
+  state.permissions=me?.permissions||[];
   applyTheme(me?.profile?.theme||'system');
   if(!state.selectedConnectionId||!state.connections.some(c=>c.id===state.selectedConnectionId))
     state.selectedConnectionId=state.connections[0]?.id||null;
@@ -123,6 +124,62 @@ function updateContextChrome(){
 }
 
 function hasModule(id){return state.modules.some(module=>module.id===id&&module.enabled!==false)}
+function can(permission){
+  if(!permission)return false;
+  const needle=String(permission).toLowerCase();
+  return (state.permissions||[]).some(p=>String(p).toLowerCase()===needle);
+}
+function canAny(...permissions){return permissions.some(can)}
+function canCreateProject(){return can('projects.create')||can('team.projects.create')}
+function permissionButton(label,attrs,permission,options={}){
+  if(permission && !can(permission)){
+    if(options.hide)return '';
+    return `<button class="button" disabled title="Requires ${esc(permission)}">${esc(label)}</button>`;
+  }
+  return `<button class="button ${options.primary?'primary':''} ${options.danger?'danger':''} ${options.text?'text':''}" ${attrs}>${esc(label)}</button>`;
+}
+async function refreshPermissions(){
+  try{
+    const effective=await api('/api/access/effective');
+    state.permissions=effective.permissions||[];
+    if(state.me)state.me.permissions=state.permissions;
+  }catch{/* keep cached */}
+}
+function closePermissionDrawer(){
+  const drawer=el('permissionDrawer');
+  if(!drawer)return;
+  drawer.hidden=true;
+  drawer.setAttribute('aria-hidden','true');
+}
+async function openPermissionExplain(permission,scopeType,scopeId,userId){
+  const params=new URLSearchParams({permission});
+  if(scopeType)params.set('scopeType',scopeType);
+  if(scopeId)params.set('scopeId',scopeId);
+  if(userId)params.set('userId',userId);
+  const drawer=el('permissionDrawer');
+  const body=el('permissionDrawerBody');
+  const title=el('permissionDrawerTitle');
+  if(!drawer||!body||!title)return;
+  title.textContent=`Why ${permission}?`;
+  body.innerHTML='<p class="description">Loading explanation…</p>';
+  drawer.hidden=false;
+  drawer.setAttribute('aria-hidden','false');
+  el('permissionDrawerClose').onclick=closePermissionDrawer;
+  drawer.onclick=e=>{if(e.target===drawer)closePermissionDrawer()};
+  try{
+    const explanation=await api(`/api/access/explain?${params}`);
+    const sources=(explanation.sources||[]).map(source=>{
+      const path=[source.teamName,source.roleName||source.roleSlug,source.kind==='direct_grant'?'Direct grant':null,source.projectName]
+        .filter(Boolean).join(' → ');
+      return `<li><strong>${esc(source.kind||'source')}</strong>${path?` · ${esc(path)}`:''}${source.grantedAt?` · ${esc(new Date(source.grantedAt).toLocaleString())}`:''}</li>`;
+    }).join('')||'<li class="description">No granting sources.</li>';
+    body.innerHTML=`<p class="description">${explanation.granted?'Granted':'Not granted'} in ${esc(explanation.scopeType||'Organisation')}${explanation.scopeId?` · ${esc(explanation.scopeId)}`:''}</p>
+      <ul class="permission-source-list">${sources}</ul>`;
+  }catch(error){
+    body.innerHTML=`<p class="description">${esc(error.message)}</p>`;
+    showToast(error.message,true);
+  }
+}
 function editionLabel(value){return value==='Commercial'?'Enterprise':(value||'Community')}
 function licenceModeLabel(value){return value==='Commercial'?'Enterprise':(value||'None')}
 async function reloadComposition(){
@@ -134,7 +191,7 @@ function source(){return state.connections.find(c=>c.id===state.selectedConnecti
 function isMultiRepo(){return state.context?.project?.repositoryMode==='MultiRepository'&&(state.connections||[]).length>1}
 function isOrgRoute(route){
   const r=normalizeRoute(route);
-  return r==='/home'||r==='/projects'||r==='/people'||r==='/profile'
+  return r==='/home'||r==='/projects'||r==='/people'||r.startsWith('/people/')||r==='/profile'
     ||r.startsWith('/organisation/')||r.startsWith('/invite/');
 }
 function actor(){return state.context?.user?.name||state.me?.profile?.displayName||'User'}
@@ -706,7 +763,10 @@ function openProjectSwitcher(){
     </div></div>`,async e=>{
     const value=e.submitter?.value;
     if(value==='home')return navigate('/home');
-    if(value==='new')return openCreateProject();
+    if(value==='new'){
+      if(!canCreateProject())return showToast('You need permission to create projects.',true);
+      return openCreateProject();
+    }
     if(value?.startsWith('project:')){
       const id=value.slice(8);
       try{
@@ -723,19 +783,24 @@ function openCreateProject(){
   openProjectWizard();
 }
 
-function openProjectWizard(){
+function openProjectWizard(defaults={}){
+  const preselectTeam=defaults.owningTeamId||'';
+  const loadTeams=can('projects.create')||can('team.projects.create')||can('teams.manage');
   openModal(`<div class="modal-content project-wizard"><h2>Create project</h2>
     <label class="form-label">Name</label><input class="field" id="newProjectName" value="Atlas" autofocus>
     <label class="form-label">Slug</label><input class="field" id="newProjectSlug" value="atlas" placeholder="Generated from name">
     <label class="form-label">Description</label><input class="field" id="newProjectDesc" placeholder="Optional">
-    <p class="description">Visibility, repository mode, and modules can be changed later in Project settings.</p>
+    <label class="form-label" for="newProjectTeam">Owning team</label>
+    <select class="field" id="newProjectTeam"><option value="">Loading…</option></select>
+    <p class="description">The owning team administratively owns this project. Additional teams and members can still be granted access.</p>
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create</button></div></div>`,async e=>{
     if(e.submitter?.value!=='submit')return;
     try{
       const project=await api('/api/projects',{method:'POST',body:JSON.stringify({
         name:el('newProjectName').value,
         slug:el('newProjectSlug').value||null,
-        description:el('newProjectDesc').value||null
+        description:el('newProjectDesc').value||null,
+        owningTeamId:el('newProjectTeam').value||null
       })});
       await api('/api/core/context/project',{method:'POST',body:JSON.stringify({projectId:project.id})});
       await loadWorkspace();
@@ -744,6 +809,25 @@ function openProjectWizard(){
     }catch(error){showToast(error.message,true)}
   });
   wireAutoSlug('newProjectName','newProjectSlug');
+  (async()=>{
+    const select=el('newProjectTeam');
+    if(!select)return;
+    if(!loadTeams && !preselectTeam){
+      select.innerHTML='<option value="">No owning team</option>';
+      return;
+    }
+    try{
+      const teams=await api('/api/teams');
+      const options=['<option value="">No owning team</option>']
+        .concat((teams||[]).map(t=>`<option value="${esc(t.id)}" ${t.id===preselectTeam?'selected':''}>${esc(t.name)}</option>`));
+      select.innerHTML=options.join('');
+      if(preselectTeam && !can('projects.create')){
+        select.disabled=true;
+      }
+    }catch{
+      select.innerHTML='<option value="">No owning team</option>';
+    }
+  })();
 }
 
 function renderNavigation(){
@@ -832,6 +916,8 @@ async function navigate(route,push=true){
     if(route==='/runners'||route==='/organisation/settings/build')return await renderOrgBuildSettings();
     if(route.startsWith('/organisation/settings'))return await renderOrgSettings(route);
     if(route.startsWith('/settings'))return await renderProjectSettings(route);
+    if(route.startsWith('/people/members/'))return await renderMemberDetail(route.split('/')[3]);
+    if(route.startsWith('/people/teams/'))return await renderTeamDetail(route.split('/')[3]);
     if(route==='/people')return await renderPeople();
     if(route==='/profile')return await renderProfile();
     if(route.startsWith('/invite/'))return await renderInviteAccept(decodeURIComponent(route.slice('/invite/'.length)));
@@ -1343,20 +1429,51 @@ async function renderPeople(){
   const tabs=`<div class="filterbar">
     <button class="button ${tab==='members'?'primary':''}" id="peopleMembers">Members</button>
     <button class="button ${tab==='teams'?'primary':''}" id="peopleTeams">Teams</button>
+    <button class="button ${tab==='roles'?'primary':''}" id="peopleRoles">Roles</button>
     <button class="button ${tab==='invitations'?'primary':''}" id="peopleInvites">Invitations</button>
   </div>`;
   if(tab==='teams')return renderPeopleTeams(tabs);
+  if(tab==='roles')return renderPeopleRoles(tabs);
   if(tab==='invitations')return renderPeopleInvitations(tabs);
-  const members=await api('/api/organisation/members');
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>People</h1><p>Members of this organisation.</p></div>
-    <button class="button primary" id="inviteMember">Invite</button></div>${tabs}
-    <div class="card">${members.map(m=>`<div class="module-card">
-      <span class="module-logo">${esc(initials(m.profile?.displayName||m.user?.username))}</span>
-      <div><h3>${esc(m.profile?.displayName||m.user?.username)}</h3><p>@${esc(m.user?.username)} · ${esc(m.user?.email)} · ${esc(m.membership?.role)} · ${esc(m.membership?.status)}</p></div>
-      <span class="module-state">${esc(m.membership?.role)}</span>
-    </div>`).join('')||'<div class="empty">No members.</div>'}</div>`;
+  const [members,teams]=await Promise.all([
+    api('/api/organisation/members'),
+    api('/api/teams').catch(()=>[])
+  ]);
+  const teamCountByUser={};
+  await Promise.all((teams||[]).map(async team=>{
+    try{
+      const detail=await api(`/api/teams/${team.id}`);
+      (detail.members||[]).forEach(m=>{
+        const id=m.user?.id||m.userId;
+        if(id)teamCountByUser[id]=(teamCountByUser[id]||0)+1;
+      });
+    }catch{/* ignore */}
+  }));
+  const canInvite=can('users.manage')||can('users.invite');
+  el('content').innerHTML=`<div class="list-page-header"><div><h1>People</h1><p>Organisation members, teams, and roles.</p></div>
+    ${canInvite?'<button class="button primary" id="inviteMember">Invite member</button>':''}</div>${tabs}
+    <div class="card table-wrap"><table class="data-table">
+      <thead><tr><th>Account</th><th>Organisation role</th><th>Teams</th><th>Expiration</th><th>Last activity</th></tr></thead>
+      <tbody>${members.map(m=>{
+        const userId=m.user?.id;
+        const name=m.profile?.displayName||m.user?.username||'Member';
+        return `<tr class="click-row" data-member="${esc(userId)}">
+          <td><div class="table-identity"><span class="avatar sm">${esc(initials(name))}</span><div><strong>${esc(name)}</strong><div class="muted">@${esc(m.user?.username)} · ${esc(m.user?.email)}</div></div></div></td>
+          <td>${esc(m.membership?.role||'Member')}</td>
+          <td>${teamCountByUser[userId]||0}</td>
+          <td>${m.membership?.expiresAt?esc(new Date(m.membership.expiresAt).toLocaleDateString()):'Never'}</td>
+          <td>${esc(relativeTime(m.user?.lastLoginAt||m.membership?.joinedAt))}</td>
+        </tr>`;
+      }).join('')||'<tr><td colspan="5"><div class="empty">No members.</div></td></tr>'}</tbody>
+    </table></div>`;
   wirePeopleTabs();
-  el('inviteMember').onclick=()=>openModal(`<div class="modal-content"><h2>Invite member</h2>
+  document.querySelectorAll('[data-member]').forEach(row=>row.onclick=()=>navigate(`/people/members/${row.dataset.member}`));
+  const invite=el('inviteMember');
+  if(invite)invite.onclick=()=>openInviteMemberModal();
+}
+
+function openInviteMemberModal(){
+  openModal(`<div class="modal-content"><h2>Invite member</h2>
     <label class="form-label">Email</label><input class="field" id="inviteEmail">
     <label class="form-label">Role</label><select class="field" id="inviteRole"><option>Member</option><option>Admin</option></select>
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create invite</button></div></div>`,async e=>{
@@ -1377,87 +1494,282 @@ async function renderPeople(){
 }
 
 async function renderPeopleTeams(tabs){
-  const [teams,roles]=await Promise.all([
-    api('/api/teams'),
-    api('/api/access/roles').catch(()=>[])
-  ]);
-  const roleName=id=>(roles||[]).find(r=>r.id===id)?.name||null;
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Teams</h1><p>Reusable groups for project access and policy.</p></div>
-    <button class="button primary" id="createTeam">Create team</button></div>${tabs}
-    <div class="card">${teams.map(t=>`<div class="module-card">
-      <div><h3>${esc(t.name)}</h3><p>/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''} · ${t.roleId?`role: ${esc(roleName(t.roleId)||'custom')}`:'no role'}</p></div>
-      <button class="button" data-team="${esc(t.id)}">Open</button>
-    </div>`).join('')||'<div class="empty">No teams yet.</div>'}</div>`;
+  const teams=await api('/api/teams');
+  const canCreate=can('teams.manage')||can('teams.create');
+  el('content').innerHTML=`<div class="list-page-header"><div><h1>Teams</h1><p>Group people and own or access projects.</p></div>
+    ${canCreate?'<button class="button primary" id="createTeam">New team</button>':''}</div>${tabs}
+    <div class="card table-wrap"><table class="data-table">
+      <thead><tr><th>Team</th><th>Description</th><th>Updated</th><th></th></tr></thead>
+      <tbody>${(teams||[]).map(t=>`<tr class="click-row" data-team="${esc(t.id)}">
+        <td><strong>${esc(t.name)}</strong><div class="muted">/${esc(t.slug)}</div></td>
+        <td>${esc(t.description||'—')}</td>
+        <td>${esc(relativeTime(t.updatedAt||t.createdAt))}</td>
+        <td><button class="button text" data-open-team="${esc(t.id)}">Open</button></td>
+      </tr>`).join('')||'<tr><td colspan="4"><div class="empty">No teams yet.</div></td></tr>'}</tbody>
+    </table></div>`;
   wirePeopleTabs();
-  el('createTeam').onclick=()=>openModal(`<div class="modal-content"><h2>Create team</h2>
-    <label class="form-label" for="teamName">Name</label><input class="field" id="teamName" value="Backend">
-    <label class="form-label" for="teamSlug">Slug</label><input class="field" id="teamSlug" value="backend">
-    <label class="form-label" for="teamDesc">Description</label><input class="field" id="teamDesc">
-    <label class="form-label" for="teamRole">Access role</label>
-    <select class="field" id="teamRole">
-      <option value="">No role — inherit organisation access</option>
-      ${(roles||[]).map(r=>`<option value="${esc(r.id)}">${esc(r.name)}${r.isSystem?'':' (custom)'}</option>`).join('')}
-    </select>
-    <p class="description">A role narrows what team members can do on projects granted to this team.</p>
-    <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create</button></div></div>`,async e=>{
+  const create=el('createTeam');
+  if(create)create.onclick=()=>openModal(`<div class="modal-content"><h2>Create team</h2>
+    <label class="form-label" for="teamName">Name</label><input class="field" id="teamName" value="Platform">
+    <label class="form-label" for="teamSlug">Slug</label><input class="field" id="teamSlug" value="platform">
+    <label class="form-label" for="teamDesc">Description</label><input class="field" id="teamDesc" placeholder="Optional">
+    <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create team</button></div></div>`,async e=>{
     if(e.submitter?.value!=='submit')return;
     try{
-      await api('/api/teams',{method:'POST',body:JSON.stringify({
+      const team=await api('/api/teams',{method:'POST',body:JSON.stringify({
         name:el('teamName').value,
         slug:el('teamSlug').value,
-        description:el('teamDesc').value||null,
-        roleId:el('teamRole').value||null
+        description:el('teamDesc').value||null
       })});
-      showToast('Team created');state.peopleTab='teams';renderPeople();
+      showToast('Team created');
+      navigate(`/people/teams/${team.id}`);
     }catch(error){showToast(error.message,true)}
   });
-  document.querySelectorAll('[data-team]').forEach(button=>button.onclick=async()=>{
-    const detail=await api(`/api/teams/${button.dataset.team}`);
-    openModal(`<div class="modal-content"><h2>${esc(detail.team.name)}</h2>
-      <p class="description">Members</p>
-      ${(detail.members||[]).map(m=>`<div class="side-stat"><span>${esc(m.profile?.displayName||m.user?.username)}</span><strong>@${esc(m.user?.username)}</strong></div>`).join('')||'<p class="description">No members.</p>'}
-      <label class="form-label" for="teamDetailRole">Access role</label>
-      <select class="field" id="teamDetailRole">
-        <option value="" ${detail.team.roleId?'':'selected'}>No role — inherit organisation access</option>
-        ${(roles||[]).map(r=>`<option value="${esc(r.id)}" ${detail.team.roleId===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
-      </select>
-      <label class="form-label" for="teamAddUserId">Add member user id</label><input class="field" id="teamAddUserId" placeholder="User GUID">
-      <div class="modal-actions"><button class="button" value="cancel">Close</button>
-        <button class="button" value="role">Save role</button>
-        <button class="button primary" value="add">Add member</button></div></div>`,async e=>{
-      const action=e.submitter?.value;
-      if(action==='role'){
-        try{
-          await api(`/api/teams/${button.dataset.team}/role`,{method:'PATCH',body:JSON.stringify({roleId:el('teamDetailRole').value||null})});
-          showToast('Team role updated');state.peopleTab='teams';renderPeople();
-        }catch(error){showToast(error.message,true)}
-        return;
-      }
-      if(action!=='add')return;
-      try{
-        await api(`/api/teams/${button.dataset.team}/members`,{method:'POST',body:JSON.stringify({userId:el('teamAddUserId').value})});
-        showToast('Member added');
-      }catch(error){showToast(error.message,true)}
-    });
-  });
+  document.querySelectorAll('[data-team],[data-open-team]').forEach(elBtn=>elBtn.onclick=()=>navigate(`/people/teams/${elBtn.dataset.team||elBtn.dataset.openTeam}`));
+}
+
+async function renderPeopleRoles(tabs){
+  const roles=await api('/api/access/roles').catch(()=>[]);
+  const orgRoles=(roles||[]).filter(r=>!r.scopeType||r.scopeType==='Organisation');
+  el('content').innerHTML=`<div class="list-page-header"><div><h1>Roles</h1><p>Organisation roles and reusable templates. Team-specific roles are managed on each team.</p></div>
+    ${canAny('roles.manage','users.manage')?'<button class="button primary" id="createOrgRole">Create role</button>':''}
+    <button class="button" data-route="/organisation/settings/permissions">Permission catalogue</button></div>${tabs}
+    <div class="card">${orgRoles.map(role=>`<div class="module-card">
+      <div><h3>${esc(role.name)}</h3><p>${role.isSystem?'System role':'Custom'} · ${role.permissions?.length||0} permissions${role.description?` · ${esc(role.description)}`:''}</p></div>
+      <span class="module-state">${esc(role.scopeType||'Organisation')}</span>
+    </div>`).join('')||'<div class="empty">No organisation roles.</div>'}</div>`;
+  wirePeopleTabs();
+  const create=el('createOrgRole');
+  if(create)create.onclick=async()=>{
+    const catalogue=await api('/api/access/permissions').catch(()=>[]);
+    openAccessRoleEditor(null,catalogue);
+  };
 }
 
 async function renderPeopleInvitations(tabs){
   const invitations=await api('/api/organisation/invitations');
+  const canInvite=can('users.manage')||can('users.invite');
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Invitations</h1><p>Pending and accepted invitations.</p></div>
-    <button class="button primary" id="inviteMember">Invite</button></div>${tabs}
+    ${canInvite?'<button class="button primary" id="inviteMember">Invite</button>':''}</div>${tabs}
     <div class="card">${invitations.map(i=>`<div class="module-card">
       <div><h3>${esc(i.email)}</h3><p>${esc(i.role)} · expires ${esc(new Date(i.expiresAt).toLocaleString())}${i.acceptedAt?' · accepted':''}</p></div>
       <span class="module-state">${i.acceptedAt?'Accepted':'Pending'}</span>
     </div>`).join('')||'<div class="empty">No invitations.</div>'}</div>`;
   wirePeopleTabs();
-  el('inviteMember').onclick=()=>{state.peopleTab='members';renderPeople().then(()=>el('inviteMember')?.click())};
+  const invite=el('inviteMember');
+  if(invite)invite.onclick=()=>openInviteMemberModal();
 }
 
 function wirePeopleTabs(){
   el('peopleMembers').onclick=()=>{state.peopleTab='members';renderPeople()};
   el('peopleTeams').onclick=()=>{state.peopleTab='teams';renderPeople()};
+  const roles=el('peopleRoles');if(roles)roles.onclick=()=>{state.peopleTab='roles';renderPeople()};
   el('peopleInvites').onclick=()=>{state.peopleTab='invitations';renderPeople()};
+}
+
+async function renderMemberDetail(userId){
+  const detail=await api(`/api/organisation/members/${userId}`);
+  const tab=state.memberDetailTab||'overview';
+  const name=detail.profile?.displayName||detail.user?.username||'Member';
+  crumbs(orgCrumb(`People <span>/</span> Members <span>/</span> ${esc(name)}`));
+  const tabs=`<div class="filterbar">
+    ${['overview','teams','projects','permissions','activity'].map(id=>`<button class="button ${tab===id?'primary':''}" data-member-tab="${id}">${id[0].toUpperCase()+id.slice(1)}</button>`).join('')}
+  </div>`;
+  const canManage=can('users.manage');
+  let body='';
+  if(tab==='overview'){
+    body=`<div class="panel-grid"><div class="card"><div class="card-body">
+      <div class="side-stat"><span>Status</span><strong>${esc(detail.membership?.status||'—')}</strong></div>
+      <div class="side-stat"><span>Organisation role</span><strong>${esc(detail.membership?.role||'—')}</strong></div>
+      <div class="side-stat"><span>Member since</span><strong>${esc(detail.membership?.joinedAt?new Date(detail.membership.joinedAt).toLocaleDateString():'—')}</strong></div>
+      <div class="side-stat"><span>Expiration</span><strong>${detail.membership?.expiresAt?esc(new Date(detail.membership.expiresAt).toLocaleDateString()):'Never'}</strong></div>
+      <div class="side-stat"><span>Last activity</span><strong>${esc(relativeTime(detail.user?.lastLoginAt))}</strong></div>
+    </div></div>
+    <div class="metric-grid">
+      <article class="metric-card"><p class="metric-label">Teams</p><p class="metric-value">${detail.summary?.teams||0}</p></article>
+      <article class="metric-card"><p class="metric-label">Projects</p><p class="metric-value">${detail.summary?.projects||0}</p></article>
+      <article class="metric-card"><p class="metric-label">Direct permissions</p><p class="metric-value">${detail.summary?.directPermissions||0}</p></article>
+    </div></div>
+    ${canManage?`<div class="modal-actions" style="margin-top:16px">
+      <button class="button" id="memberSuspend">${detail.membership?.status==='Suspended'?'Reactivate':'Suspend'}</button>
+      <button class="button danger" id="memberRemove">Remove</button>
+    </div>`:''}`;
+  }else if(tab==='teams'){
+    body=`<div class="card table-wrap"><table class="data-table"><thead><tr><th>Team</th><th>Role</th><th>Expiration</th><th></th></tr></thead>
+      <tbody>${(detail.teams||[]).map(t=>`<tr>
+        <td><button class="button text" data-route="/people/teams/${esc(t.teamId)}">${esc(t.teamName||t.teamId)}</button></td>
+        <td>${esc(t.roleName||'Team Member')}</td>
+        <td>${t.expiresAt?esc(new Date(t.expiresAt).toLocaleDateString()):'Never'}</td>
+        <td>${t.active?'Active':'Expired'}</td>
+      </tr>`).join('')||'<tr><td colspan="4"><div class="empty">Not on any teams.</div></td></tr>'}</tbody></table></div>`;
+  }else if(tab==='projects'){
+    body=`<div class="card table-wrap"><table class="data-table"><thead><tr><th>Project</th><th>Access</th><th>Role</th><th>Source</th></tr></thead>
+      <tbody>${(detail.projects||[]).map(p=>`<tr>
+        <td>${esc(p.name)}</td>
+        <td>${esc(p.accessType)}</td>
+        <td>${esc((p.roles||[]).join(' + ')||'—')}</td>
+        <td>${esc((p.sources||[]).map(s=>s.teamName).filter(Boolean).join(', ')||(p.accessType.includes('Direct')?'Direct assignment':'—'))}</td>
+      </tr>`).join('')||'<tr><td colspan="4"><div class="empty">No project access.</div></td></tr>'}</tbody></table></div>`;
+  }else if(tab==='permissions'){
+    body=`<div class="card"><div class="card-header"><h2>Effective organisation permissions</h2>
+      ${canAny('permissions.manage','users.manage')?'<button class="button" id="manageDirectPerms">Manage direct permissions</button>':''}
+    </div>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Permission</th><th>Effective</th><th></th></tr></thead>
+      <tbody>${(detail.permissions||[]).map(p=>`<tr>
+        <td><code>${esc(p)}</code></td><td>Yes</td>
+        <td><button class="button text" data-explain="${esc(p)}">Why?</button></td>
+      </tr>`).join('')||'<tr><td colspan="3"><div class="empty">No effective permissions.</div></td></tr>'}</tbody></table></div></div>`;
+  }else{
+    body=`<div class="card"><div class="card-body"><p class="description">Membership and access changes appear in organisation audit.</p>
+      <button class="button" data-route="/organisation/settings/audit">Open audit log</button></div></div>`;
+  }
+  el('content').innerHTML=`<div class="list-page-header"><div>
+    <p class="eyebrow"><button class="button text" data-route="/people">← People</button></p>
+    <h1>${esc(name)}</h1>
+    <p class="description">@${esc(detail.user?.username)} · ${esc(detail.user?.email)} · ${esc(detail.membership?.role)}</p>
+  </div></div>${tabs}${body}`;
+  document.querySelectorAll('[data-member-tab]').forEach(btn=>btn.onclick=()=>{state.memberDetailTab=btn.dataset.memberTab;renderMemberDetail(userId)});
+  document.querySelectorAll('[data-explain]').forEach(btn=>btn.onclick=()=>openPermissionExplain(btn.dataset.explain,'Organisation',null,userId));
+  const suspend=el('memberSuspend');
+  if(suspend)suspend.onclick=async()=>{
+    try{
+      const next=detail.membership?.status==='Suspended'?'Active':'Suspended';
+      await api(`/api/organisation/members/${userId}/status`,{method:'PATCH',body:JSON.stringify({status:next})});
+      showToast(`Member ${next==='Active'?'reactivated':'suspended'}`);
+      renderMemberDetail(userId);
+    }catch(error){showToast(error.message,true)}
+  };
+  const remove=el('memberRemove');
+  if(remove)remove.onclick=async()=>{
+    if(!confirm(`Remove ${name} from the organisation?`))return;
+    try{
+      await api(`/api/organisation/members/${userId}`,{method:'DELETE'});
+      showToast('Member removed');navigate('/people');
+    }catch(error){showToast(error.message,true)}
+  };
+  const manage=el('manageDirectPerms');
+  if(manage)manage.onclick=()=>openGrantDirectPermission(userId);
+}
+
+async function openGrantDirectPermission(userId){
+  const catalogue=await api('/api/access/permissions').catch(()=>[]);
+  openModal(`<div class="modal-content"><h2>Grant direct permission</h2>
+    <p class="description">Advanced escape hatch. Prefer roles for normal administration.</p>
+    <label class="form-label">Permission</label>
+    <select class="field" id="grantPermission">${(catalogue||[]).map(p=>`<option value="${esc(p.key)}">${esc(p.key)} — ${esc(p.title)}</option>`).join('')}</select>
+    <label class="form-label">Scope</label>
+    <select class="field" id="grantScope"><option value="Organisation">Organisation</option></select>
+    <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant</button></div></div>`,async e=>{
+    if(e.submitter?.value!=='submit')return;
+    try{
+      await api('/api/access/grants',{method:'POST',body:JSON.stringify({
+        userId,
+        permissionId:el('grantPermission').value,
+        scopeType:el('grantScope').value
+      })});
+      showToast('Permission granted');
+      state.memberDetailTab='permissions';
+      renderMemberDetail(userId);
+    }catch(error){showToast(error.message,true)}
+  });
+}
+
+async function renderTeamDetail(teamId){
+  const [detail,roles,projects]=await Promise.all([
+    api(`/api/teams/${teamId}`),
+    api('/api/access/roles?scopeType=Team').catch(()=>api('/api/access/roles').catch(()=>[])),
+    api('/api/projects').catch(()=>[])
+  ]);
+  const team=detail.team;
+  const tab=state.teamDetailTab||'overview';
+  crumbs(orgCrumb(`People <span>/</span> Teams <span>/</span> ${esc(team.name)}`));
+  const teamRoles=(roles||[]).filter(r=>r.scopeType==='Team'||['team-lead','team-member'].includes(r.slug));
+  const tabs=`<div class="filterbar">
+    ${['overview','members','projects','roles','permissions','settings'].map(id=>`<button class="button ${tab===id?'primary':''}" data-team-tab="${id}">${id[0].toUpperCase()+id.slice(1)}</button>`).join('')}
+  </div>`;
+  const canManageMembers=can('teams.manage')||can('team.members.manage');
+  const canCreateProject=can('projects.create')||can('team.projects.create');
+  const leads=(detail.members||[]).filter(m=>m.role?.slug==='team-lead');
+  let body='';
+  if(tab==='overview'){
+    body=`<div class="metric-grid">
+      <article class="metric-card"><p class="metric-label">Leads</p><p class="metric-value">${leads.length}</p><p class="metric-trend flat">${leads.map(m=>m.profile?.displayName||m.user?.username).join(', ')||'None'}</p></article>
+      <article class="metric-card"><p class="metric-label">Members</p><p class="metric-value">${(detail.members||[]).length}</p></article>
+      <article class="metric-card"><p class="metric-label">Projects</p><p class="metric-value">${(projects||[]).filter(p=>p.owningTeamId===teamId).length}</p></article>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>About</h2></div>
+      <div class="card-body"><p class="description">${esc(team.description||'No description.')}</p></div></div>`;
+  }else if(tab==='members'){
+    body=`<div class="card"><div class="card-header"><h2>Members</h2>
+      ${canManageMembers?'<button class="button primary" id="teamAddMember">Add member</button>':''}
+    </div>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Team role</th><th>Expiration</th><th></th></tr></thead>
+      <tbody>${(detail.members||[]).map(m=>`<tr>
+        <td><button class="button text" data-route="/people/members/${esc(m.user?.id)}">${esc(m.profile?.displayName||m.user?.username)}</button></td>
+        <td>${esc(m.role?.name||'Team Member')}</td>
+        <td>${m.membership?.expiresAt?esc(new Date(m.membership.expiresAt).toLocaleDateString()):'Never'}</td>
+        <td>${canManageMembers?`<button class="button danger text" data-remove-member="${esc(m.user?.id)}">Remove</button>`:''}</td>
+      </tr>`).join('')||'<tr><td colspan="4"><div class="empty">No members.</div></td></tr>'}</tbody></table></div></div>`;
+  }else if(tab==='projects'){
+    const owned=(projects||[]).filter(p=>p.owningTeamId===teamId);
+    body=`<div class="card"><div class="card-header"><h2>Projects</h2>
+      ${canCreateProject?`<button class="button primary" id="teamNewProject">New project</button>`:''}
+    </div>
+    <div class="card-body">${owned.map(p=>`<div class="module-card"><div><h3>${esc(p.name)}</h3><p>/${esc(p.slug)} · Owner</p></div></div>`).join('')||'<div class="empty">No owned projects yet.</div>'}</div></div>`;
+  }else if(tab==='roles'){
+    body=`<div class="card"><div class="card-header"><h2>Team roles</h2></div>
+      <div class="card-body">${teamRoles.map(r=>`<div class="module-card"><div><h3>${esc(r.name)}</h3><p>${r.isSystem?'System':'Custom'} · ${r.permissions?.length||0} permissions${r.defaultProjectRoleId?' · has default project role':''}</p></div></div>`).join('')||'<div class="empty">No team roles.</div>'}</div></div>`;
+  }else if(tab==='permissions'){
+    body=`<div class="card"><div class="card-body"><p class="description">Team administration is granted through Team Lead / custom team roles and direct grants.</p>
+      <button class="button" data-route="/organisation/settings/permissions">Open permission settings</button></div></div>`;
+  }else{
+    body=`<div class="card"><div class="card-body settings-form">
+      <label class="form-label">Name</label><input class="field" id="teamSettingsName" value="${esc(team.name)}" ${can('teams.manage')?'':'disabled'}>
+      <label class="form-label">Description</label><input class="field" id="teamSettingsDesc" value="${esc(team.description||'')}" ${can('teams.manage')?'':'disabled'}>
+      ${can('teams.manage')?'<div class="modal-actions" style="margin-top:16px"><button class="button primary" id="teamSettingsSave">Save</button></div>':''}
+    </div></div>`;
+  }
+  el('content').innerHTML=`<div class="list-page-header"><div>
+    <p class="eyebrow"><button class="button text" data-route="/people">← People</button></p>
+    <h1>${esc(team.name)}</h1>
+    <p class="description">/${esc(team.slug)}</p>
+  </div></div>${tabs}${body}`;
+  document.querySelectorAll('[data-team-tab]').forEach(btn=>btn.onclick=()=>{state.teamDetailTab=btn.dataset.teamTab;renderTeamDetail(teamId)});
+  const add=el('teamAddMember');
+  if(add)add.onclick=async()=>{
+    const members=await api('/api/organisation/members');
+    openModal(`<div class="modal-content"><h2>Add member</h2>
+      <label class="form-label">Member</label><select class="field" id="teamMemberId">${members.map(m=>`<option value="${esc(m.user.id)}">${esc(m.profile?.displayName||m.user.username)}</option>`).join('')}</select>
+      <label class="form-label">Team role</label><select class="field" id="teamMemberRole">${teamRoles.map(r=>`<option value="${esc(r.id)}" ${r.slug==='team-member'?'selected':''}>${esc(r.name)}</option>`).join('')}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api(`/api/teams/${teamId}/members`,{method:'POST',body:JSON.stringify({
+          userId:el('teamMemberId').value,
+          roleId:el('teamMemberRole').value||null
+        })});
+        showToast('Member added');renderTeamDetail(teamId);
+      }catch(error){showToast(error.message,true)}
+    });
+  };
+  document.querySelectorAll('[data-remove-member]').forEach(btn=>btn.onclick=async()=>{
+    try{
+      await api(`/api/teams/${teamId}/members/${btn.dataset.removeMember}`,{method:'DELETE'});
+      showToast('Member removed');renderTeamDetail(teamId);
+    }catch(error){showToast(error.message,true)}
+  });
+  const newProject=el('teamNewProject');
+  if(newProject)newProject.onclick=()=>openProjectWizard({owningTeamId:teamId});
+  const save=el('teamSettingsSave');
+  if(save)save.onclick=async()=>{
+    try{
+      await api(`/api/teams/${teamId}`,{method:'PATCH',body:JSON.stringify({
+        name:el('teamSettingsName').value,
+        description:el('teamSettingsDesc').value
+      })});
+      showToast('Team updated');renderTeamDetail(teamId);
+    }catch(error){showToast(error.message,true)}
+  };
 }
 
 async function renderInviteAccept(token){
@@ -2221,12 +2533,18 @@ function orgSettingsSections(){
 function projectSettingsSections(){
   const sections=[
     {group:'General',items:[
-      {id:'general',route:'/settings/general',label:'Overview'},
+      {id:'general',route:'/settings/general',label:'Overview'}
+    ]},
+    {group:'Access',items:[
       {id:'members',route:'/settings/members',label:'Members & Teams'},
-      {id:'modules',route:'/settings/modules',label:'Modules'}
+      {id:'roles',route:'/settings/roles',label:'Roles'},
+      {id:'permissions',route:'/settings/permissions',label:'Permissions'}
     ]},
     {group:'Repositories',items:[
       {id:'repositories',route:'/settings/repositories',label:'Repositories'}
+    ]},
+    {group:'Modules',items:[
+      {id:'modules',route:'/settings/modules',label:'Modules'}
     ]}
   ];
   if(hasModule('review')){
@@ -2286,6 +2604,8 @@ async function renderProjectSettings(route){
   const section=path.replace('/settings/','').split('/')[0]||'general';
   if(section==='general')return await renderProjectGeneralSettings();
   if(section==='members')return await renderProjectMembersSettings();
+  if(section==='roles')return await renderProjectRolesSettings();
+  if(section==='permissions')return await renderProjectPermissionsSettings();
   if(section==='modules')return await renderProjectModulesSettings();
   if(section==='repositories')return await renderProjectRepositoriesSettings();
   if(section==='review')return await renderProjectReviewSettings();
@@ -2512,7 +2832,8 @@ function openAccessRoleEditor(role,catalogue){
         })});
       }
       showToast('Role saved');
-      await renderOrgPermissionsSettings();
+      if(state.route==='/people'&&state.peopleTab==='roles')await renderPeople();
+      else await renderOrgPermissionsSettings();
     }catch(error){showToast(error.message,true)}
   });
 }
@@ -2652,6 +2973,7 @@ async function renderProjectModulesSettings(){
 async function renderProjectMembersSettings(){
   const projectId=state.context?.project?.id;
   if(!projectId)return renderError(new Error('No project selected.'));
+  const accessTab=state.projectAccessTab||'teams';
   const [members,teams,orgMembers,allTeams,roles]=await Promise.all([
     api(`/api/projects/${projectId}/members`).catch(()=>[]),
     api(`/api/projects/${projectId}/teams`).catch(()=>[]),
@@ -2659,35 +2981,45 @@ async function renderProjectMembersSettings(){
     api('/api/teams').catch(()=>[]),
     api('/api/access/roles').catch(()=>[])
   ]);
-  const roleOptions=`<option value="">No role — inherit organisation access</option>${(roles||[]).map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}`;
-  const roleLabel=grant=>grant.roleName?`role: ${esc(grant.roleName)}`:'inherits organisation access';
-  renderSettingsShell('project','/settings/members','Members & Teams','Grant project access to people and teams. An access role narrows what the grant allows inside this project.',`
-    <div class="card"><div class="card-header"><h2>Members</h2>
-      <button class="button primary" id="addProjectMember">Add member</button>
+  const projectRoles=(roles||[]).filter(r=>!r.scopeType||r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator'].includes(r.slug));
+  const roleOptions=`<option value="">Select a project role</option>${projectRoles.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}`;
+  const roleLabel=grant=>grant.roleName?esc(grant.roleName):'Access only';
+  const canManage=canAny('projects.manage','project.members.manage');
+  const tabs=`<div class="filterbar">
+    <button class="button ${accessTab==='teams'?'primary':''}" id="accessTeamsTab">Teams</button>
+    <button class="button ${accessTab==='members'?'primary':''}" id="accessMembersTab">Individual members</button>
+  </div>`;
+  renderSettingsShell('project','/settings/members','Members & Teams','Grant project access to teams and individual members. Roles combine additively.',`
+    ${tabs}
+    ${accessTab==='teams'?`<div class="card"><div class="card-header"><h2>Teams</h2>
+      ${canManage?'<button class="button primary" id="addProjectTeam">Add team</button>':''}
     </div>
-    <div class="card-body">
-      ${(members||[]).map(m=>`<div class="module-card" data-grant-member="${esc(m.userId)}">
-        <span class="module-logo">${esc(initials(m.displayName||m.username||'?'))}</span>
-        <div><h3>${esc(m.displayName||m.username||m.userId)}</h3><p>@${esc(m.username||'—')} · ${esc(m.email||'')} · ${roleLabel(m)}</p></div>
-        <div class="settings-row-actions"><button class="button danger" data-revoke-member="${esc(m.userId)}">Remove</button></div>
-      </div>`).join('')||'<div class="empty small">No direct member grants.</div>'}
-    </div></div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Teams</h2>
-      <button class="button primary" id="addProjectTeam">Add team</button>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Team</th><th>Relationship</th><th>Project role</th><th></th></tr></thead>
+      <tbody>${(teams||[]).map(t=>`<tr>
+        <td><strong>${esc(t.name||t.teamId)}</strong><div class="muted">/${esc(t.slug||'—')}</div></td>
+        <td>${esc(t.relationship||(t.owning?'Owner':'Access'))}</td>
+        <td>${roleLabel(t)}</td>
+        <td>${canManage?`<button class="button danger text" data-revoke-team="${esc(t.teamId)}">Remove</button>`:''}</td>
+      </tr>`).join('')||'<tr><td colspan="4"><div class="empty small">No team grants.</div></td></tr>'}</tbody></table></div></div>`
+    :`<div class="card"><div class="card-header"><h2>Individual members</h2>
+      ${canManage?'<button class="button primary" id="addProjectMember">Add member</button>':''}
     </div>
-    <div class="card-body">
-      ${(teams||[]).map(t=>`<div class="module-card" data-grant-team="${esc(t.teamId)}">
-        <span class="module-logo">${esc(initials(t.name||t.slug||'?'))}</span>
-        <div><h3>${esc(t.name||t.teamId)}</h3><p>/${esc(t.slug||'—')} · ${roleLabel(t)}</p></div>
-        <div class="settings-row-actions"><button class="button danger" data-revoke-team="${esc(t.teamId)}">Remove</button></div>
-      </div>`).join('')||'<div class="empty small">No team grants.</div>'}
-    </div></div>`);
-  el('addProjectMember').onclick=()=>{
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Project role</th><th>Access type</th><th></th></tr></thead>
+      <tbody>${(members||[]).map(m=>`<tr>
+        <td><strong>${esc(m.displayName||m.username||m.userId)}</strong><div class="muted">@${esc(m.username||'—')}</div></td>
+        <td>${roleLabel(m)}</td>
+        <td>Direct</td>
+        <td>${canManage?`<button class="button danger text" data-revoke-member="${esc(m.userId)}">Remove</button>`:''}</td>
+      </tr>`).join('')||'<tr><td colspan="4"><div class="empty small">No direct member grants.</div></td></tr>'}</tbody></table></div></div>`}`);
+  el('accessTeamsTab').onclick=()=>{state.projectAccessTab='teams';renderProjectMembersSettings()};
+  el('accessMembersTab').onclick=()=>{state.projectAccessTab='members';renderProjectMembersSettings()};
+  const addMember=el('addProjectMember');
+  if(addMember)addMember.onclick=()=>{
     const options=(orgMembers||[]).map(m=>`<option value="${esc(m.user?.id||m.userId)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('');
-    openModal(`<div class="modal-content"><h2>Add project member</h2>
+    openModal(`<div class="modal-content"><h2>Add project access</h2>
       <label class="form-label">Member</label><select class="field" id="projectMemberId">${options||'<option value="">No members</option>'}</select>
-      <label class="form-label">Access role</label><select class="field" id="projectMemberRole">${roleOptions}</select>
-      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
+      <label class="form-label">Project role</label><select class="field" id="projectMemberRole">${roleOptions}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant access</button></div></div>`,async e=>{
       if(e.submitter?.value!=='submit')return;
       try{
         await api(`/api/projects/${projectId}/members`,{method:'POST',body:JSON.stringify({
@@ -2698,13 +3030,14 @@ async function renderProjectMembersSettings(){
       }catch(error){showToast(error.message,true)}
     });
   };
-  el('addProjectTeam').onclick=()=>{
+  const addTeam=el('addProjectTeam');
+  if(addTeam)addTeam.onclick=()=>{
     const options=(allTeams||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
-    openModal(`<div class="modal-content"><h2>Add project team</h2>
+    openModal(`<div class="modal-content"><h2>Add project access</h2>
       <label class="form-label">Team</label><select class="field" id="projectTeamId">${options||'<option value="">No teams</option>'}</select>
-      <label class="form-label">Access role</label><select class="field" id="projectTeamRole">${roleOptions}</select>
-      <p class="description">Leave the role empty to fall back to the role attached to the team.</p>
-      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
+      <label class="form-label">Project role</label><select class="field" id="projectTeamRole">${roleOptions}</select>
+      <p class="description">All active team members inherit this project role.</p>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant access</button></div></div>`,async e=>{
       if(e.submitter?.value!=='submit')return;
       try{
         await api(`/api/projects/${projectId}/teams`,{method:'POST',body:JSON.stringify({
@@ -2727,6 +3060,69 @@ async function renderProjectMembersSettings(){
       showToast('Team removed');await renderProjectMembersSettings();
     }catch(error){showToast(error.message,true)}
   });
+}
+
+async function renderProjectRolesSettings(){
+  const roles=await api('/api/access/roles').catch(()=>[]);
+  const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator'].includes(r.slug));
+  renderSettingsShell('project','/settings/roles','Roles','Project roles and their permissions. Module permissions appear when the module is enabled.',`
+    <div class="card">${projectRoles.map(role=>`<div class="module-card">
+      <div><h3>${esc(role.name)}</h3><p>${role.isSystem?'System':'Custom'} · ${role.permissions?.length||0} permissions</p>
+        <p class="description">${(role.permissions||[]).slice(0,8).map(p=>esc(p)).join(', ')}${(role.permissions||[]).length>8?'…':''}</p>
+      </div>
+    </div>`).join('')||'<div class="empty">No project roles.</div>'}</div>`);
+}
+
+async function renderProjectPermissionsSettings(){
+  const projectId=state.context?.project?.id;
+  if(!projectId)return renderError(new Error('No project selected.'));
+  const [effective,grants,members]=await Promise.all([
+    api(`/api/access/effective?scopeType=Project&scopeId=${projectId}`).catch(()=>({permissions:[],sources:{}})),
+    api(`/api/access/grants?scopeType=Project&scopeId=${projectId}`).catch(()=>[]),
+    api('/api/organisation/members').catch(()=>[])
+  ]);
+  const canManage=canAny('project.permissions.manage','projects.manage','permissions.manage');
+  renderSettingsShell('project','/settings/permissions','Permissions','Direct grants and an access inspector for this project.',`
+    <div class="card"><div class="card-header"><h2>Direct user grants</h2>
+      ${canManage?'<button class="button primary" id="grantProjectPerm">Grant direct permission</button>':''}
+    </div>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Permission</th><th>Source</th></tr></thead>
+      <tbody>${(grants||[]).map(g=>{
+        const member=(members||[]).find(m=>(m.user?.id||m.userId)===g.userId);
+        return `<tr><td>${esc(member?.profile?.displayName||member?.user?.username||g.userId)}</td><td><code>${esc(g.permissionId)}</code></td><td>Direct</td></tr>`;
+      }).join('')||'<tr><td colspan="3"><div class="empty small">No direct grants.</div></td></tr>'}</tbody></table></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Access inspector</h2>
+      <button class="button" id="inspectAccess">Inspect current user</button>
+    </div>
+    <div class="card-body">
+      <p class="description">Effective permissions for you on this project: <strong>${(effective.permissions||[]).length}</strong></p>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>Permission</th><th></th></tr></thead>
+        <tbody>${(effective.permissions||[]).slice(0,40).map(p=>`<tr><td><code>${esc(p)}</code></td><td><button class="button text" data-explain="${esc(p)}">Why?</button></td></tr>`).join('')
+          ||'<tr><td colspan="2"><div class="empty small">No effective permissions.</div></td></tr>'}</tbody></table></div>
+    </div></div>`);
+  document.querySelectorAll('[data-explain]').forEach(btn=>btn.onclick=()=>openPermissionExplain(btn.dataset.explain,'Project',projectId));
+  const inspect=el('inspectAccess');
+  if(inspect)inspect.onclick=()=>openPermissionExplain((effective.permissions||[])[0]||'project.read','Project',projectId);
+  const grant=el('grantProjectPerm');
+  if(grant)grant.onclick=async()=>{
+    const catalogue=await api('/api/access/permissions').catch(()=>[]);
+    const projectPerms=(catalogue||[]).filter(p=>(p.allowedScopes||[]).includes('Project')||String(p.key).startsWith('review.')||String(p.key).startsWith('deploy.')||String(p.key).startsWith('pipelines.')||String(p.key).startsWith('git.')||p.key==='project.read');
+    openModal(`<div class="modal-content"><h2>Grant direct permission</h2>
+      <label class="form-label">Member</label><select class="field" id="grantUserId">${(members||[]).map(m=>`<option value="${esc(m.user?.id)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('')}</select>
+      <label class="form-label">Permission</label><select class="field" id="grantPermissionId">${projectPerms.map(p=>`<option value="${esc(p.key)}">${esc(p.key)}</option>`).join('')}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api('/api/access/grants',{method:'POST',body:JSON.stringify({
+          userId:el('grantUserId').value,
+          permissionId:el('grantPermissionId').value,
+          scopeType:'Project',
+          scopeId:projectId
+        })});
+        showToast('Permission granted');renderProjectPermissionsSettings();
+      }catch(error){showToast(error.message,true)}
+    });
+  };
 }
 
 async function renderProjectRepositoriesSettings(){

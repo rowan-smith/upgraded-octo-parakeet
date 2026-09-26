@@ -71,37 +71,43 @@ public sealed class ForgeDeckHost : IAsyncDisposable
         seedDemo: false,
         publicKeyPem: publicKeyPem);
 
+    private static readonly object HostStartGate = new();
+
     private static ForgeDeckHost Start(string databasePrefix, string environment, bool seedDemo, string? publicKeyPem = null)
     {
-        var databasePath = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-{Guid.NewGuid():N}.db");
-        var keys = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-keys-{Guid.NewGuid():N}");
-        // Every host must own a distinct port: Kestrel's default endpoint is shared, so a lingering
-        // host from an earlier class (or an earlier test run) would otherwise fail the next bind.
-        var port = FreePort();
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        // Serialize probe+bind so two hosts never claim the same FreePort() result.
+        lock (HostStartGate)
         {
-            builder.UseEnvironment(environment);
-            builder.UseSetting("urls", $"http://127.0.0.1:{port}");
-            builder.UseSetting("ConnectionStrings:Platform", $"Data Source={databasePath}");
-            builder.UseSetting("Data:ProtectionKeysPath", keys);
-            builder.UseSetting("Core:SeedDemoOnEmpty", seedDemo ? "true" : "false");
-            builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
-            if (!string.IsNullOrWhiteSpace(publicKeyPem))
+            var databasePath = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-{Guid.NewGuid():N}.db");
+            var keys = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-keys-{Guid.NewGuid():N}");
+            // Every host must own a distinct port: Kestrel's default endpoint is shared, so a lingering
+            // host from an earlier class (or an earlier test run) would otherwise fail the next bind.
+            var port = FreePort();
+            var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
-                builder.ConfigureAppConfiguration((_, config) =>
+                builder.UseEnvironment(environment);
+                builder.UseSetting("urls", $"http://127.0.0.1:{port}");
+                builder.UseSetting("ConnectionStrings:Platform", $"Data Source={databasePath}");
+                builder.UseSetting("Data:ProtectionKeysPath", keys);
+                builder.UseSetting("Core:SeedDemoOnEmpty", seedDemo ? "true" : "false");
+                builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
+                if (!string.IsNullOrWhiteSpace(publicKeyPem))
                 {
-                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    builder.ConfigureAppConfiguration((_, config) =>
                     {
-                        ["Licensing:PublicKeyPem"] = publicKeyPem
+                        config.AddInMemoryCollection(new Dictionary<string, string?>
+                        {
+                            ["Licensing:PublicKeyPem"] = publicKeyPem
+                        });
                     });
-                });
-            }
-        });
-        factory.UseKestrel(port);
-        factory.StartServer();
+                }
+            });
+            factory.UseKestrel(port);
+            factory.StartServer();
 
-        var baseAddress = ResolveBaseAddress(factory);
-        return new ForgeDeckHost(factory, databasePath, baseAddress, factory.CreateClient());
+            var baseAddress = ResolveBaseAddress(factory);
+            return new ForgeDeckHost(factory, databasePath, baseAddress, factory.CreateClient());
+        }
     }
 
     private static int FreePort()

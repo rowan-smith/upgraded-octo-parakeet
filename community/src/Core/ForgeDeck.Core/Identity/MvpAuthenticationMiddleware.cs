@@ -43,7 +43,7 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
 
         var profile = store.GetProfile(user.Id);
         var membership = store.GetMembership(user.Id);
-        if (membership is null || membership.Status != MembershipStatus.Active)
+        if (membership is null || !membership.IsEffectivelyActive())
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsJsonAsync(new { error = "Active organisation membership required" });

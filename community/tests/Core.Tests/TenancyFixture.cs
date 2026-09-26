@@ -24,7 +24,8 @@ internal sealed class TenancyFixture : IDisposable
         Invitations = new InvitationService(Store, Passwords);
         Auth = new AuthService(Store, Passwords);
         Roles = new RoleService(Store);
-        Effective = new EffectivePermissionService(Store, Roles, Access);
+        Effective = new EffectivePermissionService(Store, Roles, new PermissionDefinitionRegistry(), Access);
+        Permissions = Effective.Service;
     }
 
     public ITenancyStore Store { get; }
@@ -38,6 +39,7 @@ internal sealed class TenancyFixture : IDisposable
     public AuthService Auth { get; }
     public RoleService Roles { get; }
     public EffectivePermissionService Effective { get; }
+    public PermissionService Permissions { get; }
 
     /// <summary>Resolves a seeded system role by slug (for example "reader").</summary>
     public AccessRole SystemRole(string slug) =>

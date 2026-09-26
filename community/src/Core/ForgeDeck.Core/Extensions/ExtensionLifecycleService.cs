@@ -3,6 +3,7 @@ using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Core.Context;
+using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Persistence;
 using Microsoft.Extensions.Configuration;
 
@@ -14,7 +15,8 @@ public sealed class ExtensionLifecycleService(
     ICapabilityService capabilities,
     PlatformContextStore context,
     IAuditWriter audit,
-    ITenancyStore? store = null)
+    ITenancyStore? store = null,
+    IPermissionDefinitionRegistry? permissions = null)
 {
     private static readonly HashSet<string> LoadedRuntimeIds = new(StringComparer.OrdinalIgnoreCase);
 
@@ -160,6 +162,7 @@ public sealed class ExtensionLifecycleService(
         installation.UpdatedAt = DateTimeOffset.UtcNow;
         installation.LastError = null;
         registry.Save(installation);
+        permissions?.SetExtensionActive(entry.ExtensionId, true);
         audit.Write("core", "module.enabled", entry.ExtensionId, new { actor, installation.State });
         return Get(extensionId);
     }
@@ -181,6 +184,7 @@ public sealed class ExtensionLifecycleService(
         installation.RestartRequired = false;
         installation.UpdatedAt = DateTimeOffset.UtcNow;
         registry.Save(installation);
+        permissions?.SetExtensionActive(entry.ExtensionId, false);
         audit.Write("core", "module.disabled", entry.ExtensionId, new { actor });
         return Get(extensionId);
     }

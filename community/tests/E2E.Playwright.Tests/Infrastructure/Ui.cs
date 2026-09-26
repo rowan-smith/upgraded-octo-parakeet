@@ -254,7 +254,7 @@ internal static class Ui
     public static async Task OpenPipelinesAsync(IPage page)
     {
         await EnsureProjectNavAsync(page);
-        await NavigateAsync(page, "/pipelines");
+        await GoToHashAsync(page, "/pipelines");
         await ExpectVisible(page, "h1", "Build");
     }
 

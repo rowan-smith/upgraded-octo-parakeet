@@ -1,7 +1,7 @@
 namespace ForgeDeck.Core.Domain;
 
 public enum UserStatus { Active, Suspended, Disabled }
-public enum MembershipStatus { Invited, Active, Suspended }
+public enum MembershipStatus { Invited, Active, Suspended, Expired }
 public enum OrganisationRole { Owner, Admin, Member }
 public enum ProjectVisibility { Private, Organisation }
 public enum RepositoryStatus { Connected, Unavailable, AuthenticationRequired, Disconnected }
@@ -120,6 +120,18 @@ public sealed class OrganisationMembership
     public MembershipStatus Status { get; set; } = MembershipStatus.Active;
     public DateTimeOffset JoinedAt { get; init; } = DateTimeOffset.UtcNow;
     public Guid? InvitedByUserId { get; init; }
+    public Guid? CreatedByUserId { get; init; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public bool IsEffectivelyActive(DateTimeOffset? now = null)
+    {
+        if (Status is MembershipStatus.Suspended or MembershipStatus.Expired or MembershipStatus.Invited)
+        {
+            return false;
+        }
+
+        return ExpiresAt is not DateTimeOffset expires || expires > (now ?? DateTimeOffset.UtcNow);
+    }
 }
 
 public sealed class Invitation
@@ -134,7 +146,7 @@ public sealed class Invitation
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
-/// <summary>A named permission bundle. System roles are seeded and immutable; custom roles are organisation-defined.</summary>
+/// <summary>A named permission bundle. System roles are seeded and immutable; custom roles are organisation/team/project-defined.</summary>
 public sealed class AccessRole
 {
     public Guid Id { get; init; } = Guid.NewGuid();
@@ -142,6 +154,11 @@ public sealed class AccessRole
     public required string Slug { get; set; }
     public string? Description { get; set; }
     public bool IsSystem { get; init; }
+    public ScopeType ScopeType { get; set; } = ScopeType.Organisation;
+    public RoleOwnerType? OwnerType { get; set; }
+    public Guid? OwnerId { get; set; }
+    /// <summary>Optional default project role applied when this team role inherits project access.</summary>
+    public Guid? DefaultProjectRoleId { get; set; }
     public HashSet<string> Permissions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -165,6 +182,11 @@ public sealed class TeamMembership
     public Guid TeamId { get; init; }
     public Guid UserId { get; init; }
     public DateTimeOffset JoinedAt { get; init; } = DateTimeOffset.UtcNow;
+    public Guid? CreatedByUserId { get; init; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public bool IsEffectivelyActive(DateTimeOffset? now = null) =>
+        ExpiresAt is not DateTimeOffset expires || expires > (now ?? DateTimeOffset.UtcNow);
 }
 
 public sealed class Project
@@ -177,6 +199,8 @@ public sealed class Project
     public string? Description { get; set; }
     public ProjectVisibility Visibility { get; set; } = ProjectVisibility.Private;
     public RepositoryMode RepositoryMode { get; set; } = RepositoryMode.SingleRepository;
+    /// <summary>Optional team that administratively owns this project (not exclusive access).</summary>
+    public Guid? OwningTeamId { get; set; }
     public Guid CreatedByUserId { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -188,9 +212,14 @@ public sealed class ProjectUserAccess
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid ProjectId { get; init; }
     public Guid UserId { get; init; }
-    /// <summary>Optional access role narrowing what the user may do inside this project.</summary>
+    /// <summary>Project role granted to this user.</summary>
     public Guid? RoleId { get; set; }
     public DateTimeOffset GrantedAt { get; init; } = DateTimeOffset.UtcNow;
+    public Guid? GrantedByUserId { get; init; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public bool IsEffectivelyActive(DateTimeOffset? now = null) =>
+        ExpiresAt is not DateTimeOffset expires || expires > (now ?? DateTimeOffset.UtcNow);
 }
 
 public sealed class ProjectTeamAccess
@@ -198,9 +227,15 @@ public sealed class ProjectTeamAccess
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid ProjectId { get; init; }
     public Guid TeamId { get; init; }
-    /// <summary>Optional access role narrowing what the team may do inside this project; overrides the team role.</summary>
+    /// <summary>Project role inherited by active team members.</summary>
     public Guid? RoleId { get; set; }
+    public ProjectTeamRelationship Relationship { get; set; } = ProjectTeamRelationship.Access;
     public DateTimeOffset GrantedAt { get; init; } = DateTimeOffset.UtcNow;
+    public Guid? GrantedByUserId { get; init; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public bool IsEffectivelyActive(DateTimeOffset? now = null) =>
+        ExpiresAt is not DateTimeOffset expires || expires > (now ?? DateTimeOffset.UtcNow);
 }
 
 public sealed class Repository

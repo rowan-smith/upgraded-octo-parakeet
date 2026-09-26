@@ -17,58 +17,118 @@ internal static class AccessMatrix
         "git.repository.create", "git.repository.push", "git.repository.read",
         "pipelines.manage", "pipelines.run", "pipelines.read", "pipelines.cancel",
         "pipelines.runner.read", "pipelines.runner.manage",
-        "deploy.read", "deploy.execute", "deploy.manage"
+        "deploy.read", "deploy.execute", "deploy.manage", "deploy.approve"
     ];
 
-    public static readonly string[] Member = ["organisation.read", "users.read", ..ModulePermissions];
+    public static readonly string[] Member =
+    [
+        "organisation.read", "users.read", "teams.read.assigned", "projects.read.accessible", "project.read"
+    ];
 
     public static readonly string[] Admin =
     [
         ..Member,
-        "users.manage", "teams.manage", "projects.create", "projects.manage", "core.integration.manage", "audit.read"
+        "users.invite", "users.manage",
+        "teams.read", "teams.create", "teams.manage",
+        "projects.read", "projects.create", "projects.manage",
+        "extensions.read", "core.integration.manage", "connectors.read", "audit.read", "roles.manage",
+        ..ModulePermissions
     ];
 
     public static readonly string[] Owner =
     [
         ..Admin,
-        "organisation.manage", "modules.manage", "licensing.manage", "organisation.destroy"
+        "organisation.manage", "organisation.settings.manage",
+        "modules.manage",
+        "extensions.install", "extensions.enable", "extensions.disable", "extensions.uninstall",
+        "connectors.manage",
+        "licensing.read", "licensing.manage",
+        "permissions.manage",
+        "organisation.destroy"
     ];
 
-    public static readonly string[] Reader =
+    public static readonly string[] Viewer =
     [
-        "organisation.read", "users.read", "source.repository.read", "review.read",
+        "project.read", "organisation.read", "source.repository.read", "review.read",
         "git.repository.read", "pipelines.read", "deploy.read"
     ];
 
-    public static readonly string[] Developer = Member.Except(["deploy.execute", "deploy.manage"]).ToArray();
+    public static readonly string[] Reader = Viewer;
 
-    public static readonly string[] Reviewer = [..Reader, "review.comment", "review.request", "review.approve"];
+    public static readonly string[] Developer =
+    [
+        ..Viewer,
+        "review.comment", "review.request",
+        "pipelines.run",
+        "git.repository.push"
+    ];
+
+    public static readonly string[] Reviewer = [..Viewer, "review.comment", "review.request", "review.approve"];
 
     public static readonly string[] Builder =
     [
-        ..Reader,
+        ..Viewer,
         "pipelines.run", "pipelines.manage", "pipelines.cancel", "pipelines.runner.read"
     ];
 
-    public static readonly string[] Deployer = [..Reader, "deploy.execute", "deploy.manage"];
+    public static readonly string[] Deployer = [..Viewer, "deploy.execute", "deploy.manage", "deploy.approve"];
 
-    public static readonly string[] AllPermissions = Owner;
+    public static readonly string[] DeployOperator = Deployer;
+
+    public static readonly string[] ProjectAdmin =
+    [
+        ..Developer,
+        "project.settings.manage", "project.members.manage", "project.permissions.manage",
+        "source.repository.connect",
+        "review.approve", "review.merge", "review.manage",
+        "git.repository.create",
+        "pipelines.manage", "pipelines.cancel", "pipelines.runner.manage",
+        "deploy.execute", "deploy.manage", "deploy.approve"
+    ];
+
+    public static readonly string[] TeamLead =
+    [
+        "team.read", "team.settings.manage", "team.members.read", "team.members.manage",
+        "team.roles.read", "team.roles.manage", "team.projects.read", "team.projects.create", "team.projects.manage"
+    ];
+
+    public static readonly string[] TeamMember = ["team.read", "team.members.read", "team.projects.read"];
+
+    public static readonly string[] AllPermissions = Owner.Concat(TeamLead).Concat(ProjectAdmin).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
     public static readonly Dictionary<string, string[]> Roles = new(StringComparer.OrdinalIgnoreCase)
     {
         [SystemAccessRoles.Owner] = Owner,
         [SystemAccessRoles.Admin] = Admin,
         [SystemAccessRoles.Member] = Member,
+        [SystemAccessRoles.TeamLead] = TeamLead,
+        [SystemAccessRoles.TeamMember] = TeamMember,
+        [SystemAccessRoles.ProjectAdmin] = ProjectAdmin,
         [SystemAccessRoles.Reader] = Reader,
+        [SystemAccessRoles.Viewer] = Viewer,
         [SystemAccessRoles.Developer] = Developer,
         [SystemAccessRoles.Reviewer] = Reviewer,
         [SystemAccessRoles.Builder] = Builder,
-        [SystemAccessRoles.Deployer] = Deployer
+        [SystemAccessRoles.Deployer] = Deployer,
+        [SystemAccessRoles.DeployOperator] = DeployOperator
     };
 
     public static IReadOnlySet<string> Expected(string slug) =>
         new HashSet<string>(Roles[slug], StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Additive union of organisation membership permissions and a project/team role.</summary>
+    public static IReadOnlySet<string> Union(string organisationRoleSlug, params string[] projectRoleSlugs)
+    {
+        var result = new HashSet<string>(Roles[organisationRoleSlug], StringComparer.OrdinalIgnoreCase);
+        foreach (var slug in projectRoleSlugs)
+        {
+            result.UnionWith(Roles[slug]);
+        }
+
+        return result;
+    }
+
+    [Obsolete("Additive RBAC replaces ceiling intersection.")]
     public static IReadOnlySet<string> Intersection(string slug, string[] ceiling)
     {
         var limit = new HashSet<string>(ceiling, StringComparer.OrdinalIgnoreCase);
@@ -128,7 +188,7 @@ public sealed class SystemAccessRoleMatrixTests
         Assert.Equal(SystemAccessRoles.Owner, SystemAccessRoles.Find(slug)!.Slug);
 
     [Fact]
-    public void Eight_system_roles_are_defined() => Assert.Equal(8, SystemAccessRoles.Definitions.Count);
+    public void Thirteen_system_roles_are_defined() => Assert.Equal(13, SystemAccessRoles.Definitions.Count);
 
     [Fact]
     public void Unknown_system_role_slug_is_rejected() =>
@@ -150,9 +210,14 @@ public sealed class SystemAccessRoleMatrixTests
     [InlineData(SystemAccessRoles.Reviewer)]
     [InlineData(SystemAccessRoles.Builder)]
     [InlineData(SystemAccessRoles.Deployer)]
-    public void Narrowing_roles_never_exceed_the_member_ceiling(string slug) =>
+    [InlineData(SystemAccessRoles.Viewer)]
+    [InlineData(SystemAccessRoles.ProjectAdmin)]
+    public void Project_roles_do_not_include_organisation_only_permissions(string slug) =>
         Assert.All(SystemAccessRoles.PermissionsFor(slug), permission =>
-            Assert.True(OrganisationPermissions.ForRole(OrganisationRole.Member).Contains(permission), permission));
+            Assert.True(
+                PermissionCatalogue.AllowsScope(permission, ScopeType.Project)
+                || PermissionCatalogue.AllowsScope(permission, ScopeType.Organisation),
+                permission));
 
     [Theory]
     [InlineData(SystemAccessRoles.Reader, "deploy.execute")]
@@ -169,8 +234,8 @@ public sealed class SystemAccessRoleMatrixTests
         Assert.False(SystemAccessRoles.PermissionsFor(slug).Contains(permission));
 
     [Theory]
-    [InlineData(SystemAccessRoles.Developer, "source.repository.connect")]
     [InlineData(SystemAccessRoles.Developer, "git.repository.push")]
+    [InlineData(SystemAccessRoles.Developer, "pipelines.run")]
     [InlineData(SystemAccessRoles.Reviewer, "review.approve")]
     [InlineData(SystemAccessRoles.Reviewer, "review.request")]
     [InlineData(SystemAccessRoles.Reviewer, "review.comment")]
@@ -179,6 +244,8 @@ public sealed class SystemAccessRoleMatrixTests
     [InlineData(SystemAccessRoles.Builder, "pipelines.runner.read")]
     [InlineData(SystemAccessRoles.Deployer, "deploy.manage")]
     [InlineData(SystemAccessRoles.Deployer, "deploy.execute")]
+    [InlineData(SystemAccessRoles.TeamLead, "team.projects.create")]
+    [InlineData(SystemAccessRoles.ProjectAdmin, "project.permissions.manage")]
     public void Documented_inclusions_hold(string slug, string permission) =>
         Assert.True(SystemAccessRoles.PermissionsFor(slug).Contains(permission));
 }
@@ -201,16 +268,18 @@ public sealed class PermissionCatalogueTests
         Assert.Equal(PermissionCatalogue.All.Count, PermissionCatalogue.AllKeys.Count);
 
     [Fact]
-    public void Catalogue_covers_the_owner_ceiling_exactly() =>
-        Assert.Equal(
-            OrganisationPermissions.ForRole(OrganisationRole.Owner).OrderBy(p => p),
-            PermissionCatalogue.AllKeys.OrderBy(p => p));
+    public void Catalogue_covers_every_owner_permission() =>
+        Assert.All(
+            OrganisationPermissions.ForRole(OrganisationRole.Owner),
+            permission => Assert.True(PermissionCatalogue.IsKnown(permission), permission));
 
     [Theory]
     [InlineData("Organisation")]
     [InlineData("People")]
     [InlineData("Projects")]
     [InlineData("Platform")]
+    [InlineData("Team")]
+    [InlineData("Project")]
     [InlineData("Source")]
     [InlineData("Review")]
     [InlineData("Git")]
@@ -271,8 +340,9 @@ public sealed class PermissionCatalogueTests
     [InlineData(OrganisationRole.Owner, "Licensing.Manage")]
     [InlineData(OrganisationRole.Admin, "USERS.MANAGE")]
     [InlineData(OrganisationRole.Admin, "Teams.Manage")]
-    [InlineData(OrganisationRole.Member, "Review.Read")]
-    [InlineData(OrganisationRole.Member, "DEPLOY.READ")]
+    [InlineData(OrganisationRole.Member, "Organisation.Read")]
+    [InlineData(OrganisationRole.Member, "USERS.READ")]
+    [InlineData(OrganisationRole.Member, "Project.Read")]
     public void Organisation_permission_checks_ignore_casing(OrganisationRole role, string permission) =>
         Assert.True(OrganisationPermissions.ForRole(role).Contains(permission));
 }

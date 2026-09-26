@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/app.css?v=no-org-footer-1">
+  <link rel="stylesheet" href="/app.css?v=rbac-ui-1">
 </head>
 <body>
   <div id="app" class="app-shell" aria-busy="true">
@@ -70,7 +70,16 @@
   </div>
 
   <dialog id="modal" class="modal"><form method="dialog" id="modalForm"><div id="modalBody"></div></form></dialog>
+  <aside id="permissionDrawer" class="permission-drawer" hidden aria-hidden="true">
+    <div class="permission-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="permissionDrawerTitle">
+      <header class="permission-drawer-header">
+        <h2 id="permissionDrawerTitle">Permission</h2>
+        <button type="button" class="button text" id="permissionDrawerClose" aria-label="Close">Close</button>
+      </header>
+      <div id="permissionDrawerBody" class="permission-drawer-body"></div>
+    </div>
+  </aside>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=auto-slug-1" defer></script>
+  <script src="/app.js?v=rbac-ui-1" defer></script>
 </body>
 </html>
