@@ -1,6 +1,5 @@
 using System.Text.Json.Serialization;
 using ForgeDeck.Connectors.GitHub;
-using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Core;
 using ForgeDeck.Core.Api;
 using ForgeDeck.Core.Application;
@@ -31,6 +30,8 @@ app.MapAuthenticationEndpoints();
 app.MapTenancyEndpoints();
 app.MapPlatformEndpoints(modules);
 app.MapExtensionEndpoints();
+app.MapSearchEndpoints();
+app.MapAccessEndpoints();
 app.MapIntegrationEndpoints();
 app.MapSourceEndpoints();
 app.MapLocalRepositoryEndpoints();

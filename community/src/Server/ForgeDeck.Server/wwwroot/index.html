@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/app.css?v=topbar-stable-2">
+  <link rel="stylesheet" href="/app.css?v=no-org-footer-1">
 </head>
 <body>
   <div id="app" class="app-shell" aria-busy="true">
@@ -26,8 +26,9 @@
       </div>
       <label class="global-search" for="globalSearch">
         <span class="search-glyph" aria-hidden="true">⌕</span>
-        <input id="globalSearch" type="search" placeholder="Search projects, pipelines, issues, or people…" readonly>
+        <input id="globalSearch" type="search" placeholder="Search projects, pipelines, PRs, or people…" autocomplete="off">
         <kbd>Ctrl K</kbd>
+        <div id="searchPanel" class="search-panel" hidden role="listbox" aria-label="Search results"></div>
       </label>
       <div class="top-actions">
         <div class="user-menu" id="userMenuWrap">
@@ -37,8 +38,14 @@
           </button>
           <div class="user-menu-dropdown" id="userMenuDropdown" role="menu" hidden>
             <button type="button" role="menuitem" data-user-action="profile">Profile</button>
-            <button type="button" role="menuitem" data-user-action="theme">Theme</button>
-            <button type="button" role="menuitem" data-user-action="settings">Settings</button>
+            <div class="user-menu-submenu" id="themeSubmenu">
+              <button type="button" class="user-menu-submenu-trigger" role="menuitem" aria-haspopup="true" data-user-action="theme-menu">Theme</button>
+              <div class="user-menu-flyout" id="themeFlyout" role="menu" hidden>
+                <button type="button" role="menuitemradio" data-theme-choice="light">Light <span class="check" aria-hidden="true"></span></button>
+                <button type="button" role="menuitemradio" data-theme-choice="dark">Dark <span class="check" aria-hidden="true"></span></button>
+                <button type="button" role="menuitemradio" data-theme-choice="system">System <span class="check" aria-hidden="true"></span></button>
+              </div>
+            </div>
             <hr>
             <button type="button" role="menuitem" class="danger" value="signout" data-user-action="signout">Sign out</button>
           </div>
@@ -54,11 +61,6 @@
           <span class="chevron" aria-hidden="true">⌄</span>
         </button>
         <nav id="primaryNav" aria-label="Project navigation"></nav>
-        <div class="sidebar-footer">
-          <button type="button" class="nav-item" data-route="/people"><span class="nav-icon">◎</span>People</button>
-          <button type="button" class="nav-item" data-route="/audit"><span class="nav-icon">◫</span>Audit log</button>
-          <button type="button" class="nav-item" data-route="/modules"><span class="nav-icon">◇</span>Modules</button>
-        </div>
       </aside>
 
       <div class="workspace">
@@ -69,6 +71,6 @@
 
   <dialog id="modal" class="modal"><form method="dialog" id="modalForm"><div id="modalBody"></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=topbar-full-1" defer></script>
+  <script src="/app.js?v=auto-slug-1" defer></script>
 </body>
 </html>

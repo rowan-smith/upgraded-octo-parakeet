@@ -14,8 +14,8 @@ public sealed class DeployModule : IPlatformModule
     public ModuleManifest Manifest { get; } = new(
         "deploy", "Deploy", "0.1.0", "Community", ["Deploy.Basic"],
         [
-            new("environments", "Environments", "/environments", "Deploy", 10),
-            new("deployments", "Deployments", "/deployments", "Deploy", 20)
+            new("environments", "Environments", "/environments", "Deploy", 410),
+            new("deployments", "Deployments", "/deployments", "Deploy", 420)
         ],
         [],
         Permissions:

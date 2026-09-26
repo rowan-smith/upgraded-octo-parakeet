@@ -33,6 +33,7 @@ public static class BuiltinExtensionCatalogue
             ["Path Policies", "Separation of Duties", "Compliance Export"],
             "review-enterprise", ["review-enterprise"], ["review", "review-team"], [], Bundled: false),
         // Migration alias for former review-commercial runtime id (maps to Team package).
+        // Hidden from catalogue UI; kept for install-id compatibility only.
         new(
             "forgedeck.review.commercial", "Review Commercial (alias)", ExtensionType.Module, "0.1.0", "ForgeDeck",
             "Deprecated alias of Review Team. Prefer forgedeck.review.team.",

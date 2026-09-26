@@ -19,7 +19,7 @@ internal static class Ui
         string username = "rowan")
     {
         await CompleteSetupThroughLicenceAsync(page, org);
-        await page.Locator("#setupLicencePayload").FillAsync(licenceJson);
+        await page.Locator("#setupLicencePayload").EvaluateAsync("(el, value) => { el.value = value; }", licenceJson);
         await page.Locator("#setupValidateLicence").ClickAsync();
         await ExpectVisible(page, "h1", "Choose capabilities");
         await CompleteSetupAfterLicenceAsync(page, email, username, org);
@@ -169,10 +169,25 @@ internal static class Ui
         await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
     }
 
+    /// <summary>
+    /// Clicks through a re-rendering SPA: pages like the pipeline builder replace #content wholesale, so a
+    /// node resolved for the scroll step can be detached before the click lands. Re-resolve and retry.
+    /// </summary>
     public static async Task ClickAsync(ILocator locator)
     {
-        await locator.ScrollIntoViewIfNeededAsync();
-        await locator.ClickAsync(new LocatorClickOptions { Force = true });
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await locator.ScrollIntoViewIfNeededAsync();
+                await locator.ClickAsync(new LocatorClickOptions { Force = true });
+                return;
+            }
+            catch (PlaywrightException ex) when (attempt < 5 && ex.Message.Contains("not attached", StringComparison.Ordinal))
+            {
+                await locator.Page.WaitForTimeoutAsync(250);
+            }
+        }
     }
 
     public static async Task NavigateAsync(IPage page, string route)
@@ -266,9 +281,10 @@ internal static class Ui
 
     public static async Task OpenRunnersAsync(IPage page)
     {
-        await EnsureProjectNavAsync(page);
-        await NavigateAsync(page, "/runners");
+        await EnsureOrgNavAsync(page);
+        await GoToHashAsync(page, "/organisation/settings/build");
         await ExpectVisible(page, "h1", "Runners");
+        await Assertions.Expect(page.Locator("#addRunner")).ToBeVisibleAsync();
     }
 
     public static async Task OpenChangesAsync(IPage page)

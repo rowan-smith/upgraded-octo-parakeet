@@ -4,7 +4,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 
 namespace E2E.Tests;
 
@@ -20,7 +19,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task Fresh_install_onboards_organisation_owner_project_and_repository()
     {
-        using var host = CreateEmptyHost();
+        await using var host = CreateEmptyHost();
         using var client = host.CreateClient();
 
         var home = await client.GetAsync("/");
@@ -102,7 +101,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task Staged_setup_organisation_licence_modules_owner_without_project()
     {
-        using var host = CreateEmptyHost();
+        await using var host = CreateEmptyHost();
         using var client = host.CreateClient();
 
         var bootstrap = await client.PostAsJsonAsync("/api/setup/bootstrap-login", new { username = "admin", password = "admin" });
@@ -180,7 +179,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task Setup_session_rejects_stale_bearer_token()
     {
-        using var host = CreateEmptyHost();
+        await using var host = CreateEmptyHost();
         using var client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "stale-token");
         var response = await client.GetAsync("/api/setup/session");
@@ -190,7 +189,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task Invite_accept_team_grant_and_private_project_isolation()
     {
-        using var host = CreateEmptyHost();
+        await using var host = CreateEmptyHost();
         using var owner = await BootstrapAsync(host, "e2e-owner@example.com", "e2eowner", "E2E Owner");
 
         var project = await owner.PostAsJsonAsync("/api/projects", new
@@ -246,7 +245,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task Multiple_owners_and_last_owner_protection_end_to_end()
     {
-        using var host = CreateEmptyHost();
+        await using var host = CreateEmptyHost();
         using var rowan = await BootstrapAsync(host, "rowan-e2e@example.com", "rowane2e", "Rowan");
         var rowanMe = await rowan.GetFromJsonAsync<JsonElement>("/api/users/me");
         var rowanId = rowanMe.GetProperty("user").GetProperty("id").GetGuid();
@@ -321,7 +320,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task Used_invitation_cannot_be_accepted_twice()
     {
-        using var host = CreateEmptyHost();
+        await using var host = CreateEmptyHost();
         using var owner = await BootstrapAsync(host, "invite2@example.com", "invite2", "Invite Two");
         var invite = await owner.PostAsJsonAsync("/api/organisation/invitations", new { email = "once@example.com", role = "Member" });
         invite.EnsureSuccessStatusCode();

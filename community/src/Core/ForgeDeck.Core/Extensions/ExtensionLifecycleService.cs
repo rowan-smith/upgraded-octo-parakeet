@@ -3,7 +3,7 @@ using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Core.Context;
-using ForgeDeck.Core.Identity;
+using ForgeDeck.Core.Persistence;
 using Microsoft.Extensions.Configuration;
 
 namespace ForgeDeck.Core.Extensions;
@@ -14,7 +14,7 @@ public sealed class ExtensionLifecycleService(
     ICapabilityService capabilities,
     PlatformContextStore context,
     IAuditWriter audit,
-    ForgeDeck.Core.Persistence.ITenancyStore? store = null)
+    ITenancyStore? store = null)
 {
     private static readonly HashSet<string> LoadedRuntimeIds = new(StringComparer.OrdinalIgnoreCase);
 
@@ -37,6 +37,8 @@ public sealed class ExtensionLifecycleService(
 
         return BuiltinExtensionCatalogue.All
             .Where(entry => type is null || entry.Type == type)
+            .Where(entry => !IsDeprecatedAlias(entry) || installed.ContainsKey(entry.ExtensionId))
+            .Where(entry => !IsUnlistedTierClone(entry) || installed.ContainsKey(entry.ExtensionId))
             .Select(entry => ToStatus(entry, installed.GetValueOrDefault(entry.ExtensionId), packageRuntimeIds, orgId))
             .ToArray();
     }
@@ -287,10 +289,10 @@ public sealed class ExtensionLifecycleService(
                 capabilities = Array.Empty<string>(),
                 navigation = new[]
                 {
-                    new { id = "files", label = "Files", route = "/files", group = "Code", order = 10 },
-                    new { id = "branches", label = "Branches", route = "/source-branches", group = "Code", order = 20 },
-                    new { id = "commits", label = "Commits", route = "/commits", group = "Code", order = 30 },
-                    new { id = "tags", label = "Tags", route = "/tags", group = "Code", order = 40 }
+                    new { id = "files", label = "Files", route = "/files", group = "Code", order = 110 },
+                    new { id = "branches", label = "Branches", route = "/source-branches", group = "Code", order = 120 },
+                    new { id = "commits", label = "Commits", route = "/commits", group = "Code", order = 130 },
+                    new { id = "tags", label = "Tags", route = "/tags", group = "Code", order = 140 }
                 },
                 resourceTabs = Array.Empty<object>(),
                 enabled = true,
@@ -362,7 +364,7 @@ public sealed class ExtensionLifecycleService(
             state = ExtensionLifecycleState.Damaged;
         }
 
-        var edition = "Community";
+        var edition = CatalogueEdition(entry);
         var granted = Array.Empty<string>();
         if (entry.RuntimeId is not null)
         {
@@ -474,6 +476,43 @@ public sealed class ExtensionLifecycleService(
         state = status.State.ToString(),
         enabled = status.Enabled
     };
+
+    private static bool IsDeprecatedAlias(ExtensionCatalogueEntry entry) =>
+        entry.ExtensionId.EndsWith(".commercial", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Team/Enterprise/Commercial catalogue rows are package install targets, not separate Available cards.
+    /// Hide them unless already installed; edition is licence-driven on the base module.
+    /// </summary>
+    public static bool IsUnlistedTierClone(ExtensionCatalogueEntry entry)
+    {
+        if (entry.Type != ExtensionType.Module)
+        {
+            return false;
+        }
+
+        var id = entry.ExtensionId;
+        return id.EndsWith(".team", StringComparison.OrdinalIgnoreCase)
+               || id.EndsWith(".enterprise", StringComparison.OrdinalIgnoreCase)
+               || id.EndsWith(".commercial", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CatalogueEdition(ExtensionCatalogueEntry entry)
+    {
+        var id = entry.ExtensionId;
+        if (id.EndsWith(".enterprise", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Enterprise";
+        }
+
+        if (id.EndsWith(".team", StringComparison.OrdinalIgnoreCase)
+            || id.EndsWith(".commercial", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Team";
+        }
+
+        return "Community";
+    }
 
     private static bool NeedsRestart(ExtensionCatalogueEntry entry) =>
         entry.RuntimeId is "git"; // rare packages not loaded by default

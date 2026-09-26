@@ -31,6 +31,12 @@ public interface ITenancyStore
     Invitation? FindInvitationByTokenHash(string tokenHash);
     IReadOnlyList<Invitation> ListInvitations();
 
+    void SaveAccessRole(AccessRole role);
+    AccessRole? FindAccessRole(Guid id);
+    AccessRole? FindAccessRoleBySlug(string slug);
+    IReadOnlyList<AccessRole> ListAccessRoles();
+    void DeleteAccessRole(Guid id);
+
     void SaveTeam(Team team);
     Team? FindTeam(Guid id);
     Team? FindTeamBySlug(string slug);

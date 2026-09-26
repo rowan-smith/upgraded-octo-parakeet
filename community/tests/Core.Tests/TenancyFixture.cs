@@ -23,6 +23,8 @@ internal sealed class TenancyFixture : IDisposable
         Teams = new TeamService(Store);
         Invitations = new InvitationService(Store, Passwords);
         Auth = new AuthService(Store, Passwords);
+        Roles = new RoleService(Store);
+        Effective = new EffectivePermissionService(Store, Roles, Access);
     }
 
     public ITenancyStore Store { get; }
@@ -34,6 +36,12 @@ internal sealed class TenancyFixture : IDisposable
     public TeamService Teams { get; }
     public InvitationService Invitations { get; }
     public AuthService Auth { get; }
+    public RoleService Roles { get; }
+    public EffectivePermissionService Effective { get; }
+
+    /// <summary>Resolves a seeded system role by slug (for example "reader").</summary>
+    public AccessRole SystemRole(string slug) =>
+        Roles.FindBySlug(slug) ?? throw new InvalidOperationException($"System role '{slug}' was not seeded.");
 
     public UserAccount Bootstrap(string email = "maya@forgedeck.dev", string username = "maya", string name = "Maya Chen") =>
         Setup.Bootstrap(new SetupRequest("Northstar Labs", "Engineering", name, username, email, "password123"));

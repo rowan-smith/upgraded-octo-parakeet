@@ -8,7 +8,7 @@ namespace ForgeDeck.Core.Identity;
 
 public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
 {
-    public async Task InvokeAsync(HttpContext context, PlatformContextStore platformContext, AuthService auth, SetupService setup, ITenancyStore store)
+    public async Task InvokeAsync(HttpContext context, PlatformContextStore platformContext, AuthService auth, SetupService setup, ITenancyStore store, EffectivePermissionService effectivePermissions)
     {
         if (!RequiresAuthentication(context.Request.Path)) { await next(context); return; }
 
@@ -43,7 +43,6 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
 
         var profile = store.GetProfile(user.Id);
         var membership = store.GetMembership(user.Id);
-        var role = membership?.Status == MembershipStatus.Active ? membership.Role : OrganisationRole.Member;
         if (membership is null || membership.Status != MembershipStatus.Active)
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -51,13 +50,15 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
             return;
         }
 
-        platformContext.SetUser(PlatformContextStore.ToPlatformUser(user, profile, role));
         var project = profile?.DefaultProjectId is Guid projectId ? store.FindProject(projectId) : store.ListProjects().FirstOrDefault();
         if (project is not null)
         {
             var repository = store.ListRepositories(project.Id).FirstOrDefault();
             platformContext.SetProject(new ProjectView(project.Id, KnownIds.OrganisationId, project.Name, project.Key, repository?.Name));
         }
+
+        var permissions = effectivePermissions.ForUser(user.Id, project?.Id);
+        platformContext.SetUser(PlatformContextStore.ToPlatformUser(user, profile, permissions));
         context.Items["user"] = platformContext.User;
         context.Items["session-token"] = token;
         await next(context);

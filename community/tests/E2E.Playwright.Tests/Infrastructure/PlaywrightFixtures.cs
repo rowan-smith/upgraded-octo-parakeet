@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -73,9 +75,13 @@ public sealed class ForgeDeckHost : IAsyncDisposable
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-{Guid.NewGuid():N}.db");
         var keys = Path.Combine(Path.GetTempPath(), $"{databasePrefix}-keys-{Guid.NewGuid():N}");
+        // Every host must own a distinct port: Kestrel's default endpoint is shared, so a lingering
+        // host from an earlier class (or an earlier test run) would otherwise fail the next bind.
+        var port = FreePort();
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
+            builder.UseSetting("urls", $"http://127.0.0.1:{port}");
             builder.UseSetting("ConnectionStrings:Platform", $"Data Source={databasePath}");
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Core:SeedDemoOnEmpty", seedDemo ? "true" : "false");
@@ -91,11 +97,18 @@ public sealed class ForgeDeckHost : IAsyncDisposable
                 });
             }
         });
-        factory.UseKestrel(0);
+        factory.UseKestrel(port);
         factory.StartServer();
 
         var baseAddress = ResolveBaseAddress(factory);
         return new ForgeDeckHost(factory, databasePath, baseAddress, factory.CreateClient());
+    }
+
+    private static int FreePort()
+    {
+        using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        probe.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        return ((IPEndPoint)probe.LocalEndPoint!).Port;
     }
 
     private static Uri ResolveBaseAddress(WebApplicationFactory<Program> factory)

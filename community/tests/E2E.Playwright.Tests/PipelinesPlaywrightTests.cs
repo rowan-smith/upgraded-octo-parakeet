@@ -29,7 +29,7 @@ public sealed class PipelinesPlaywrightTests(PlaywrightBrowserFixture browser)
         var page = session.Page;
 
         await Ui.OpenPipelinesAsync(page);
-        await Ui.ClickAsync(page.Locator("[data-edit-pipeline]").First);
+        await Ui.ClickAsync(page.Locator("[data-view-pipeline]").First);
         await Assertions.Expect(page.Locator("#breadcrumbs")).ToContainTextAsync("Pipelines");
         await Assertions.Expect(page.Locator(".card .side-stat").First).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator(".card .pill").Filter(new LocatorFilterOptions { HasTextString = "v" }).First).ToBeVisibleAsync();

@@ -248,9 +248,15 @@ public static class TenancyEndpoints
         });
 
         app.MapGet("/api/users/me", (PlatformContextStore context, ITenancyStore store) =>
-            Results.Ok(new { user = store.FindUser(context.User.Id), profile = store.GetProfile(context.User.Id), membership = store.GetMembership(context.User.Id) }));
+            Results.Ok(new
+            {
+                user = store.FindUser(context.User.Id),
+                profile = store.GetProfile(context.User.Id),
+                membership = store.GetMembership(context.User.Id),
+                permissions = context.User.Permissions.OrderBy(permission => permission, StringComparer.Ordinal).ToArray()
+            }));
 
-        app.MapPatch("/api/users/me/preferences", (UserPreferencesRequest request, PlatformContextStore context, ITenancyStore store) =>
+        app.MapPatch("/api/users/me/preferences", (UserPreferencesRequest request, PlatformContextStore context, ITenancyStore store, EffectivePermissionService effective) =>
         {
             var profile = store.GetProfile(context.User.Id);
             if (profile is null)
@@ -268,7 +274,48 @@ public static class TenancyEndpoints
 
                 profile.Theme = theme;
             }
+
+            if (request.DisplayName is not null)
+            {
+                var name = request.DisplayName.Trim();
+                if (name.Length is < 1 or > 120)
+                {
+                    return Results.BadRequest(new { error = "Display name must be 1–120 characters." });
+                }
+
+                profile.DisplayName = name;
+            }
+
+            if (request.Bio is not null)
+            {
+                profile.Bio = string.IsNullOrWhiteSpace(request.Bio) ? null : request.Bio.Trim();
+            }
+
+            if (request.JobTitle is not null)
+            {
+                profile.JobTitle = string.IsNullOrWhiteSpace(request.JobTitle) ? null : request.JobTitle.Trim();
+            }
+
+            if (request.Timezone is not null)
+            {
+                profile.Timezone = string.IsNullOrWhiteSpace(request.Timezone) ? null : request.Timezone.Trim();
+            }
+
+            if (request.Locale is not null)
+            {
+                profile.Locale = string.IsNullOrWhiteSpace(request.Locale) ? null : request.Locale.Trim();
+            }
+
+            if (request.AvatarUrl is not null)
+            {
+                profile.AvatarUrl = string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl.Trim();
+            }
+
             store.SaveProfile(profile);
+            context.SetUser(PlatformContextStore.ToPlatformUser(
+                store.FindUser(context.User.Id)!,
+                profile,
+                effective.ForUser(context.User.Id, context.Project.Id)));
             return Results.Ok(profile);
         });
 
@@ -459,8 +506,9 @@ public static class TenancyEndpoints
                 return PermissionAuthorizer.Forbidden();
             }
 
-            try { return Results.Ok(teams.Create(request.Name, request.Slug, request.Description)); }
+            try { return Results.Ok(teams.Create(request.Name, request.Slug, request.Description, request.RoleId)); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (KeyNotFoundException) { return Results.NotFound(new { error = "Role not found." }); }
         });
         app.MapPatch("/api/teams/{id:guid}", (Guid id, UpdateTeamRequest request, TeamService teams, PermissionAuthorizer authorizer, HttpContext http) =>
         {
@@ -469,7 +517,7 @@ public static class TenancyEndpoints
                 return PermissionAuthorizer.Forbidden();
             }
 
-            try { return Results.Ok(teams.Update(id, request.Name, request.Slug, request.Description)); }
+            try { return Results.Ok(teams.Update(id, request.Name, request.Slug, request.Description, request.RoleId, request.ClearRole == true)); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
         });
@@ -671,7 +719,7 @@ public static class TenancyEndpoints
                 return PermissionAuthorizer.Forbidden();
             }
 
-            try { projects.GrantUser(projectId, request.UserId); return Results.NoContent(); }
+            try { projects.GrantUser(projectId, request.UserId, request.RoleId); return Results.NoContent(); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
         });
         app.MapGet("/api/projects/{projectId:guid}/members", (Guid projectId, ITenancyStore store, ProjectAccessService access, PlatformContextStore context) =>
@@ -696,6 +744,8 @@ public static class TenancyEndpoints
                         username = user?.Username,
                         email = user?.Email,
                         displayName = profile?.DisplayName ?? user?.Username,
+                        roleId = accessRow.RoleId,
+                        roleName = accessRow.RoleId is Guid roleId ? store.FindAccessRole(roleId)?.Name : null,
                         grantedAt = accessRow.GrantedAt
                     };
                 })
@@ -727,11 +777,14 @@ public static class TenancyEndpoints
                 .Select(accessRow =>
                 {
                     var team = store.FindTeam(accessRow.TeamId);
+                    var roleId = accessRow.RoleId ?? team?.RoleId;
                     return new
                     {
                         teamId = accessRow.TeamId,
                         name = team?.Name,
                         slug = team?.Slug,
+                        roleId,
+                        roleName = roleId is Guid id ? store.FindAccessRole(id)?.Name : null,
                         grantedAt = accessRow.GrantedAt
                     };
                 })
@@ -745,7 +798,7 @@ public static class TenancyEndpoints
                 return PermissionAuthorizer.Forbidden();
             }
 
-            try { projects.GrantTeam(projectId, request.TeamId); return Results.NoContent(); }
+            try { projects.GrantTeam(projectId, request.TeamId, request.RoleId); return Results.NoContent(); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
         });
         app.MapDelete("/api/projects/{projectId:guid}/teams/{teamId:guid}", (Guid projectId, Guid teamId, ProjectService projects, PermissionAuthorizer authorizer, HttpContext http) =>
@@ -802,7 +855,7 @@ public static class TenancyEndpoints
             return Results.NoContent();
         });
 
-        app.MapPost("/api/core/context/project", (SwitchProjectRequest request, ITenancyStore store, PlatformContextStore context, ProjectAccessService access) =>
+        app.MapPost("/api/core/context/project", (SwitchProjectRequest request, ITenancyStore store, PlatformContextStore context, ProjectAccessService access, EffectivePermissionService effective) =>
         {
             var project = store.FindProject(request.ProjectId);
             if (project is null)
@@ -821,6 +874,12 @@ public static class TenancyEndpoints
             }
             var repository = store.ListRepositories(project.Id).FirstOrDefault();
             context.SetProject(new ProjectView(project.Id, KnownIds.OrganisationId, project.Name, project.Key, repository?.Name));
+            var account = store.FindUser(context.User.Id);
+            if (account is not null)
+            {
+                context.SetUser(PlatformContextStore.ToPlatformUser(account, profile, effective.ForUser(account.Id, project.Id)));
+            }
+
             return Results.Ok(context.Project);
         });
     }
@@ -828,7 +887,14 @@ public static class TenancyEndpoints
 
 public sealed record BootstrapLoginRequest(string Username, string Password);
 public sealed record InstallLicenceRequest(string? Payload, string? LicenceKey);
-public sealed record UserPreferencesRequest(string? Theme);
+public sealed record UserPreferencesRequest(
+    string? Theme = null,
+    string? DisplayName = null,
+    string? Bio = null,
+    string? JobTitle = null,
+    string? Timezone = null,
+    string? Locale = null,
+    string? AvatarUrl = null);
 public sealed record UpdateOrganisationRequest(string? Name, string? Description, string? AvatarUrl);
 public sealed record CreateMemberRequest(string Email, string Username, string DisplayName, string Password, OrganisationRole Role);
 public sealed record ChangeRoleRequest(OrganisationRole Role);
@@ -838,11 +904,11 @@ public sealed record WorkspaceRequest(string LocalPath);
 public sealed record SwitchProjectRequest(Guid ProjectId);
 public sealed record CreateInvitationRequest(string Email, OrganisationRole Role);
 public sealed record AcceptInvitationRequest(string Username, string DisplayName, string Password);
-public sealed record CreateTeamRequest(string Name, string? Slug, string? Description);
-public sealed record UpdateTeamRequest(string? Name, string? Slug, string? Description);
+public sealed record CreateTeamRequest(string Name, string? Slug, string? Description, Guid? RoleId = null);
+public sealed record UpdateTeamRequest(string? Name, string? Slug, string? Description, Guid? RoleId = null, bool? ClearRole = null);
 public sealed record TeamMemberRequest(Guid UserId);
-public sealed record ProjectMemberRequest(Guid UserId);
-public sealed record ProjectTeamRequest(Guid TeamId);
+public sealed record ProjectMemberRequest(Guid UserId, Guid? RoleId = null);
+public sealed record ProjectTeamRequest(Guid TeamId, Guid? RoleId = null);
 
 internal static class SetupAuth
 {

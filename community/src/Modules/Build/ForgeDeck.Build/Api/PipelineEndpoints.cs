@@ -1,5 +1,7 @@
+using System.Xml;
 using ForgeDeck.Build.Application;
 using ForgeDeck.Build.Domain;
+using ForgeDeck.Build.Serialization;
 using ForgeDeck.Contracts.Audit;
 using ForgeDeck.Contracts.Pipelines;
 using ForgeDeck.Core.Context;
@@ -24,6 +26,12 @@ public static class PipelineEndpoints
             service.FindDefinition(id) is { } definition ? Results.Ok(definition) : Results.NotFound());
         group.MapPost("/definitions", CreateDefinition);
         group.MapPut("/definitions/{id:guid}", UpdateDefinition);
+        group.MapGet("/definitions/{id:guid}/yaml", GetDefinitionYaml);
+        group.MapPut("/definitions/{id:guid}/yaml", UpdateDefinitionYaml);
+        group.MapPost("/definitions/from-yaml", CreateDefinitionFromYaml);
+        group.MapPost("/definitions/validate-yaml", ValidateDefinitionYaml);
+        group.MapPost("/definitions/to-yaml", RenderDefinitionYaml);
+        group.MapGet("/job-templates", ListJobTemplates);
         group.MapPost("/definitions/{id:guid}/enable", (Guid id, HttpContext ctx, PipelineService service, PlatformContextStore platform, PermissionAuthorizer auth, IAuditWriter audit) =>
             SetEnabled(id, true, ctx, service, platform, auth, audit));
         group.MapPost("/definitions/{id:guid}/disable", (Guid id, HttpContext ctx, PipelineService service, PlatformContextStore platform, PermissionAuthorizer auth, IAuditWriter audit) =>
@@ -115,6 +123,151 @@ public static class PipelineEndpoints
             return Results.BadRequest(new { error = exception.Message });
         }
     }
+
+    private static IResult GetDefinitionYaml(Guid id, PipelineService service)
+    {
+        if (service.FindDefinition(id) is not { } definition)
+        {
+            return Results.NotFound();
+        }
+
+        return Results.Ok(new
+        {
+            definition.Id,
+            definition.Name,
+            definition.Version,
+            yaml = PipelineYamlMapper.ToYaml(definition)
+        });
+    }
+
+    private static IResult UpdateDefinitionYaml(
+        Guid id,
+        UpdatePipelineYamlRequest request,
+        HttpContext context,
+        PipelineService service,
+        PlatformContextStore platform,
+        PermissionAuthorizer authorizer,
+        IAuditWriter audit)
+    {
+        if (!authorizer.Has(context, "pipelines.manage"))
+        {
+            return PermissionAuthorizer.Forbidden();
+        }
+
+        try
+        {
+            var parsed = PipelineYamlMapper.FromYaml(request.Yaml);
+            var definition = new PipelineDefinition
+            {
+                Id = id,
+                Name = parsed.Name,
+                Enabled = parsed.Enabled,
+                Triggers = parsed.Triggers,
+                Jobs = parsed.Jobs,
+                Environment = parsed.Environment,
+                TimeoutSeconds = parsed.TimeoutSeconds
+            };
+            var updated = service.UpdateDefinition(platform.Project.Id, definition);
+            audit.Write("pipelines", "pipeline.updated", id.ToString(), new { source = "yaml" });
+            return Results.Ok(updated);
+        }
+        catch (KeyNotFoundException exception)
+        {
+            return Results.NotFound(new { error = exception.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
+    private static IResult CreateDefinitionFromYaml(
+        CreatePipelineFromYamlRequest request,
+        HttpContext context,
+        PipelineService service,
+        PlatformContextStore platform,
+        PermissionAuthorizer authorizer,
+        IAuditWriter audit)
+    {
+        if (!authorizer.Has(context, "pipelines.manage"))
+        {
+            return PermissionAuthorizer.Forbidden();
+        }
+
+        try
+        {
+            var parsed = PipelineYamlMapper.FromYaml(request.Yaml);
+            var projectId = request.ProjectId ?? platform.Project.Id;
+            var definition = service.AddDefinition(
+                projectId,
+                parsed.Name,
+                parsed.Triggers,
+                parsed.Jobs,
+                parsed.Environment,
+                parsed.TimeoutSeconds);
+            if (!parsed.Enabled)
+            {
+                definition = service.SetEnabled(projectId, definition.Id, false);
+            }
+
+            audit.Write("pipelines", "pipeline.created", definition.Id.ToString(), new { source = "yaml" });
+            return Results.Created($"/api/pipelines/definitions/{definition.Id}", definition);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
+    private static IResult ValidateDefinitionYaml(UpdatePipelineYamlRequest request)
+    {
+        try
+        {
+            var parsed = PipelineYamlMapper.FromYaml(request.Yaml);
+            return Results.Ok(new
+            {
+                valid = true,
+                error = (string?)null,
+                definition = parsed,
+                yaml = PipelineYamlMapper.ToYaml(parsed)
+            });
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { valid = false, error = exception.Message });
+        }
+    }
+
+    /// <summary>Renders an in-progress builder draft as YAML; drafts are allowed to be incomplete.</summary>
+    private static IResult RenderDefinitionYaml(CreatePipelineRequest request)
+    {
+        try
+        {
+            var draft = new PipelineDefinition
+            {
+                Name = request.Name ?? string.Empty,
+                Triggers = request.Triggers ?? [],
+                Jobs = request.Jobs ?? [],
+                Environment = request.Environment ?? new Dictionary<string, string>(),
+                TimeoutSeconds = request.TimeoutSeconds
+            };
+            return Results.Ok(new { yaml = PipelineYamlMapper.ToYaml(draft) });
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
+    private static IResult ListJobTemplates() => Results.Ok(PipelineJobCatalog.Templates.Select(template => new
+    {
+        template.Id,
+        template.Name,
+        template.Description,
+        template.Category,
+        template.Icon,
+        template.Job
+    }));
 
     private static IResult SetEnabled(
         Guid id,
@@ -493,7 +646,7 @@ public static class PipelineEndpoints
         {
             return Results.NotFound(new { error = exception.Message });
         }
-        catch (Exception exception) when (exception is InvalidOperationException or System.Xml.XmlException)
+        catch (Exception exception) when (exception is InvalidOperationException or XmlException)
         {
             return Results.BadRequest(new { error = exception.Message });
         }

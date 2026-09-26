@@ -74,7 +74,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         var page = session.Page;
 
         await Ui.CompleteSetupThroughLicenceAsync(page, "Invalid Licence Org");
-        await page.Locator("#setupLicencePayload").FillAsync(licences.CreateTamperedJson());
+        await page.Locator("#setupLicencePayload").EvaluateAsync("(el, value) => { el.value = value; }", licences.CreateTamperedJson());
         await page.Locator("#setupValidateLicence").ClickAsync();
         await Ui.ExpectToastAsync(page, "Licence could not be validated");
         await Ui.ExpectVisible(page, "h1", "Choose your licence");
@@ -104,7 +104,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.OpenLicensingAsync(page);
         await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Enterprise");
 
-        await page.Locator("#licensingPayload").FillAsync("{ \"not\": \"a licence\" }");
+        await page.Locator("#licensingPayload").EvaluateAsync("(el, value) => { el.value = value; }", "{ \"not\": \"a licence\" }");
         await page.Locator("#licensingInstall").ClickAsync();
         await Ui.ExpectToastAsync(page, "Licence could not be validated");
         await Assertions.Expect(page.Locator("#licensingMode")).ToHaveTextAsync("Enterprise");
@@ -173,7 +173,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         Assert.Equal(KnownCapabilities.Review.MultiApproval, denied.GetProperty("body").GetProperty("capability").GetString());
 
         await Ui.OpenLicensingAsync(page);
-        await page.Locator("#licensingPayload").FillAsync(licences.CreateCommercialJson());
+        await page.Locator("#licensingPayload").EvaluateAsync("(el, value) => { el.value = value; }", licences.CreateCommercialJson());
         await page.Locator("#licensingInstall").ClickAsync();
         await Ui.ExpectToastAsync(page, "Enterprise licence installed");
 
@@ -215,7 +215,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         Assert.Equal("Community", reviewCommunity.GetProperty("edition").GetString());
 
         await Ui.OpenLicensingAsync(page);
-        await page.Locator("#licensingPayload").FillAsync(licences.CreateCommercialJson(
+        await page.Locator("#licensingPayload").EvaluateAsync("(el, value) => { el.value = value; }", licences.CreateCommercialJson(
             reviewCapabilities: [KnownCapabilities.Review.MultiApproval, KnownCapabilities.Review.CodeOwners]));
         await page.Locator("#licensingInstall").ClickAsync();
         await Ui.ExpectToastAsync(page, "Enterprise licence installed");
@@ -244,6 +244,42 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
         await Assertions.Expect(page.Locator("[data-module-id='review']")).ToHaveAttributeAsync("data-edition", "Community");
         await Assertions.Expect(page.Locator("[data-module-id='review'] [data-capabilities]"))
             .Not.ToContainTextAsync(KnownCapabilities.Review.MultiApproval);
+    }
+
+    [Fact]
+    public async Task Setup_licence_step_exposes_file_input_not_paste_textarea()
+    {
+        await using var host = ForgeDeckHost.StartEmpty();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+        await Ui.CompleteSetupThroughLicenceAsync(page, "File Licence Org");
+        await Assertions.Expect(page.Locator("#setupLicenceFile")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#setupLicenceFile")).ToHaveAttributeAsync("type", "file");
+        await Assertions.Expect(page.Locator("textarea#setupLicencePayload")).ToHaveCountAsync(0);
+        await Assertions.Expect(page.Locator("#setupUseCommunity")).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task Setup_licence_file_upload_rejects_tampered_file()
+    {
+        using var licences = new TestLicenceFactory();
+        await using var host = ForgeDeckHost.StartEmptyWithLicenceKey(licences.PublicKeyPem);
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+        await Ui.CompleteSetupThroughLicenceAsync(page, "Tamper File Org");
+        var path = Path.Combine(Path.GetTempPath(), $"tamper-licence-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(path, licences.CreateTamperedJson());
+        try
+        {
+            await page.Locator("#setupLicenceFile").SetInputFilesAsync(path);
+            await page.Locator("#setupValidateLicence").ClickAsync();
+            await Ui.ExpectToastAsync(page, "Licence could not be validated");
+            await Ui.ExpectVisible(page, "h1", "Choose your licence");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static async Task<JsonElement> GetJsonAsync(IPage page, string path)

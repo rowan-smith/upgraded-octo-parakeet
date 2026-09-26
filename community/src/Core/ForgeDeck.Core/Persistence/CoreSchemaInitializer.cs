@@ -83,13 +83,24 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     accepted_at TEXT,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS core_access_roles (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    description TEXT,
+                    is_system INTEGER NOT NULL DEFAULT 0,
+                    permissions_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS core_teams (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     description TEXT,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    role_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS core_team_memberships (
                     id TEXT PRIMARY KEY,
@@ -116,6 +127,7 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     project_id TEXT NOT NULL REFERENCES core_projects(id) ON DELETE CASCADE,
                     user_id TEXT NOT NULL REFERENCES core_users(id) ON DELETE CASCADE,
                     granted_at TEXT NOT NULL,
+                    role_id TEXT,
                     UNIQUE(project_id, user_id)
                 );
                 CREATE TABLE IF NOT EXISTS core_project_team_access (
@@ -123,6 +135,7 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
                     project_id TEXT NOT NULL REFERENCES core_projects(id) ON DELETE CASCADE,
                     team_id TEXT NOT NULL REFERENCES core_teams(id) ON DELETE CASCADE,
                     granted_at TEXT NOT NULL,
+                    role_id TEXT,
                     UNIQUE(project_id, team_id)
                 );
                 CREATE TABLE IF NOT EXISTS core_repositories (
@@ -263,6 +276,9 @@ public sealed class CoreSchemaInitializer(IDbConnectionFactory connections)
             EnsureColumn(connection, "core_instance", "modules_acknowledged_at", "TEXT");
             EnsureColumn(connection, "core_projects", "repository_mode", "TEXT NOT NULL DEFAULT 'SingleRepository'");
             EnsureColumn(connection, "core_user_profiles", "theme", "TEXT NOT NULL DEFAULT 'system'");
+            EnsureColumn(connection, "core_teams", "role_id", "TEXT");
+            EnsureColumn(connection, "core_project_user_access", "role_id", "TEXT");
+            EnsureColumn(connection, "core_project_team_access", "role_id", "TEXT");
             // Backfill defaults only after columns exist.
             using (var seedId = connection.CreateCommand())
             {

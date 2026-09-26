@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json;
 using ForgeDeck.Core.Domain;
 
 namespace ForgeDeck.Core.Persistence;
@@ -190,10 +191,29 @@ public sealed class SqliteTenancyStore : ITenancyStore
     public Invitation? FindInvitation(Guid id) => QueryOne("SELECT * FROM core_invitations WHERE id=$value", MapInvitation, ("$value", id));
     public IReadOnlyList<Invitation> ListInvitations() => QueryMany("SELECT * FROM core_invitations ORDER BY created_at DESC", MapInvitation);
 
+    public void SaveAccessRole(AccessRole value) => Execute("""
+        INSERT INTO core_access_roles(id,name,slug,description,is_system,permissions_json,created_at,updated_at)
+        VALUES($id,$name,$slug,$description,$system,$permissions,$created,$updated)
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name,slug=excluded.slug,description=excluded.description,
+        permissions_json=excluded.permissions_json,updated_at=excluded.updated_at
+        """, ("$id", value.Id), ("$name", value.Name), ("$slug", value.Slug), ("$description", value.Description),
+        ("$system", value.IsSystem ? 1 : 0), ("$permissions", SerializePermissions(value.Permissions)),
+        ("$created", value.CreatedAt), ("$updated", value.UpdatedAt));
+    public AccessRole? FindAccessRole(Guid id) => QueryOne(SelectAccessRole + " WHERE id=$value", MapAccessRole, ("$value", id));
+    public AccessRole? FindAccessRoleBySlug(string slug) => QueryOne(SelectAccessRole + " WHERE slug=$value COLLATE NOCASE", MapAccessRole, ("$value", slug));
+    public IReadOnlyList<AccessRole> ListAccessRoles() => QueryMany(SelectAccessRole + " ORDER BY is_system DESC, name", MapAccessRole);
+    public void DeleteAccessRole(Guid id)
+    {
+        Execute("UPDATE core_teams SET role_id=NULL WHERE role_id=$value", ("$value", id));
+        Execute("UPDATE core_project_user_access SET role_id=NULL WHERE role_id=$value", ("$value", id));
+        Execute("UPDATE core_project_team_access SET role_id=NULL WHERE role_id=$value", ("$value", id));
+        Execute("DELETE FROM core_access_roles WHERE id=$value", ("$value", id));
+    }
+
     public void SaveTeam(Team value) => Execute("""
-        INSERT INTO core_teams(id,name,slug,description,created_at,updated_at) VALUES($id,$name,$slug,$description,$created,$updated)
-        ON CONFLICT(id) DO UPDATE SET name=excluded.name,slug=excluded.slug,description=excluded.description,updated_at=excluded.updated_at
-        """, ("$id", value.Id), ("$name", value.Name), ("$slug", value.Slug), ("$description", value.Description), ("$created", value.CreatedAt), ("$updated", value.UpdatedAt));
+        INSERT INTO core_teams(id,name,slug,description,created_at,updated_at,role_id) VALUES($id,$name,$slug,$description,$created,$updated,$role)
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name,slug=excluded.slug,description=excluded.description,updated_at=excluded.updated_at,role_id=excluded.role_id
+        """, ("$id", value.Id), ("$name", value.Name), ("$slug", value.Slug), ("$description", value.Description), ("$created", value.CreatedAt), ("$updated", value.UpdatedAt), ("$role", value.RoleId));
     public Team? FindTeam(Guid id) => QueryOne("SELECT * FROM core_teams WHERE id=$value", MapTeam, ("$value", id));
     public Team? FindTeamBySlug(string slug) => QueryOne("SELECT * FROM core_teams WHERE slug=$value COLLATE NOCASE", MapTeam, ("$value", slug));
     public IReadOnlyList<Team> ListTeams() => QueryMany("SELECT * FROM core_teams ORDER BY name", MapTeam);
@@ -256,25 +276,25 @@ public sealed class SqliteTenancyStore : ITenancyStore
             ("$project", projectId));
     public void DeleteProject(Guid id) => Execute("DELETE FROM core_projects WHERE id=$value", ("$value", id));
     public void SaveProjectUserAccess(ProjectUserAccess value) => Execute("""
-        INSERT INTO core_project_user_access(id,project_id,user_id,granted_at) VALUES($id,$project,$user,$granted)
-        ON CONFLICT(project_id,user_id) DO NOTHING
-        """, ("$id", value.Id), ("$project", value.ProjectId), ("$user", value.UserId), ("$granted", value.GrantedAt));
+        INSERT INTO core_project_user_access(id,project_id,user_id,granted_at,role_id) VALUES($id,$project,$user,$granted,$role)
+        ON CONFLICT(project_id,user_id) DO UPDATE SET role_id=excluded.role_id
+        """, ("$id", value.Id), ("$project", value.ProjectId), ("$user", value.UserId), ("$granted", value.GrantedAt), ("$role", value.RoleId));
     public void DeleteProjectUserAccess(Guid projectId, Guid userId) =>
         Execute("DELETE FROM core_project_user_access WHERE project_id=$project AND user_id=$user", ("$project", projectId), ("$user", userId));
     public IReadOnlyList<ProjectUserAccess> ListProjectUserAccess(Guid projectId) =>
-        QueryMany("SELECT id,project_id,user_id,granted_at FROM core_project_user_access WHERE project_id=$value", MapProjectUserAccess, ("$value", projectId));
+        QueryMany(SelectProjectUserAccess + " WHERE project_id=$value", MapProjectUserAccess, ("$value", projectId));
     public bool HasProjectUserAccess(Guid projectId, Guid userId) =>
-        QueryOne("SELECT id,project_id,user_id,granted_at FROM core_project_user_access WHERE project_id=$project AND user_id=$user LIMIT 1", MapProjectUserAccess, ("$project", projectId), ("$user", userId)) is not null;
+        QueryOne(SelectProjectUserAccess + " WHERE project_id=$project AND user_id=$user LIMIT 1", MapProjectUserAccess, ("$project", projectId), ("$user", userId)) is not null;
     public void SaveProjectTeamAccess(ProjectTeamAccess value) => Execute("""
-        INSERT INTO core_project_team_access(id,project_id,team_id,granted_at) VALUES($id,$project,$team,$granted)
-        ON CONFLICT(project_id,team_id) DO NOTHING
-        """, ("$id", value.Id), ("$project", value.ProjectId), ("$team", value.TeamId), ("$granted", value.GrantedAt));
+        INSERT INTO core_project_team_access(id,project_id,team_id,granted_at,role_id) VALUES($id,$project,$team,$granted,$role)
+        ON CONFLICT(project_id,team_id) DO UPDATE SET role_id=excluded.role_id
+        """, ("$id", value.Id), ("$project", value.ProjectId), ("$team", value.TeamId), ("$granted", value.GrantedAt), ("$role", value.RoleId));
     public void DeleteProjectTeamAccess(Guid projectId, Guid teamId) =>
         Execute("DELETE FROM core_project_team_access WHERE project_id=$project AND team_id=$team", ("$project", projectId), ("$team", teamId));
     public IReadOnlyList<ProjectTeamAccess> ListProjectTeamAccess(Guid projectId) =>
-        QueryMany("SELECT id,project_id,team_id,granted_at FROM core_project_team_access WHERE project_id=$value", MapProjectTeamAccess, ("$value", projectId));
+        QueryMany(SelectProjectTeamAccess + " WHERE project_id=$value", MapProjectTeamAccess, ("$value", projectId));
     public bool HasProjectTeamAccess(Guid projectId, Guid teamId) =>
-        QueryOne("SELECT id,project_id,team_id,granted_at FROM core_project_team_access WHERE project_id=$project AND team_id=$team LIMIT 1", MapProjectTeamAccess, ("$project", projectId), ("$team", teamId)) is not null;
+        QueryOne(SelectProjectTeamAccess + " WHERE project_id=$project AND team_id=$team LIMIT 1", MapProjectTeamAccess, ("$project", projectId), ("$team", teamId)) is not null;
 
     public IReadOnlyList<ProjectModuleSetting> ListProjectModules(Guid projectId) =>
         QueryMany(
@@ -420,6 +440,9 @@ public sealed class SqliteTenancyStore : ITenancyStore
     private const string UpsertProfile = InsertProfile + " ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,avatar_url=excluded.avatar_url,bio=excluded.bio,job_title=excluded.job_title,timezone=excluded.timezone,locale=excluded.locale,default_project_id=excluded.default_project_id,theme=excluded.theme";
     private const string InsertMembership = "INSERT INTO core_memberships(id,user_id,role,status,joined_at,invited_by_user_id) VALUES($id,$user,$role,$status,$joined,$inviter)";
     private const string UpsertMembership = InsertMembership + " ON CONFLICT(user_id) DO UPDATE SET role=excluded.role,status=excluded.status";
+    private const string SelectAccessRole = "SELECT id,name,slug,description,is_system,permissions_json,created_at,updated_at FROM core_access_roles";
+    private const string SelectProjectUserAccess = "SELECT id,project_id,user_id,granted_at,role_id FROM core_project_user_access";
+    private const string SelectProjectTeamAccess = "SELECT id,project_id,team_id,granted_at,role_id FROM core_project_team_access";
 
     private void Execute(string sql, params (string, object?)[] values)
     {
@@ -513,10 +536,33 @@ public sealed class SqliteTenancyStore : ITenancyStore
     };
     private static OrganisationMembership MapMembership(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), UserId = Guid.Parse(r.GetString(1)), Role = Enum.Parse<OrganisationRole>(r.GetString(2)), Status = Enum.Parse<MembershipStatus>(r.GetString(3)), JoinedAt = RequiredDate(r, 4), InvitedByUserId = GuidValue(r, 5) };
     private static Invitation MapInvitation(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), Email = r.GetString(1), Role = Enum.Parse<OrganisationRole>(r.GetString(2)), TokenHash = r.GetString(3), InvitedByUserId = Guid.Parse(r.GetString(4)), ExpiresAt = RequiredDate(r, 5), AcceptedAt = Date(r, 6), CreatedAt = RequiredDate(r, 7) };
-    private static Team MapTeam(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), Name = r.GetString(1), Slug = r.GetString(2), Description = Text(r, 3), CreatedAt = RequiredDate(r, 4), UpdatedAt = RequiredDate(r, 5) };
+    private static Team MapTeam(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), Name = r.GetString(1), Slug = r.GetString(2), Description = Text(r, 3), CreatedAt = RequiredDate(r, 4), UpdatedAt = RequiredDate(r, 5), RoleId = r.FieldCount > 6 ? GuidValue(r, 6) : null };
     private static TeamMembership MapTeamMembership(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), TeamId = Guid.Parse(r.GetString(1)), UserId = Guid.Parse(r.GetString(2)), JoinedAt = RequiredDate(r, 3) };
-    private static ProjectUserAccess MapProjectUserAccess(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), UserId = Guid.Parse(r.GetString(2)), GrantedAt = RequiredDate(r, 3) };
-    private static ProjectTeamAccess MapProjectTeamAccess(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), TeamId = Guid.Parse(r.GetString(2)), GrantedAt = RequiredDate(r, 3) };
+    private static ProjectUserAccess MapProjectUserAccess(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), UserId = Guid.Parse(r.GetString(2)), GrantedAt = RequiredDate(r, 3), RoleId = GuidValue(r, 4) };
+    private static ProjectTeamAccess MapProjectTeamAccess(DbDataReader r) => new() { Id = Guid.Parse(r.GetString(0)), ProjectId = Guid.Parse(r.GetString(1)), TeamId = Guid.Parse(r.GetString(2)), GrantedAt = RequiredDate(r, 3), RoleId = GuidValue(r, 4) };
+    private static AccessRole MapAccessRole(DbDataReader r) => new()
+    {
+        Id = Guid.Parse(r.GetString(0)),
+        Name = r.GetString(1),
+        Slug = r.GetString(2),
+        Description = Text(r, 3),
+        IsSystem = !r.IsDBNull(4) && r.GetInt64(4) != 0,
+        Permissions = DeserializePermissions(Text(r, 5)),
+        CreatedAt = RequiredDate(r, 6),
+        UpdatedAt = RequiredDate(r, 7)
+    };
+    private static string SerializePermissions(IEnumerable<string> permissions) =>
+        JsonSerializer.Serialize(permissions.OrderBy(p => p, StringComparer.Ordinal).ToArray());
+    private static HashSet<string> DeserializePermissions(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var values = JsonSerializer.Deserialize<string[]>(json) ?? [];
+        return new HashSet<string>(values, StringComparer.OrdinalIgnoreCase);
+    }
     private static Project MapProject(DbDataReader r)
     {
         var mode = RepositoryMode.SingleRepository;

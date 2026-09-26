@@ -172,7 +172,8 @@ public sealed class RunnerE2ETests : IClassFixture<WebApplicationFactory<Program
 
     private static async Task<HttpResponseMessage> RunnerPostAsync(HttpClient client, string path, string token, object body)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        request.Content = JsonContent.Create(body);
         request.Headers.Add("X-Runner-Token", token);
         return await client.SendAsync(request);
     }

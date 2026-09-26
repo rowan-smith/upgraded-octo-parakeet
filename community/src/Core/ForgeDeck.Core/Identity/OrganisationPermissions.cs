@@ -18,7 +18,7 @@ public static class OrganisationPermissions
     public const string LicensingManage = "licensing.manage";
     public const string OrganisationDestroy = "organisation.destroy";
 
-    private static readonly HashSet<string> ModulePermissions =
+    private static readonly HashSet<string> ModulePermissions = Set(
     [
         "source.repository.read", "source.repository.connect",
         "review.read", "review.comment", "review.request", "review.approve", "review.merge", "review.manage",
@@ -26,24 +26,27 @@ public static class OrganisationPermissions
         "pipelines.manage", "pipelines.run", "pipelines.read", "pipelines.cancel",
         "pipelines.runner.read", "pipelines.runner.manage",
         "deploy.read", "deploy.execute", "deploy.manage"
-    ];
+    ]);
 
-    private static readonly HashSet<string> MemberBase =
+    private static readonly HashSet<string> MemberBase = Set(
     [
         OrganisationRead, UsersRead, ..ModulePermissions
-    ];
+    ]);
 
-    private static readonly HashSet<string> AdminBase =
+    private static readonly HashSet<string> AdminBase = Set(
     [
         ..MemberBase,
         UsersManage, TeamsManage, ProjectsCreate, ProjectsManage, IntegrationsManage, AuditRead
-    ];
+    ]);
 
-    private static readonly HashSet<string> OwnerBase =
+    private static readonly HashSet<string> OwnerBase = Set(
     [
         ..AdminBase,
         OrganisationManage, ModulesManage, LicensingManage, OrganisationDestroy
-    ];
+    ]);
+
+    /// <summary>Permission comparisons are case-insensitive everywhere so custom roles cannot smuggle casing past a check.</summary>
+    private static HashSet<string> Set(IEnumerable<string> permissions) => new(permissions, StringComparer.OrdinalIgnoreCase);
 
     public static IReadOnlySet<string> ForRole(OrganisationRole role) => role switch
     {

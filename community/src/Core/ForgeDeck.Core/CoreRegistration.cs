@@ -5,11 +5,13 @@ using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Integrations;
 using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Contracts.Modules;
+using ForgeDeck.Contracts.Search;
 using ForgeDeck.Contracts.SourceControl;
 using ForgeDeck.Core.Application;
 using ForgeDeck.Core.Audit;
 using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Context;
+using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Events;
 using ForgeDeck.Core.Extensions;
 using ForgeDeck.Core.Identity;
@@ -17,6 +19,7 @@ using ForgeDeck.Core.Integrations;
 using ForgeDeck.Core.Licensing;
 using ForgeDeck.Core.Modules;
 using ForgeDeck.Core.Persistence;
+using ForgeDeck.Core.Search;
 using ForgeDeck.Core.SourceControl;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
@@ -55,7 +58,7 @@ public static class CoreRegistration
         services.AddSingleton<IExtensionRegistry, SqliteExtensionRegistry>();
         services.AddSingleton<IExtensionPackageVerifier, SignedExtensionPackageVerifier>();
         services.AddSingleton<ExtensionLifecycleService>();
-        services.AddSingleton<IPasswordHasher<ForgeDeck.Core.Domain.UserAccount>, PasswordHasher<ForgeDeck.Core.Domain.UserAccount>>();
+        services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddSingleton<SetupService>();
         services.AddSingleton<AuthService>();
         services.AddSingleton<MembershipService>();
@@ -79,6 +82,9 @@ public static class CoreRegistration
         services.AddSingleton<InProcessModuleHost>();
         services.AddSingleton<OutOfProcessModuleHost>();
         services.AddSingleton<IModuleHost, CompositeModuleHost>();
+        services.AddSingleton<ISearchService, SearchService>();
+        services.AddSingleton<RoleService>();
+        services.AddSingleton<EffectivePermissionService>();
         return services;
     }
 

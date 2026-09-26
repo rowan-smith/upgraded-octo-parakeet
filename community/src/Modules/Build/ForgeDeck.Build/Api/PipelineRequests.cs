@@ -9,6 +9,10 @@ public sealed record CreatePipelineRequest(
     Dictionary<string, string>? Environment = null,
     int TimeoutSeconds = 3600);
 
+public sealed record UpdatePipelineYamlRequest(string? Yaml);
+
+public sealed record CreatePipelineFromYamlRequest(string? Yaml, Guid? ProjectId = null);
+
 public sealed record RunPipelineRequest(Guid DefinitionId, string Ref = "main", string CommitSha = "", string? RepositoryUrl = null);
 
 public sealed record CancelPipelineRequest(string? Reason = null);

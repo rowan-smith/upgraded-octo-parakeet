@@ -1,5 +1,6 @@
 using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Identity;
+using ForgeDeck.Core.Persistence;
 
 namespace ForgeDeck.Core.Context;
 
@@ -18,7 +19,7 @@ public sealed class PlatformContextStore
         User = new(KnownIds.MayaUserId, "Maya Chen", "maya@forgedeck.dev", BootstrapPermissions);
     }
 
-    public PlatformContextStore(ForgeDeck.Core.Persistence.ITenancyStore store) : this()
+    public PlatformContextStore(ITenancyStore store) : this()
     {
         if (store.GetInstance().State != InstanceState.Initialised)
         {
@@ -53,5 +54,9 @@ public sealed class PlatformContextStore
     public void SetUser(PlatformUser user) => User = user;
 
     public static PlatformUser ToPlatformUser(UserAccount user, UserProfile? profile, OrganisationRole role = OrganisationRole.Member) =>
-        new(user.Id, profile?.DisplayName ?? user.Username, user.Email, OrganisationPermissions.ForRole(role));
+        ToPlatformUser(user, profile, OrganisationPermissions.ForRole(role));
+
+    /// <summary>Used when permissions have already been resolved (for example by EffectivePermissionService).</summary>
+    public static PlatformUser ToPlatformUser(UserAccount user, UserProfile? profile, IReadOnlySet<string> permissions) =>
+        new(user.Id, profile?.DisplayName ?? user.Username, user.Email, permissions);
 }

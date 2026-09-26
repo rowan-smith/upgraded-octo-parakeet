@@ -57,7 +57,6 @@ public sealed class RunnerPlaywrightTests(PlaywrightBrowserFixture browser)
     }
 
     [Theory]
-    [InlineData("/runners", "Runners")]
     [InlineData("/pipelines", "Build")]
     [InlineData("/runs", "Runs")]
     [InlineData("/jobs", "Jobs")]
@@ -89,17 +88,20 @@ public sealed class RunnerPlaywrightTests(PlaywrightBrowserFixture browser)
     }
 
     [Fact]
-    public async Task Nav_includes_runners_and_deploy_entries()
+    public async Task Nav_keeps_runners_under_organisation_settings()
     {
         await using var host = ForgeDeckHost.StartSeeded();
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
         await Ui.EnsureProjectNavAsync(page);
-        await Assertions.Expect(page.Locator("#primaryNav [data-route='/runners']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("#primaryNav [data-route='/runners']")).ToHaveCountAsync(0);
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/pipelines']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/environments']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/deployments']")).ToBeVisibleAsync();
+
+        await Ui.OpenRunnersAsync(page);
+        await Assertions.Expect(page.Locator(".settings-nav-item.active[data-route='/organisation/settings/build']")).ToBeVisibleAsync();
     }
 
     [Fact]

@@ -134,12 +134,27 @@ public sealed class Invitation
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
+/// <summary>A named permission bundle. System roles are seeded and immutable; custom roles are organisation-defined.</summary>
+public sealed class AccessRole
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public required string Name { get; set; }
+    public required string Slug { get; set; }
+    public string? Description { get; set; }
+    public bool IsSystem { get; init; }
+    public HashSet<string> Permissions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class Team
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public required string Name { get; set; }
     public required string Slug { get; set; }
     public string? Description { get; set; }
+    /// <summary>Optional access role attached to the group; narrows permissions on projects the team can reach.</summary>
+    public Guid? RoleId { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -173,6 +188,8 @@ public sealed class ProjectUserAccess
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid ProjectId { get; init; }
     public Guid UserId { get; init; }
+    /// <summary>Optional access role narrowing what the user may do inside this project.</summary>
+    public Guid? RoleId { get; set; }
     public DateTimeOffset GrantedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
@@ -181,6 +198,8 @@ public sealed class ProjectTeamAccess
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid ProjectId { get; init; }
     public Guid TeamId { get; init; }
+    /// <summary>Optional access role narrowing what the team may do inside this project; overrides the team role.</summary>
+    public Guid? RoleId { get; set; }
     public DateTimeOffset GrantedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 

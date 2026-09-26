@@ -1,8 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
+using ForgeDeck.Contracts.Capabilities;
+using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.SourceControl;
 using ForgeDeck.Core.Domain;
+using ForgeDeck.Core.Extensions;
 using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Licensing;
 using ForgeDeck.Core.Persistence;
@@ -336,7 +339,7 @@ public sealed class SetupService(
         foreach (var contributor in contributors.OrderBy(c => c.Order))
         {
             var available = contributor.RequiredCapability is null ||
-                (services.GetService(typeof(ForgeDeck.Contracts.Capabilities.ICapabilityService)) is ForgeDeck.Contracts.Capabilities.ICapabilityService caps
+                (services.GetService(typeof(ICapabilityService)) is ICapabilityService caps
                     && caps.Has(orgId, contributor.RequiredCapability));
             var complete = false;
             try { complete = available && contributor.IsCompleteAsync(services).GetAwaiter().GetResult(); }
@@ -527,7 +530,7 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
     }
 }
 
-public sealed class ProjectService(ITenancyStore store, ForgeDeck.Core.Extensions.ExtensionLifecycleService? extensions = null)
+public sealed class ProjectService(ITenancyStore store, ExtensionLifecycleService? extensions = null)
 {
     public Project CreateProject(CreateProjectRequest request, Guid userId, Guid? id = null)
     {
@@ -571,7 +574,7 @@ public sealed class ProjectService(ITenancyStore store, ForgeDeck.Core.Extension
             throw new KeyNotFoundException("Project not found.");
         }
 
-        var orgModules = extensions?.List(ForgeDeck.Contracts.Extensions.ExtensionType.Module)
+        var orgModules = extensions?.List(ExtensionType.Module)
             .Where(m => m.Installed)
             .ToArray() ?? [];
         var rows = store.ListProjectModules(projectId);
@@ -600,7 +603,7 @@ public sealed class ProjectService(ITenancyStore store, ForgeDeck.Core.Extension
             return;
         }
 
-        var orgModules = extensions?.List(ForgeDeck.Contracts.Extensions.ExtensionType.Module).ToArray() ?? [];
+        var orgModules = extensions?.List(ExtensionType.Module).ToArray() ?? [];
         var orgInstalled = orgModules
             .Where(m => m.Installed)
             .Select(m => m.ExtensionId)
@@ -676,7 +679,7 @@ public sealed class ProjectService(ITenancyStore store, ForgeDeck.Core.Extension
         return project;
     }
 
-    public void GrantUser(Guid projectId, Guid userId)
+    public void GrantUser(Guid projectId, Guid userId, Guid? roleId = null)
     {
         if (store.FindProject(projectId) is null)
         {
@@ -688,12 +691,12 @@ public sealed class ProjectService(ITenancyStore store, ForgeDeck.Core.Extension
             throw new KeyNotFoundException("User not found.");
         }
 
-        store.SaveProjectUserAccess(new ProjectUserAccess { ProjectId = projectId, UserId = userId });
+        store.SaveProjectUserAccess(new ProjectUserAccess { ProjectId = projectId, UserId = userId, RoleId = RequireRole(roleId) });
     }
 
     public void RevokeUser(Guid projectId, Guid userId) => store.DeleteProjectUserAccess(projectId, userId);
 
-    public void GrantTeam(Guid projectId, Guid teamId)
+    public void GrantTeam(Guid projectId, Guid teamId, Guid? roleId = null)
     {
         if (store.FindProject(projectId) is null)
         {
@@ -705,10 +708,20 @@ public sealed class ProjectService(ITenancyStore store, ForgeDeck.Core.Extension
             throw new KeyNotFoundException("Team not found.");
         }
 
-        store.SaveProjectTeamAccess(new ProjectTeamAccess { ProjectId = projectId, TeamId = teamId });
+        store.SaveProjectTeamAccess(new ProjectTeamAccess { ProjectId = projectId, TeamId = teamId, RoleId = RequireRole(roleId) });
     }
 
     public void RevokeTeam(Guid projectId, Guid teamId) => store.DeleteProjectTeamAccess(projectId, teamId);
+
+    private Guid? RequireRole(Guid? roleId)
+    {
+        if (roleId is not Guid id)
+        {
+            return null;
+        }
+
+        return store.FindAccessRole(id) is null ? throw new KeyNotFoundException("Role not found.") : id;
+    }
 }
 
 public sealed class ProjectAccessService(ITenancyStore store)
@@ -744,7 +757,7 @@ public sealed class ProjectAccessService(ITenancyStore store)
 
 public sealed class TeamService(ITenancyStore store)
 {
-    public Team Create(string name, string? slug, string? description)
+    public Team Create(string name, string? slug, string? description, Guid? roleId = null)
     {
         var normalized = string.IsNullOrWhiteSpace(slug) ? SlugRules.Normalize(name) : SlugRules.Normalize(slug);
         if (!SlugRules.IsValid(normalized))
@@ -757,12 +770,12 @@ public sealed class TeamService(ITenancyStore store)
             throw new ArgumentException("Team slug is already in use.");
         }
 
-        var team = new Team { Name = name.Trim(), Slug = normalized, Description = description?.Trim() };
+        var team = new Team { Name = name.Trim(), Slug = normalized, Description = description?.Trim(), RoleId = RequireRole(roleId) };
         store.SaveTeam(team);
         return team;
     }
 
-    public Team Update(Guid id, string? name, string? slug, string? description)
+    public Team Update(Guid id, string? name, string? slug, string? description, Guid? roleId = null, bool clearRole = false)
     {
         var team = store.FindTeam(id) ?? throw new KeyNotFoundException("Team not found.");
         if (!string.IsNullOrWhiteSpace(name))
@@ -791,6 +804,15 @@ public sealed class TeamService(ITenancyStore store)
             team.Description = description.Trim();
         }
 
+        if (clearRole)
+        {
+            team.RoleId = null;
+        }
+        else if (roleId is not null)
+        {
+            team.RoleId = RequireRole(roleId);
+        }
+
         team.UpdatedAt = DateTimeOffset.UtcNow;
         store.SaveTeam(team);
         return team;
@@ -799,6 +821,16 @@ public sealed class TeamService(ITenancyStore store)
     public void Delete(Guid id) => store.DeleteTeam(id);
     public IReadOnlyList<Team> List() => store.ListTeams();
     public Team? Get(Guid id) => store.FindTeam(id);
+
+    private Guid? RequireRole(Guid? roleId)
+    {
+        if (roleId is not Guid id)
+        {
+            return null;
+        }
+
+        return store.FindAccessRole(id) is null ? throw new KeyNotFoundException("Role not found.") : id;
+    }
 
     public void AddMember(Guid teamId, Guid userId)
     {

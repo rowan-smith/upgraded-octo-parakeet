@@ -1,4 +1,4 @@
-const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],starredProjects:[],selectedConnectionId:null,setup:null,me:null,tab:'overview',route:'/home',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',changesTab:'open'};
+const state={token:null,modules:[],context:null,connections:[],changes:[],change:null,local:null,projects:[],starredProjects:[],selectedConnectionId:null,setup:null,me:null,tab:'overview',route:'/home',expandedFiles:{},selectedJobId:null,runPoll:null,setupStep:0,peopleTab:'members',changesTab:'open',overviewPrFilter:'open',searchHits:[],searchIndex:0};
 const DEFAULT_LOCAL_PATH='C:\\Users\\rowan\\RiderProjects\\upgraded-octo-parakeet';
 const TOKEN_KEY='forgedeck.token';
 const el=id=>document.getElementById(id);
@@ -98,13 +98,28 @@ async function loadWorkspace(){
 function paintShell(){
   const org=state.context?.organisation;const project=state.context?.project;
   const profile=state.me?.profile;const user=state.me?.user;
-  el('orgLabel').textContent=org?.name||'Organisation';
-  el('projectLabel').textContent=project?.name||'Project';
-  el('projectAvatar').textContent=(project?.name||'P')[0].toUpperCase();
   el('userName').textContent=profile?.displayName||user?.username||'User';
   el('userHandle').textContent=`@${user?.username||'user'}`;
   el('userAvatar').textContent=initials(profile?.displayName||user?.username||'?');
   document.title=`ForgeDeck · ${project?.name||org?.name||'Workspace'}`;
+  updateContextChrome();
+}
+
+function updateContextChrome(){
+  const btn=el('contextButton');
+  if(!btn)return;
+  const org=state.context?.organisation;
+  const project=state.context?.project;
+  const orgRoute=isOrgRoute(state.route);
+  const showSwitcher=!orgRoute;
+  el('orgLabel').textContent=org?.name||'Organisation';
+  el('projectLabel').textContent=showSwitcher?(project?.name||'Project'):(org?.name||'Organisation');
+  el('projectAvatar').textContent=((showSwitcher?project?.name:org?.name)||'P')[0].toUpperCase();
+  btn.hidden=!showSwitcher;
+  btn.toggleAttribute('disabled',!showSwitcher);
+  btn.setAttribute('aria-disabled',showSwitcher?'false':'true');
+  const chevron=btn.querySelector('.chevron');
+  if(chevron)chevron.hidden=!showSwitcher;
 }
 
 function hasModule(id){return state.modules.some(module=>module.id===id&&module.enabled!==false)}
@@ -119,7 +134,7 @@ function source(){return state.connections.find(c=>c.id===state.selectedConnecti
 function isMultiRepo(){return state.context?.project?.repositoryMode==='MultiRepository'&&(state.connections||[]).length>1}
 function isOrgRoute(route){
   const r=normalizeRoute(route);
-  return r==='/home'||r==='/projects'||r==='/people'
+  return r==='/home'||r==='/projects'||r==='/people'||r==='/profile'
     ||r.startsWith('/organisation/')||r.startsWith('/invite/');
 }
 function actor(){return state.context?.user?.name||state.me?.profile?.displayName||'User'}
@@ -145,8 +160,28 @@ function bindRepoPicker(rerender){
 }
 function statusClass(value){return String(value).toLowerCase().replace(/\s+/g,'-')}
 function showToast(message,bad=false){const toast=el('toast');toast.textContent=message;toast.classList.toggle('error',bad);toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2800)}
-function renderError(error){el('content').innerHTML=`<div class="empty"><h2>${esc(error.kind||'Workspace unavailable')}</h2><p>${esc(error.message)}</p><button class="button" data-route="/settings">Open settings</button></div>`}
+function renderError(error){
+  const settingsRoute=isOrgRoute(state.route)?'/organisation/settings':'/settings';
+  el('content').innerHTML=`<div class="empty"><h2>${esc(error.kind||'Workspace unavailable')}</h2><p>${esc(error.message)}</p><button class="button" data-route="${settingsRoute}">Open settings</button></div>`;
+}
 function initials(name){return String(name||'?').split(/\s+/).map(part=>part[0]).join('').slice(0,2).toUpperCase()}
+function slugify(value){
+  return String(value||'').trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/-+/g,'-')
+    .replace(/^-|-$/g,'');
+}
+function wireAutoSlug(nameId,slugId){
+  const nameInput=el(nameId);const slugInput=el(slugId);
+  if(!nameInput||!slugInput)return;
+  let locked=slugInput.value!==''&&slugInput.value!==slugify(nameInput.value);
+  slugInput.addEventListener('input',()=>{locked=slugInput.value.trim()!==''});
+  nameInput.addEventListener('input',()=>{
+    if(locked)return;
+    slugInput.value=slugify(nameInput.value);
+  });
+  if(!locked)slugInput.value=slugify(nameInput.value);
+}
 
 function renderLogin(){
   el('appSidebar').style.display='none';
@@ -269,15 +304,18 @@ function renderSetupLicence(){
       </article>
       <article class="licence-choice">
         <h2>Enterprise</h2>
-        <p>Unlock Enterprise module capabilities for this installation with a signed licence.</p>
-        <label class="form-label">Licence Key / JSON</label>
-        <textarea class="field" id="setupLicencePayload" rows="5" placeholder="Paste signed licence JSON"></textarea>
+        <p>Unlock Enterprise module capabilities for this installation with a signed licence file.</p>
+        <label class="form-label" for="setupLicenceFile">Licence file</label>
+        <input class="field" id="setupLicenceFile" type="file" accept=".json,application/json">
+        <input type="hidden" id="setupLicencePayload" value="">
+        <p class="description" id="setupLicenceFileName" style="margin-top:8px">Choose a signed <code>.json</code> licence file.</p>
         <div class="modal-actions" style="margin-top:12px">
           <button class="button" id="setupValidateLicence">Upload Enterprise Licence</button>
         </div>
       </article>
     </div>
   `);
+  wireLicenceFileInput('setupLicenceFile','setupLicencePayload','setupLicenceFileName');
   el('setupUseCommunity').onclick=async()=>{
     try{
       await api('/api/setup/licence/community',{method:'POST',body:'{}'});
@@ -287,11 +325,40 @@ function renderSetupLicence(){
   };
   el('setupValidateLicence').onclick=async()=>{
     try{
-      await api('/api/setup/licence/commercial',{method:'POST',body:JSON.stringify({payload:el('setupLicencePayload').value})});
+      const payload=el('setupLicencePayload').value;
+      if(!payload.trim())return showToast('Choose a licence file first',true);
+      await api('/api/setup/licence/commercial',{method:'POST',body:JSON.stringify({payload})});
       await refreshSetup();
       showToast('Enterprise licence active');
       renderSetup();
     }catch(error){showToast(error.message,true)}
+  };
+}
+
+function wireLicenceFileInput(fileId,payloadId,labelId){
+  const fileInput=el(fileId);
+  const payload=el(payloadId);
+  const label=labelId?el(labelId):null;
+  if(!fileInput||!payload)return;
+  fileInput.onchange=async()=>{
+    const file=fileInput.files?.[0];
+    const zone=el('licenceDropzone');
+    if(!file){
+      payload.value='';
+      if(label)label.textContent='Drop a signed licence file here';
+      zone?.classList.remove('has-file');
+      return;
+    }
+    try{
+      payload.value=await file.text();
+      if(label)label.textContent=file.name;
+      zone?.classList.add('has-file');
+    }catch{
+      payload.value='';
+      if(label)label.textContent='Could not read that file.';
+      zone?.classList.remove('has-file');
+      showToast('Could not read licence file',true);
+    }
   };
 }
 
@@ -394,6 +461,7 @@ function normalizeRoute(route){
   if(value==='/audit')return '/organisation/settings/audit';
   if(value==='/organisation/settings')return '/organisation/settings/general';
   if(value==='/settings')return '/settings/general';
+  if(value==='/runners')return '/organisation/settings/build';
   return value;
 }
 
@@ -433,16 +501,118 @@ function bindShell(){
     shellBound=true;
   }
   el('mobileMenu').onclick=()=>document.querySelector('.sidebar').classList.toggle('open');
-  const openSwitcher=()=>{
-    openModal(`<div class="modal-content"><h2>Quick switcher</h2><p>Jump to source, review, or settings.</p><div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="changes" id="switcherChanges">Open pull requests</button></div></div>`,e=>{
-      if(e.submitter?.value==='changes')navigate('/changes');
-    });
-    el('switcherChanges')?.addEventListener('click',()=>navigate('/changes'));
+  bindGlobalSearch();
+  el('contextButton').onclick=()=>{
+    if(isOrgRoute(state.route))return;
+    openProjectSwitcher();
   };
-  el('globalSearch')?.addEventListener('click',openSwitcher);
-  el('globalSearch')?.addEventListener('focus',openSwitcher);
-  el('contextButton').onclick=openProjectSwitcher;
   bindUserMenu();
+}
+
+function bindGlobalSearch(){
+  const input=el('globalSearch');
+  const panel=el('searchPanel');
+  if(!input||input.dataset.bound)return;
+  input.dataset.bound='1';
+  let debounce=null;
+  const runSearch=async()=>{
+    const q=input.value.trim();
+    try{
+      const payload=await api(`/api/search?q=${encodeURIComponent(q)}&limit=12`);
+      state.searchHits=payload.hits||[];
+      state.searchIndex=0;
+      renderSearchPanel();
+    }catch(error){
+      state.searchHits=[];
+      renderSearchPanel(error.message);
+    }
+  };
+  input.addEventListener('focus',()=>{runSearch()});
+  input.addEventListener('input',()=>{
+    clearTimeout(debounce);
+    debounce=setTimeout(runSearch,120);
+  });
+  input.addEventListener('keydown',async e=>{
+    if(e.key==='ArrowDown'){
+      e.preventDefault();
+      state.searchIndex=Math.min((state.searchHits.length||1)-1,(state.searchIndex||0)+1);
+      renderSearchPanel();
+      return;
+    }
+    if(e.key==='ArrowUp'){
+      e.preventDefault();
+      state.searchIndex=Math.max(0,(state.searchIndex||0)-1);
+      renderSearchPanel();
+      return;
+    }
+    if(e.key==='Enter'){
+      e.preventDefault();
+      const hit=state.searchHits[state.searchIndex||0];
+      if(hit)await activateSearchHit(hit);
+      return;
+    }
+    if(e.key==='Escape'){
+      closeSearchPanel();
+      input.blur();
+    }
+  });
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='k'){
+      e.preventDefault();
+      input.focus();
+      input.select();
+    }
+  });
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('.global-search'))closeSearchPanel();
+  });
+  if(panel){
+    panel.addEventListener('mousedown',e=>e.preventDefault());
+  }
+}
+
+function closeSearchPanel(){
+  const panel=el('searchPanel');
+  if(panel)panel.hidden=true;
+}
+
+function renderSearchPanel(errorMessage){
+  const panel=el('searchPanel');
+  if(!panel)return;
+  const hits=state.searchHits||[];
+  if(errorMessage){
+    panel.hidden=false;
+    panel.innerHTML=`<div class="search-empty">${esc(errorMessage)}</div>`;
+    return;
+  }
+  if(!hits.length){
+    panel.hidden=false;
+    panel.innerHTML=`<div class="search-empty">No matches. Try a project, person, PR, or pipeline name.</div>`;
+    return;
+  }
+  panel.hidden=false;
+  panel.innerHTML=hits.map((hit,index)=>`
+    <button type="button" class="search-hit ${index===state.searchIndex?'active':''}" data-search-index="${index}" role="option" aria-selected="${index===state.searchIndex?'true':'false'}">
+      <span class="search-hit-type">${esc(hit.type||'result')}</span>
+      <span class="search-hit-copy"><strong>${esc(hit.label)}</strong>${hit.subtitle?`<small>${esc(hit.subtitle)}</small>`:''}</span>
+    </button>`).join('');
+  panel.querySelectorAll('[data-search-index]').forEach(btn=>{
+    btn.onclick=async()=>{
+      const hit=hits[Number(btn.dataset.searchIndex)];
+      if(hit)await activateSearchHit(hit);
+    };
+  });
+}
+
+async function activateSearchHit(hit){
+  closeSearchPanel();
+  const input=el('globalSearch');
+  if(input)input.value='';
+  if(hit.type==='project'&&hit.id){
+    await openProject(hit.id);
+    return;
+  }
+  navigate(hit.route||'/home');
 }
 
 function closeUserMenu(){
@@ -480,39 +650,26 @@ function bindUserMenu(){
     button.onclick=async e=>{
       e.stopPropagation();
       const action=button.dataset.userAction;
+      if(action==='theme-menu')return;
       closeUserMenu();
       if(action==='profile'){
-        openModal(`<div class="modal-content"><h2>${esc(state.me?.profile?.displayName||'User')}</h2>
-          <p>@${esc(state.me?.user?.username||'user')}</p>
-          <p class="description">${esc(state.me?.user?.email||'')}</p>
-          <div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button" value="people">People</button></div></div>`,async ev=>{
-          if(ev.submitter?.value==='people')navigate('/people');
-        });
-        return;
-      }
-      if(action==='theme'){
-        const current=state.me?.profile?.theme||state.theme||'system';
-        openModal(`<div class="modal-content"><h2>Theme</h2>
-          <p class="description">Choose how ForgeDeck looks. Preference is saved to your account.</p>
-          <label class="choice-row"><input type="radio" name="themeChoice" value="light" ${current==='light'?'checked':''}> Light</label>
-          <label class="choice-row"><input type="radio" name="themeChoice" value="dark" ${current==='dark'?'checked':''}> Dark</label>
-          <label class="choice-row"><input type="radio" name="themeChoice" value="system" ${current==='system'?'checked':''}> System</label>
-          <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Save</button></div></div>`,async ev=>{
-          if(ev.submitter?.value!=='submit')return;
-          const theme=document.querySelector('input[name="themeChoice"]:checked')?.value||'system';
-          await setThemePreference(theme);
-        });
-        return;
-      }
-      if(action==='settings'){
-        if(isOrgRoute(state.route))navigate('/organisation/settings');
-        else navigate('/settings');
+        navigate('/profile');
         return;
       }
       if(action==='signout'){
         try{await api('/api/auth/logout',{method:'POST'})}catch{}
         localStorage.removeItem(TOKEN_KEY);state.token=null;renderLogin();
       }
+    };
+  });
+  syncThemeMenuChecks();
+  dropdown.querySelectorAll('[data-theme-choice]').forEach(button=>{
+    button.onclick=async e=>{
+      e.stopPropagation();
+      const theme=button.dataset.themeChoice;
+      closeUserMenu();
+      await setThemePreference(theme);
+      syncThemeMenuChecks();
     };
   });
   document.addEventListener('click',e=>{
@@ -523,13 +680,24 @@ function bindUserMenu(){
   });
 }
 
+function syncThemeMenuChecks(){
+  const current=state.me?.profile?.theme||state.theme||'system';
+  document.querySelectorAll('[data-theme-choice]').forEach(btn=>{
+    const on=btn.dataset.themeChoice===current;
+    btn.classList.toggle('checked',on);
+    btn.setAttribute('aria-checked',on?'true':'false');
+  });
+}
+
 function openUserMenu(){
   openUserMenuDropdown();
+  syncThemeMenuChecks();
 }
 
 function openProjectSwitcher(){
+  if(isOrgRoute(state.route))return;
   const rows=(state.projects||[]).map(p=>`<button class="button" style="width:100%;justify-content:flex-start;margin-bottom:6px" value="project:${esc(p.id)}">${esc(p.name)} <small style="color:var(--muted);margin-left:auto">/${esc(p.slug)}</small></button>`).join('')||'<p class="description">No projects yet.</p>';
-  openModal(`<div class="modal-content"><h2>Projects</h2><p>Switch the active working context.</p>
+  openModal(`<div class="modal-content"><h2>Switch project</h2><p>Choose the active working context for this organisation.</p>
     <div style="margin-top:14px">${rows}</div>
     <div class="modal-actions">
       <button class="button" value="home">Organisation home</button>
@@ -555,51 +723,19 @@ function openCreateProject(){
   openProjectWizard();
 }
 
-async function openProjectWizard(){
-  let orgModules=[];
-  try{
-    const payload=await api('/api/platform/extensions?type=Module');
-    orgModules=(payload.extensions||[]).filter(m=>m.installed&&m.enabled).map(m=>({
-      extensionId:m.extensionId,
-      name:m.name,
-      summary:m.summary||''
-    }));
-  }catch{
-    try{
-      const platform=await api('/api/platform/modules');
-      orgModules=(platform.modules||[]).map(m=>({
-        extensionId:m.extensionId||`forgedeck.${m.id}`,
-        name:m.name,
-        summary:''
-      }));
-    }catch{orgModules=[]}
-  }
-
+function openProjectWizard(){
   openModal(`<div class="modal-content project-wizard"><h2>Create project</h2>
-    <label class="form-label">Name</label><input class="field" id="newProjectName" value="Atlas">
-    <label class="form-label">Slug</label><input class="field" id="newProjectSlug" value="atlas">
+    <label class="form-label">Name</label><input class="field" id="newProjectName" value="Atlas" autofocus>
+    <label class="form-label">Slug</label><input class="field" id="newProjectSlug" value="atlas" placeholder="Generated from name">
     <label class="form-label">Description</label><input class="field" id="newProjectDesc" placeholder="Optional">
-    <p class="form-label">Repository structure</p>
-    <label class="choice-row"><input type="radio" name="newRepoMode" value="SingleRepository" checked> Single repository</label>
-    <label class="choice-row"><input type="radio" name="newRepoMode" value="MultiRepository"> Multiple repositories</label>
-    <p class="form-label" style="margin-top:12px">Visibility</p>
-    <label class="choice-row"><input type="radio" name="newVisibility" value="Private" checked> Private</label>
-    <label class="choice-row"><input type="radio" name="newVisibility" value="Organisation"> Organisation</label>
-    ${orgModules.length?`<p class="form-label" style="margin-top:12px">Project capabilities</p>
-      <div class="module-choice-grid compact">${orgModules.map(m=>`
-        <label class="choice-row"><input type="checkbox" data-project-module="${esc(m.extensionId)}" checked> ${esc(m.name)}</label>`).join('')}</div>
-      <p class="description">Only organisation-installed modules appear here. Configure policies later in Project Settings.</p>`:''}
+    <p class="description">Visibility, repository mode, and modules can be changed later in Project settings.</p>
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create</button></div></div>`,async e=>{
     if(e.submitter?.value!=='submit')return;
     try{
-      const enabledModuleIds=[...document.querySelectorAll('[data-project-module]:checked')].map(i=>i.dataset.projectModule);
       const project=await api('/api/projects',{method:'POST',body:JSON.stringify({
         name:el('newProjectName').value,
-        slug:el('newProjectSlug').value,
-        description:el('newProjectDesc').value||null,
-        visibility:document.querySelector('input[name="newVisibility"]:checked')?.value||'Private',
-        repositoryMode:document.querySelector('input[name="newRepoMode"]:checked')?.value||'SingleRepository',
-        enabledModuleIds:orgModules.length?enabledModuleIds:null
+        slug:el('newProjectSlug').value||null,
+        description:el('newProjectDesc').value||null
       })});
       await api('/api/core/context/project',{method:'POST',body:JSON.stringify({projectId:project.id})});
       await loadWorkspace();
@@ -607,11 +743,13 @@ async function openProjectWizard(){
       navigate('/overview');
     }catch(error){showToast(error.message,true)}
   });
+  wireAutoSlug('newProjectName','newProjectSlug');
 }
 
 function renderNavigation(){
   const openCount=openStatuses().length;
   const route=state.route||'/home';
+  updateContextChrome();
   let html='';
   if(isOrgRoute(route)){
     html+='<p class="nav-group">Organisation</p>';
@@ -622,11 +760,14 @@ function renderNavigation(){
     html+='<button type="button" class="nav-item" data-route="/organisation/settings"><span class="nav-icon">⚙</span>Organisation settings</button>';
   }else{
     html+='<p class="nav-group">Project</p><button type="button" class="nav-item" data-route="/overview"><span class="nav-icon">⌂</span>Overview</button>';
+    const groupOrder={Code:1,Review:2,Build:3,Deploy:4};
     const groups={};
     state.modules.flatMap(module=>module.navigation||[])
       .sort((a,b)=>a.order-b.order)
       .forEach(item=>(groups[item.group]??=[]).push(item));
-    Object.entries(groups).forEach(([group,items])=>html+=`<p class="nav-group">${esc(group)}</p>${items.map(item=>{
+    Object.entries(groups)
+      .sort(([a],[b])=>(groupOrder[a]??50)-(groupOrder[b]??50))
+      .forEach(([group,items])=>html+=`<p class="nav-group">${esc(group)}</p>${items.map(item=>{
       const icon=item.id==='files'||item.id==='commits'||item.id==='tags'||item.id==='branches'?'▱'
         :item.id==='changes'?'⑂'
         :item.id==='pipelines'||item.id==='runs'||item.id==='jobs'||item.id==='tests'||item.id==='artifacts'?'≋'
@@ -640,8 +781,6 @@ function renderNavigation(){
     html+='<button type="button" class="nav-item" data-route="/settings"><span class="nav-icon">⚙</span>Project settings</button>';
   }
   el('primaryNav').innerHTML=html;
-  const footer=document.querySelector('.sidebar-footer');
-  if(footer)footer.style.display=isOrgRoute(route)?'none':'';
   setActiveNav(state.route);
 }
 
@@ -675,7 +814,10 @@ async function navigate(route,push=true){
     if(route==='/commits'){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderCommits()}
     if(route==='/source-branches'){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderBranches()}
     if(route==='/tags'){if(!hasModule('code'))return renderError(new Error('Code module is not enabled.'));return await renderTags()}
-    if(route==='/pipelines'||route.startsWith('/pipelines/'))return await renderPipelines(route);
+    if(route==='/pipelines'||route.startsWith('/pipelines/')){
+      if(route==='/pipelines/new'||route.endsWith('/edit'))return await renderPipelineBuilder(route);
+      return await renderPipelines(route);
+    }
     if(route==='/environments'||route.startsWith('/environments/'))return await renderEnvironments(route);
     if(route==='/deployments'||route.startsWith('/deployments/'))return await renderDeployments(route);
     if(route==='/runs')return await renderRuns();
@@ -687,13 +829,98 @@ async function navigate(route,push=true){
       if(jobMatch)return await renderJobPage(jobMatch[1],jobMatch[2]);
     }
     if(route.startsWith('/runs/'))return await renderRunDetail(route.split('/')[2]);
-    if(route==='/runners')return await renderRunners();
+    if(route==='/runners'||route==='/organisation/settings/build')return await renderOrgBuildSettings();
     if(route.startsWith('/organisation/settings'))return await renderOrgSettings(route);
     if(route.startsWith('/settings'))return await renderProjectSettings(route);
     if(route==='/people')return await renderPeople();
+    if(route==='/profile')return await renderProfile();
     if(route.startsWith('/invite/'))return await renderInviteAccept(decodeURIComponent(route.slice('/invite/'.length)));
     return await renderOrgHome();
   }catch(error){renderError(error)}
+}
+
+async function renderProfile(){
+  const me=state.me||await api('/api/users/me');
+  state.me=me;
+  const profile=me.profile||{};
+  const user=me.user||{};
+  const membership=me.membership||{};
+  crumbs(orgCrumb('Profile'));
+  const theme=profile.theme||state.theme||'system';
+  el('content').innerHTML=`
+  <section class="profile-page" id="profilePage">
+    <header class="list-page-header">
+      <div class="profile-hero-identity">
+        <span class="avatar lg" id="profileAvatarPreview">${esc(initials(profile.displayName||user.username))}</span>
+        <div>
+          <h1>Your profile</h1>
+          <p class="description">@${esc(user.username||'user')} · ${esc(user.email||'')} · ${esc(membership.role||'Member')}</p>
+        </div>
+      </div>
+    </header>
+    <div class="profile-grid">
+      <div class="card">
+        <div class="card-header"><h2>Account</h2></div>
+        <div class="card-body settings-form">
+          <label class="form-label" for="profileDisplayName">Display name</label>
+          <input class="field" id="profileDisplayName" value="${esc(profile.displayName||'')}">
+          <label class="form-label" for="profileJobTitle">Job title</label>
+          <input class="field" id="profileJobTitle" value="${esc(profile.jobTitle||'')}" placeholder="Optional">
+          <label class="form-label" for="profileBio">Bio</label>
+          <textarea class="field" id="profileBio" rows="3" placeholder="A short introduction">${esc(profile.bio||'')}</textarea>
+          <label class="form-label" for="profileTimezone">Timezone</label>
+          <input class="field" id="profileTimezone" value="${esc(profile.timezone||'')}" placeholder="e.g. Australia/Sydney">
+          <label class="form-label" for="profileLocale">Locale</label>
+          <input class="field" id="profileLocale" value="${esc(profile.locale||'')}" placeholder="e.g. en-AU">
+          <div class="modal-actions" style="margin-top:16px">
+            <button class="button primary" id="profileSave">Save profile</button>
+          </div>
+        </div>
+      </div>
+      <aside class="profile-side">
+        <div class="card">
+          <div class="card-header"><h2>Appearance</h2></div>
+          <div class="card-body">
+            <p class="description">Theme preference is also available from the user menu.</p>
+            <div class="theme-choice-row" role="radiogroup" aria-label="Theme">
+              ${['light','dark','system'].map(t=>`
+                <label class="theme-choice ${theme===t?'active':''}"><input type="radio" name="profileTheme" value="${t}" ${theme===t?'checked':''}> ${t[0].toUpperCase()+t.slice(1)}</label>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h2>Read-only</h2></div>
+          <div class="card-body meta-list">
+            <div class="meta-row"><span>Username</span><strong>@${esc(user.username||'—')}</strong></div>
+            <div class="meta-row"><span>Email</span><strong>${esc(user.email||'—')}</strong></div>
+            <div class="meta-row"><span>Role</span><strong>${esc(membership.role||'—')}</strong></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>`;
+  el('profileSave').onclick=async()=>{
+    try{
+      const updated=await api('/api/users/me/preferences',{method:'PATCH',body:JSON.stringify({
+        displayName:el('profileDisplayName').value,
+        jobTitle:el('profileJobTitle').value,
+        bio:el('profileBio').value,
+        timezone:el('profileTimezone').value,
+        locale:el('profileLocale').value
+      })});
+      if(state.me)state.me.profile=updated;
+      paintShell();
+      showToast('Profile saved');
+      await renderProfile();
+    }catch(error){showToast(error.message,true)}
+  };
+  document.querySelectorAll('input[name="profileTheme"]').forEach(input=>{
+    input.onchange=async()=>{
+      await setThemePreference(input.value);
+      syncThemeMenuChecks();
+      document.querySelectorAll('.theme-choice').forEach(label=>label.classList.toggle('active',label.querySelector('input')?.checked));
+    };
+  });
 }
 
 function localStatusCard(){
@@ -941,161 +1168,137 @@ async function renderArtifactsList(){
   el('refreshArtifacts').onclick=renderArtifactsList;
 }
 
+function filterOverviewPullRequests(changes,filter,actorName){
+  const list=changes||[];
+  switch(filter){
+    case 'assigned':
+      return list.filter(c=>(c.reviewers||[]).some(r=>r.name===actorName));
+    case 'draft':
+      return list.filter(c=>c.status==='Draft');
+    case 'abandoned':
+      return list.filter(c=>c.status==='Closed');
+    case 'all':
+      return list.slice();
+    case 'open':
+    default:
+      return list.filter(c=>!['Merged','Closed'].includes(c.status));
+  }
+}
+
 async function renderOverview(){
   const project=state.context?.project;const org=state.context?.organisation;
   crumbs(`Projects <span>/</span> ${esc(project?.name||'Project')}`);
-  const open=openStatuses();
-  const waiting=open.filter(change=>change.reviewers.some(review=>review.name===actor()&&review.status==='Requested'));
-  const approved=open.filter(change=>change.status==='Approved');
-  const merged=state.changes.filter(change=>change.status==='Merged').slice().sort((a,b)=>new Date(b.mergedAt||b.updatedAt)-new Date(a.mergedAt||a.updatedAt)).slice(0,5);
+  const filter=state.overviewPrFilter||'open';
+  const me=actor();
+  const filtered=filterOverviewPullRequests(state.changes,filter,me);
+  const sortedPrs=filtered.slice().sort((a,b)=>new Date(b.updatedAt||b.createdAt)-new Date(a.updatedAt||a.createdAt)).slice(0,12);
 
-  let runs=[],members=[],audit=[];
+  let runs=[],commits=[];
   try{
     const jobs=[];
     if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
-    jobs.push(api('/api/organisation/members').then(r=>members=r||[]).catch(()=>[]));
-    jobs.push(api('/api/core/audit').then(r=>audit=r||[]).catch(()=>[]));
+    if(hasModule('code')&&source()){
+      jobs.push(api(`/api/source/repositories/${source().id}/commits?branch=${encodeURIComponent(source().defaultBranch||'main')}`)
+        .then(r=>commits=r||[]).catch(()=>[]));
+    }
     await Promise.all(jobs);
   }catch{/* overview widgets degrade gracefully */}
 
-  const terminal=runs.filter(r=>['Succeeded','Failed','Cancelled','PartiallySucceeded'].includes(r.status));
-  const succeeded=terminal.filter(r=>r.status==='Succeeded'||r.status==='PartiallySucceeded').length;
-  const successRate=terminal.length?Math.round((succeeded/terminal.length)*100):null;
   const local=state.local?.status;
-  const localHealthy=state.local?.associated?!local||local.isClean!==false:null;
-  const tags=['delivery',source()?.repositoryId?.provider||'git',hasModule('pipelines')?'pipelines':'',hasModule('review')?'review':'','.net'].filter(Boolean);
-  const desc=project?.description||`${org?.name||'Organisation'} delivery workspace with GitHub-backed review and pipelines.`;
+  const defaultBranch=source()?.defaultBranch||local?.currentBranch||'main';
+  const repoLabel=source()?`${source().repositoryId.owner}/${source().repositoryId.name}`:(project?.name||'Repository');
+  const desc=project?.description||`${org?.name||'Organisation'} delivery workspace.`;
   const recentRuns=runs.slice(0,5);
-  const activity=buildOverviewActivity(open,merged,runs,audit);
-  const tech=['.NET','React','GitHub','Docker','SQLite','Azure'].slice(0,hasModule('pipelines')?6:4);
+  const recentCommits=commits.slice(0,5);
+  const filters=[
+    {id:'assigned',label:'Assigned to me'},
+    {id:'draft',label:'Draft'},
+    {id:'open',label:'Open'},
+    {id:'abandoned',label:'Abandoned'},
+    {id:'all',label:'All'}
+  ];
 
   el('content').innerHTML=`
-  <section class="project-hero">
-    <div class="project-hero-top">
-      <div class="project-identity">
+  <section class="repo-home" id="repoHome">
+    <header class="repo-home-hero">
+      <div class="repo-home-identity">
         <div class="project-icon" aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 17L12 5l8 12H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </div>
         <div>
-          <h1>${esc(project?.name||'Project')} <span class="pill visibility-pill">${esc(project?.visibility||'Organisation')}</span></h1>
+          <h1>${esc(repoLabel)} <span class="pill visibility-pill">${esc(project?.visibility||'Organisation')}</span></h1>
           <p class="project-desc">${esc(desc)}</p>
-          <div class="tag-row">${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+          <p class="repo-meta"><span>Default branch</span> <strong>${esc(defaultBranch)}</strong>
+            ${source()?` · <span>${esc(source().repositoryId.provider||'git')}</span>`:''}
+          </p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="button" data-route="/files">Code</button>
-        ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Run pipeline</button>':''}
-        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create pull request</button>':''}
+        ${hasModule('code')?'<button class="button" data-route="/files">Browse files</button>':''}
+        ${hasModule('review')?'<button class="button" data-route="/changes">Open PRs</button>':''}
+        ${hasModule('pipelines')?'<button class="button primary" data-route="/pipelines">Run pipeline</button>':''}
       </div>
-    </div>
-  </section>
+    </header>
 
-  <div class="metric-row">
-    <article class="metric-card">
-      <div class="metric-head">
-        <div>
-          <p class="metric-label">Pipeline success rate</p>
-          <p class="metric-value">${successRate==null?'—':`${successRate}%`}</p>
-          <p class="metric-trend ${successRate==null?'flat':successRate>=80?'up':'down'}">${terminal.length?`${succeeded}/${terminal.length} recent runs`:'No runs yet'}</p>
+    <div class="repo-home-grid">
+      <section class="card repo-pr-panel">
+        <div class="card-header">
+          <h2>Pull requests</h2>
+          ${hasModule('review')?'<button class="button text" data-route="/changes">View all</button>':''}
         </div>
-        <div class="metric-ring" style="--pct:${successRate??0}"></div>
-      </div>
-    </article>
-    <article class="metric-card">
-      <div class="metric-head">
-        <div>
-          <p class="metric-label">Active build jobs</p>
-          <p class="metric-value">${runs.filter(r=>['Queued','Running','Waiting'].includes(r.status)).length}</p>
-          <p class="metric-trend flat">${runs.length} total runs</p>
+        <div class="card-body">
+          <div class="repo-pr-filters" role="tablist" aria-label="Pull request filters">
+            ${filters.map(f=>`<button type="button" class="button ${filter===f.id?'primary':''}" data-pr-filter="${f.id}" role="tab" aria-selected="${filter===f.id?'true':'false'}">${esc(f.label)}</button>`).join('')}
+          </div>
+          ${!hasModule('review')
+            ?'<div class="empty small">Review module is not enabled for this project.</div>'
+            :(sortedPrs.length?`<div class="repo-pr-list">${sortedPrs.map(c=>`
+              <button type="button" class="repo-pr-row" data-route="/changes/${esc(c.id)}">
+                <span class="pill ${statusClass(c.status)}">${esc(c.status)}</span>
+                <span class="repo-pr-title"><strong>#${esc(c.externalNumber||'')} ${esc(c.title||'Untitled')}</strong>
+                  <small>${esc(c.author||'')} · ${esc(relativeTime(c.updatedAt||c.createdAt))}</small>
+                </span>
+              </button>`).join('')}</div>`
+              :`<div class="empty small">No pull requests for “${esc(filters.find(f=>f.id===filter)?.label||filter)}”.</div>`)}
         </div>
-        <div class="metric-icon green">↗</div>
-      </div>
-    </article>
-    <article class="metric-card">
-      <div class="metric-head">
-        <div>
-          <p class="metric-label">Open pull requests</p>
-          <p class="metric-value">${open.length}</p>
-          <p class="metric-trend ${waiting.length?'down':'flat'}">${waiting.length?`${waiting.length} waiting on you`:`${approved.length} approved`}</p>
-        </div>
-        <div class="metric-icon">⑂</div>
-      </div>
-    </article>
-    <article class="metric-card">
-      <div class="metric-head">
-        <div>
-          <p class="metric-label">Lead time (merged)</p>
-          <p class="metric-value">${merged.length||'—'}</p>
-          <p class="metric-trend up">${merged.length?'Recently merged':'No merges yet'}</p>
-        </div>
-        <div class="metric-icon slate">◷</div>
-      </div>
-    </article>
-    <article class="metric-card">
-      <div class="metric-head">
-        <div>
-          <p class="metric-label">Environments</p>
-          <p class="metric-value">${state.local?.associated?1:0}<span style="font-size:.9rem;font-weight:600;color:var(--muted)"> / local</span></p>
-          <div class="env-pills">
-            <span class="env-pill ${localHealthy===false?'warn':'ok'}">${state.local?.associated?(localHealthy===false?'Dirty tree':'Healthy'):'Not linked'}</span>
+      </section>
+
+      <aside class="repo-home-side">
+        <div class="card">
+          <div class="card-header"><h2>About</h2><button class="button text" data-route="/settings/general">Edit</button></div>
+          <div class="card-body">
+            <p class="description">${esc(desc)}</p>
+            <div class="meta-list" style="margin-top:12px">
+              <div class="meta-row"><span>Project</span><strong>${esc(project?.name||'—')}</strong></div>
+              <div class="meta-row"><span>Organisation</span><strong>${esc(org?.name||'—')}</strong></div>
+              <div class="meta-row"><span>Default branch</span><strong>${esc(defaultBranch)}</strong></div>
+            </div>
           </div>
         </div>
-        <div class="metric-icon amber">◎</div>
-      </div>
-    </article>
-  </div>
-
-  <div class="dash-grid">
-    <div class="dash-col">
-      <div class="card"><div class="card-header"><h2>About this project</h2></div><div class="card-body">
-        <p class="description">${esc(desc)}</p>
-        <div class="meta-list" style="margin-top:14px">
-          <div class="meta-row"><span>Owner</span><strong>${esc(org?.name||'—')}</strong></div>
-          <div class="meta-row"><span>Organisation</span><strong>${esc(org?.name||'—')}</strong></div>
-          <div class="meta-row"><span>Default branch</span><strong>${esc(source()?.defaultBranch||local?.currentBranch||'main')}</strong></div>
-          <div class="meta-row"><span>Repository</span><strong>${source()?`${esc(source().repositoryId.owner)}/${esc(source().repositoryId.name)}`:'Not connected'}</strong></div>
-          <div class="meta-row"><span>Local path</span><strong>${esc(local?.root||local?.path||'—')}</strong></div>
-        </div>
-      </div></div>
-      <div class="card"><div class="card-header"><h2>Environments</h2><button class="button text" data-route="/settings">Manage</button></div><div class="card-body">
-        ${state.local?.associated?`<div class="env-row"><span class="env-dot ${localHealthy===false?'warn':'ok'}"></span><div><strong>Local working copy</strong><small>${esc(local?.currentBranch||'—')} · ${esc((local?.headSha||'').slice(0,7)||'no HEAD')}</small></div><span class="pill">${local?.isClean?'Clean':'Dirty'}</span></div>`:`<div class="empty small">Connect a local repository in Settings.</div>`}
-        ${source()?`<div class="env-row"><span class="env-dot ok"></span><div><strong>GitHub source</strong><small>${esc(source().url||'')}</small></div><span class="pill">Connected</span></div>`:''}
-      </div></div>
+        ${hasModule('code')?`<div class="card"><div class="card-header"><h2>Recent commits</h2><button class="button text" data-route="/commits">History</button></div>
+          <div class="card-body">${recentCommits.length?recentCommits.map(c=>`
+            <button type="button" class="commit-row" data-route="/commits/${esc(c.sha)}" style="width:100%;border:0;background:transparent;cursor:pointer;text-align:left">
+              <code>${esc((c.sha||'').slice(0,7))}</code>
+              <div><strong>${esc(c.message||c.subject||'Commit')}</strong><small>${esc(c.author?.name||c.author||'')}</small></div>
+            </button>`).join(''):'<div class="empty small">No recent commits.</div>'}
+          </div></div>`:''}
+        ${hasModule('pipelines')?`<div class="card"><div class="card-header"><h2>Latest runs</h2><button class="button text" data-route="/runs">View all</button></div>
+          <div class="card-body">${recentRuns.length?recentRuns.map(run=>`<div class="run-mini" data-route="/runs/${esc(run.id)}">
+            <span class="run-status ${statusClass(run.status)}">${checkIcon(run.status)}</span>
+            <div style="flex:1;min-width:0"><strong>${esc(run.definitionName||'Pipeline')}</strong><div><code>#${esc(shortId(run.id))}</code></div></div>
+            <span class="status ${statusClass(run.status)}">${esc(run.status)}</span>
+          </div>`).join(''):'<div class="empty small">No runs yet.</div>'}
+          </div></div>`:''}
+      </aside>
     </div>
+  </section>`;
 
-    <div class="dash-col">
-      <div class="card"><div class="card-header"><h2>Recent activity</h2><button class="button text" data-route="/audit">View all</button></div><div class="card-body">
-        ${activity.length?activity.map(item=>`<div class="activity-item"><span class="avatar">${esc(item.initials)}</span><div><p><strong>${esc(item.actor)}</strong> ${esc(item.detail)}</p></div><small>${esc(item.when)}</small></div>`).join(''):'<div class="empty small">Activity will appear as you review and run pipelines.</div>'}
-      </div></div>
-      <div class="card"><div class="card-header"><h2>Repositories &amp; services</h2><button class="button text" data-route="/files">Browse</button></div><div class="card-body">
-        ${(state.connections||[]).length?(state.connections||[]).map(c=>`<div class="repo-row"><div><strong>${esc(c.repositoryId.owner)}/${esc(c.repositoryId.name)}</strong><small><span class="lang-dot" style="background:#3178c6"></span>${esc(c.repositoryId.provider)} · default ${esc(c.defaultBranch)}</small></div><span class="pill">Source</span></div>`).join(''):'<div class="empty small">No repository connected.</div>'}
-        ${state.local?.associated?`<div class="repo-row"><div><strong>local working copy</strong><small><span class="lang-dot" style="background:#512bd4"></span>.NET · ${esc(local?.currentBranch||'—')}</small></div><span class="pill">Local</span></div>`:''}
-      </div></div>
-    </div>
-
-    <div class="dash-col">
-      <div class="card"><div class="card-header"><h2>Latest build runs</h2><button class="button text" data-route="/runs">View all</button></div><div class="card-body">
-        ${recentRuns.length?recentRuns.map(run=>`<div class="run-mini" data-route="/runs/${esc(run.id)}">
-          <span class="run-status ${statusClass(run.status)}">${checkIcon(run.status)}</span>
-          <div style="flex:1;min-width:0"><strong>${esc(run.definitionName||'Pipeline')}</strong><div><code>#${esc(shortId(run.id))}</code> · ${esc(run.ref||'—')}</div></div>
-          <div style="text-align:right"><span class="status ${statusClass(run.status)}">${esc(run.status)}</span><div><small style="color:var(--muted)">${esc(durationLabel(run.startedAt,run.completedAt))}</small></div></div>
-        </div>`).join(''):`<div class="empty small">${hasModule('pipelines')?'No runs yet.':'Build module is not enabled.'}</div>`}
-      </div></div>
-      <div class="card"><div class="card-header"><h2>Team</h2><button class="button text" data-route="/people">Manage</button></div><div class="card-body">
-        ${members.slice(0,5).map(m=>`<div class="team-row"><span class="avatar">${esc(initials(m.profile?.displayName||m.user?.username))}</span><div><strong>${esc(m.profile?.displayName||m.user?.username)}</strong><small>@${esc(m.user?.username)}</small></div><span class="pill">${esc(m.membership?.role||'Member')}</span></div>`).join('')||'<div class="empty small">No members loaded.</div>'}
-        ${members.length>5?`<p class="description" style="margin:8px 0 0">+${members.length-5} more</p>`:''}
-      </div></div>
-      <div class="card"><div class="card-header"><h2>Tech stack</h2></div><div class="card-body">
-        <div class="tech-grid">${tech.map(t=>`<div class="tech-chip"><span>${esc(t[0])}</span>${esc(t)}</div>`).join('')}</div>
-      </div></div>
-      <div class="card"><div class="card-header"><h2>Work items</h2></div><div class="card-body">
-        <div class="work-row"><span>Open pull requests</span><span class="work-count">${open.length}</span></div>
-        <div class="work-row"><span>Waiting for me</span><span class="work-count">${waiting.length}</span></div>
-        <div class="work-row"><span>Approved</span><span class="work-count">${approved.length}</span></div>
-        <div class="work-row"><span>Recently merged</span><span class="work-count">${merged.length}</span></div>
-      </div></div>
-    </div>
-  </div>`;
+  document.querySelectorAll('[data-pr-filter]').forEach(btn=>{
+    btn.onclick=()=>{
+      state.overviewPrFilter=btn.dataset.prFilter;
+      renderOverview();
+    };
+  });
 }
 
 function buildOverviewActivity(open,merged,runs,audit){
@@ -1174,22 +1377,37 @@ async function renderPeople(){
 }
 
 async function renderPeopleTeams(tabs){
-  const teams=await api('/api/teams');
+  const [teams,roles]=await Promise.all([
+    api('/api/teams'),
+    api('/api/access/roles').catch(()=>[])
+  ]);
+  const roleName=id=>(roles||[]).find(r=>r.id===id)?.name||null;
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Teams</h1><p>Reusable groups for project access and policy.</p></div>
     <button class="button primary" id="createTeam">Create team</button></div>${tabs}
     <div class="card">${teams.map(t=>`<div class="module-card">
-      <div><h3>${esc(t.name)}</h3><p>/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''}</p></div>
+      <div><h3>${esc(t.name)}</h3><p>/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''} · ${t.roleId?`role: ${esc(roleName(t.roleId)||'custom')}`:'no role'}</p></div>
       <button class="button" data-team="${esc(t.id)}">Open</button>
     </div>`).join('')||'<div class="empty">No teams yet.</div>'}</div>`;
   wirePeopleTabs();
   el('createTeam').onclick=()=>openModal(`<div class="modal-content"><h2>Create team</h2>
-    <label class="form-label">Name</label><input class="field" id="teamName" value="Backend">
-    <label class="form-label">Slug</label><input class="field" id="teamSlug" value="backend">
-    <label class="form-label">Description</label><input class="field" id="teamDesc">
+    <label class="form-label" for="teamName">Name</label><input class="field" id="teamName" value="Backend">
+    <label class="form-label" for="teamSlug">Slug</label><input class="field" id="teamSlug" value="backend">
+    <label class="form-label" for="teamDesc">Description</label><input class="field" id="teamDesc">
+    <label class="form-label" for="teamRole">Access role</label>
+    <select class="field" id="teamRole">
+      <option value="">No role — inherit organisation access</option>
+      ${(roles||[]).map(r=>`<option value="${esc(r.id)}">${esc(r.name)}${r.isSystem?'':' (custom)'}</option>`).join('')}
+    </select>
+    <p class="description">A role narrows what team members can do on projects granted to this team.</p>
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create</button></div></div>`,async e=>{
     if(e.submitter?.value!=='submit')return;
     try{
-      await api('/api/teams',{method:'POST',body:JSON.stringify({name:el('teamName').value,slug:el('teamSlug').value,description:el('teamDesc').value||null})});
+      await api('/api/teams',{method:'POST',body:JSON.stringify({
+        name:el('teamName').value,
+        slug:el('teamSlug').value,
+        description:el('teamDesc').value||null,
+        roleId:el('teamRole').value||null
+      })});
       showToast('Team created');state.peopleTab='teams';renderPeople();
     }catch(error){showToast(error.message,true)}
   });
@@ -1198,9 +1416,24 @@ async function renderPeopleTeams(tabs){
     openModal(`<div class="modal-content"><h2>${esc(detail.team.name)}</h2>
       <p class="description">Members</p>
       ${(detail.members||[]).map(m=>`<div class="side-stat"><span>${esc(m.profile?.displayName||m.user?.username)}</span><strong>@${esc(m.user?.username)}</strong></div>`).join('')||'<p class="description">No members.</p>'}
-      <label class="form-label">Add member user id</label><input class="field" id="teamAddUserId" placeholder="User GUID">
-      <div class="modal-actions"><button class="button" value="cancel">Close</button><button class="button primary" value="add">Add member</button></div></div>`,async e=>{
-      if(e.submitter?.value!=='add')return;
+      <label class="form-label" for="teamDetailRole">Access role</label>
+      <select class="field" id="teamDetailRole">
+        <option value="" ${detail.team.roleId?'':'selected'}>No role — inherit organisation access</option>
+        ${(roles||[]).map(r=>`<option value="${esc(r.id)}" ${detail.team.roleId===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
+      </select>
+      <label class="form-label" for="teamAddUserId">Add member user id</label><input class="field" id="teamAddUserId" placeholder="User GUID">
+      <div class="modal-actions"><button class="button" value="cancel">Close</button>
+        <button class="button" value="role">Save role</button>
+        <button class="button primary" value="add">Add member</button></div></div>`,async e=>{
+      const action=e.submitter?.value;
+      if(action==='role'){
+        try{
+          await api(`/api/teams/${button.dataset.team}/role`,{method:'PATCH',body:JSON.stringify({roleId:el('teamDetailRole').value||null})});
+          showToast('Team role updated');state.peopleTab='teams';renderPeople();
+        }catch(error){showToast(error.message,true)}
+        return;
+      }
+      if(action!=='add')return;
       try{
         await api(`/api/teams/${button.dataset.team}/members`,{method:'POST',body:JSON.stringify({userId:el('teamAddUserId').value})});
         showToast('Member added');
@@ -2001,11 +2234,6 @@ function projectSettingsSections(){
       {id:'review',route:'/settings/review',label:'Policies'}
     ]});
   }
-  if(hasModule('pipelines')){
-    sections.push({group:'Build',items:[
-      {id:'build',route:'/settings/build',label:'Runners'}
-    ]});
-  }
   return sections;
 }
 
@@ -2132,9 +2360,10 @@ async function renderOrgUsersSettings(){
   </div>`;
   let body='';
   if(tab==='teams'){
-    const teams=await api('/api/teams');
+    const [teams,roles]=await Promise.all([api('/api/teams'),api('/api/access/roles').catch(()=>[])]);
+    const roleName=id=>(roles||[]).find(r=>r.id===id)?.name||'custom';
     body=`${tabs}<div class="card" style="margin-top:12px">${teams.map(t=>`<div class="module-card">
-      <div><h3>${esc(t.name)}</h3><p>/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''}</p></div>
+      <div><h3>${esc(t.name)}</h3><p>/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''} · ${t.roleId?`role: ${esc(roleName(t.roleId))}`:'no role'}</p></div>
       <button class="button" data-team="${esc(t.id)}">Open</button>
     </div>`).join('')||'<div class="empty">No teams yet.</div>'}</div>
     <p class="description" style="margin-top:12px"><button class="button text" data-route="/people">Open full People page</button></p>`;
@@ -2204,29 +2433,109 @@ async function renderOrgSecuritySettings(){
 }
 
 async function renderOrgPermissionsSettings(){
-  renderSettingsShell('org','/organisation/settings/permissions','Permissions','Built-in organisation roles (read-only).',`
-    <div class="card"><div class="card-header"><h2>Role summary</h2></div>
-    <div class="card-body">
-      <div class="side-stat"><span>Owner</span><strong>Full organisation control, licensing, and membership.</strong></div>
-      <div class="side-stat"><span>Admin</span><strong>Manage projects, people, and most organisation settings.</strong></div>
-      <div class="side-stat"><span>Member</span><strong>Access granted projects and collaborate on code, review, and build.</strong></div>
-      <p class="description" style="margin-top:12px">Custom roles and fine-grained permission designers are not available yet.</p>
-    </div></div>`);
+  const [roles,catalogue]=await Promise.all([
+    api('/api/access/roles').catch(()=>[]),
+    api('/api/access/permissions').catch(()=>[])
+  ]);
+  const byCategory={};
+  (catalogue||[]).forEach(p=>(byCategory[p.category]??=[]).push(p));
+  renderSettingsShell('org','/organisation/settings/permissions','Permissions','Groups and roles control fine-grained access inside projects.',`
+    <div class="card"><div class="card-header"><h2>Roles</h2>
+      <button class="button primary" id="createAccessRole">New custom role</button>
+    </div>
+    <div class="card-body" id="accessRolesList">
+      ${(roles||[]).map(r=>`
+        <div class="module-card" data-role-id="${esc(r.id)}" data-role-system="${r.isSystem?'1':'0'}">
+          <span class="module-logo">${esc((r.name||'?')[0])}</span>
+          <div>
+            <h3>${esc(r.name)} ${r.isSystem?'<span class="pill">System</span>':''}</h3>
+            <p class="description">${esc(r.description||r.slug)} · ${(r.permissions||[]).length} permissions</p>
+          </div>
+          <div class="settings-row-actions">
+            ${r.isSystem?'':'<button class="button" data-edit-role="'+esc(r.id)+'">Edit</button>'}
+            ${r.isSystem?'':'<button class="button danger" data-delete-role="'+esc(r.id)+'">Delete</button>'}
+          </div>
+        </div>`).join('')||'<div class="empty small">No roles yet.</div>'}
+    </div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Permission catalogue</h2></div>
+      <div class="card-body">
+        ${Object.entries(byCategory).map(([cat,items])=>`
+          <p class="form-label">${esc(cat)}</p>
+          <div class="perm-grid">${items.map(p=>`<div class="perm-chip" title="${esc(p.description)}"><code>${esc(p.key)}</code><span>${esc(p.title)}</span></div>`).join('')}</div>
+        `).join('')||'<div class="empty small">Catalogue unavailable.</div>'}
+      </div>
+    </div>`);
+  el('createAccessRole').onclick=()=>openAccessRoleEditor(null,catalogue);
+  document.querySelectorAll('[data-edit-role]').forEach(btn=>btn.onclick=()=>{
+    const role=(roles||[]).find(r=>r.id===btn.dataset.editRole);
+    openAccessRoleEditor(role,catalogue);
+  });
+  document.querySelectorAll('[data-delete-role]').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('Delete this custom role?'))return;
+    try{
+      await api(`/api/access/roles/${btn.dataset.deleteRole}`,{method:'DELETE'});
+      showToast('Role deleted');
+      await renderOrgPermissionsSettings();
+    }catch(error){showToast(error.message,true)}
+  });
+}
+
+function openAccessRoleEditor(role,catalogue){
+  const selected=new Set(role?.permissions||[]);
+  const groups={};
+  (catalogue||[]).forEach(p=>(groups[p.category]??=[]).push(p));
+  openModal(`<div class="modal-content"><h2>${role?'Edit role':'New custom role'}</h2>
+    <label class="form-label">Name</label><input class="field" id="roleName" value="${esc(role?.name||'')}">
+    <label class="form-label">Slug</label><input class="field" id="roleSlug" value="${esc(role?.slug||'')}" ${role?'disabled':''}>
+    <label class="form-label">Description</label><input class="field" id="roleDescription" value="${esc(role?.description||'')}">
+    <p class="form-label" style="margin-top:12px">Permissions</p>
+    <div class="role-perm-editor">${Object.entries(groups).map(([cat,items])=>`
+      <p class="description" style="margin:10px 0 6px">${esc(cat)}</p>
+      ${items.map(p=>`<label class="choice-row"><input type="checkbox" data-role-perm="${esc(p.key)}" ${selected.has(p.key)?'checked':''}> ${esc(p.title)} <small>${esc(p.key)}</small></label>`).join('')}
+    `).join('')}</div>
+    <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Save</button></div></div>`,async e=>{
+    if(e.submitter?.value!=='submit')return;
+    const permissions=[...document.querySelectorAll('[data-role-perm]:checked')].map(i=>i.dataset.rolePerm);
+    try{
+      if(role){
+        await api(`/api/access/roles/${role.id}`,{method:'PATCH',body:JSON.stringify({
+          name:el('roleName').value,
+          description:el('roleDescription').value,
+          permissions
+        })});
+      }else{
+        await api('/api/access/roles',{method:'POST',body:JSON.stringify({
+          name:el('roleName').value,
+          slug:el('roleSlug').value||null,
+          description:el('roleDescription').value||null,
+          permissions
+        })});
+      }
+      showToast('Role saved');
+      await renderOrgPermissionsSettings();
+    }catch(error){showToast(error.message,true)}
+  });
 }
 
 async function renderOrgBuildSettings(){
   let runners=[];
   try{runners=await api('/api/pipelines/runners')}catch{runners=[]}
-  renderSettingsShell('org','/organisation/settings/build','Agent pools / runners','Shared build agents visible to this organisation.',`
+  renderSettingsShell('org','/organisation/settings/build','Runners','Organisation-wide build agents. Register runners once; every project can use them.',`
     <div class="card"><div class="card-header"><h2>Runners</h2>
-      <button class="button" data-route="/runners">Open project runners</button>
+      <div class="header-actions"><button class="button" id="refreshRunners">Refresh</button><button class="button primary" id="addRunner">＋ Add Runner</button></div>
     </div>
-    <div class="card-body">
-      ${(runners||[]).map(r=>`<div class="module-card">
-        <div><h3>${esc(r.name||r.id)}</h3><p>${esc(r.status||'Unknown')} · ${esc(r.operatingSystem||r.os||r.platform||'—')}</p></div>
-        <span class="module-state">${esc(r.status||'—')}</span>
-      </div>`).join('')||'<div class="empty small">No runners registered. Open a project and register a runner under Build settings.</div>'}
-    </div></div>`);
+    <div class="card-body" id="orgRunnersList">${(runners||[]).map(r=>`<article class="pipeline-row">
+      <div><strong>${esc(r.name||r.id)}</strong><p class="description" style="margin:4px 0 0">${esc(r.operatingSystem||r.os||r.platform||'Unknown OS')} · ${esc((r.capabilities||[]).join(', ')||'no tags')} · v${esc(r.version||'?')}</p></div>
+      <div class="header-actions"><span class="status ${statusClass(r.status)}">${esc(r.status||'—')}</span><button class="button danger" data-revoke-runner="${esc(r.id)}">Revoke</button></div>
+    </article>`).join('')||'<div class="empty small">No runners registered yet. Add a runner to issue a registration token for this organisation.</div>'}
+    </div></div>
+    <div class="policy-box" style="margin-top:18px">Runners belong to the organisation, not a single project. Pipeline jobs from any project can schedule onto these agents.</div>`);
+  el('refreshRunners').onclick=()=>renderOrgBuildSettings();
+  el('addRunner').onclick=openAddRunner;
+  document.querySelectorAll('[data-revoke-runner]').forEach(button=>button.onclick=async()=>{
+    if(!confirm('Revoke this runner? It will need a new registration token.'))return;
+    try{await api(`/api/pipelines/runners/${button.dataset.revokeRunner}`,{method:'DELETE'});showToast('Runner revoked');renderOrgBuildSettings()}catch(error){showToast(error.message,true)}
+  });
 }
 
 async function renderProjectGeneralSettings(){
@@ -2238,7 +2547,24 @@ async function renderProjectGeneralSettings(){
     project=projects.find(p=>p.id===projectId);
   }
   if(!project)return renderError(new Error('No project selected.'));
-  renderSettingsShell('project','/settings/general','Overview','Name, visibility, and repository mode for this project.',`
+
+  let runs=[],members=[],audit=[];
+  try{
+    const jobs=[];
+    if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
+    jobs.push(api('/api/organisation/members').then(r=>members=r||[]).catch(()=>[]));
+    jobs.push(api('/api/core/audit').then(r=>audit=r||[]).catch(()=>[]));
+    await Promise.all(jobs);
+  }catch{/* metrics degrade */}
+
+  const open=openStatuses();
+  const waiting=open.filter(change=>change.reviewers.some(review=>review.name===actor()&&review.status==='Requested'));
+  const merged=state.changes.filter(change=>change.status==='Merged').slice().sort((a,b)=>new Date(b.mergedAt||b.updatedAt)-new Date(a.mergedAt||a.updatedAt)).slice(0,5);
+  const terminal=runs.filter(r=>['Succeeded','Failed','Cancelled','PartiallySucceeded'].includes(r.status));
+  const succeeded=terminal.filter(r=>r.status==='Succeeded'||r.status==='PartiallySucceeded').length;
+  const successRate=terminal.length?Math.round((succeeded/terminal.length)*100):null;
+
+  renderSettingsShell('project','/settings/general','Overview','Name, visibility, repository mode, and delivery metrics.',`
     <div class="card"><div class="card-header"><h2>Project profile</h2></div>
     <div class="card-body settings-form">
       <label class="form-label" for="projectName">Name</label>
@@ -2260,7 +2586,19 @@ async function renderProjectGeneralSettings(){
       <div class="modal-actions" style="margin-top:16px">
         <button class="button primary" id="projectSave">Save changes</button>
       </div>
-    </div></div>`);
+    </div></div>
+    <div class="card" style="margin-top:16px" id="projectDeliveryMetrics">
+      <div class="card-header"><h2>Delivery metrics</h2></div>
+      <div class="card-body">
+        <div class="metric-row compact">
+          <article class="metric-card"><p class="metric-label">Pipeline success</p><p class="metric-value">${successRate==null?'—':`${successRate}%`}</p><p class="metric-trend flat">${terminal.length?`${succeeded}/${terminal.length} terminal runs`:'No runs yet'}</p></article>
+          <article class="metric-card"><p class="metric-label">Open PRs</p><p class="metric-value">${open.length}</p><p class="metric-trend flat">${waiting.length} waiting on you</p></article>
+          <article class="metric-card"><p class="metric-label">Recently merged</p><p class="metric-value">${merged.length||'—'}</p><p class="metric-trend flat">Lead-time signal</p></article>
+          <article class="metric-card"><p class="metric-label">Org team</p><p class="metric-value">${members.length||'—'}</p><p class="metric-trend flat">${audit.length} audit events</p></article>
+        </div>
+        <p class="description" style="margin-top:12px">Admin metrics live here so the project Overview stays a developer repo home.</p>
+      </div>
+    </div>`);
   el('projectSave').onclick=async()=>{
     try{
       const updated=await api(`/api/projects/${project.id}`,{method:'PATCH',body:JSON.stringify({
@@ -2314,39 +2652,48 @@ async function renderProjectModulesSettings(){
 async function renderProjectMembersSettings(){
   const projectId=state.context?.project?.id;
   if(!projectId)return renderError(new Error('No project selected.'));
-  const [members,teams,orgMembers,allTeams]=await Promise.all([
+  const [members,teams,orgMembers,allTeams,roles]=await Promise.all([
     api(`/api/projects/${projectId}/members`).catch(()=>[]),
     api(`/api/projects/${projectId}/teams`).catch(()=>[]),
     api('/api/organisation/members').catch(()=>[]),
-    api('/api/teams').catch(()=>[])
+    api('/api/teams').catch(()=>[]),
+    api('/api/access/roles').catch(()=>[])
   ]);
-  renderSettingsShell('project','/settings/members','Members & Teams','Grant project access to people and teams.',`
+  const roleOptions=`<option value="">No role — inherit organisation access</option>${(roles||[]).map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}`;
+  const roleLabel=grant=>grant.roleName?`role: ${esc(grant.roleName)}`:'inherits organisation access';
+  renderSettingsShell('project','/settings/members','Members & Teams','Grant project access to people and teams. An access role narrows what the grant allows inside this project.',`
     <div class="card"><div class="card-header"><h2>Members</h2>
       <button class="button primary" id="addProjectMember">Add member</button>
     </div>
     <div class="card-body">
-      ${(members||[]).map(m=>`<div class="module-card">
-        <div><h3>${esc(m.displayName||m.username||m.userId)}</h3><p>@${esc(m.username||'—')} · ${esc(m.email||'')}</p></div>
-        <button class="button danger" data-revoke-member="${esc(m.userId)}">Remove</button>
+      ${(members||[]).map(m=>`<div class="module-card" data-grant-member="${esc(m.userId)}">
+        <span class="module-logo">${esc(initials(m.displayName||m.username||'?'))}</span>
+        <div><h3>${esc(m.displayName||m.username||m.userId)}</h3><p>@${esc(m.username||'—')} · ${esc(m.email||'')} · ${roleLabel(m)}</p></div>
+        <div class="settings-row-actions"><button class="button danger" data-revoke-member="${esc(m.userId)}">Remove</button></div>
       </div>`).join('')||'<div class="empty small">No direct member grants.</div>'}
     </div></div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h2>Teams</h2>
       <button class="button primary" id="addProjectTeam">Add team</button>
     </div>
     <div class="card-body">
-      ${(teams||[]).map(t=>`<div class="module-card">
-        <div><h3>${esc(t.name||t.teamId)}</h3><p>/${esc(t.slug||'—')}</p></div>
-        <button class="button danger" data-revoke-team="${esc(t.teamId)}">Remove</button>
+      ${(teams||[]).map(t=>`<div class="module-card" data-grant-team="${esc(t.teamId)}">
+        <span class="module-logo">${esc(initials(t.name||t.slug||'?'))}</span>
+        <div><h3>${esc(t.name||t.teamId)}</h3><p>/${esc(t.slug||'—')} · ${roleLabel(t)}</p></div>
+        <div class="settings-row-actions"><button class="button danger" data-revoke-team="${esc(t.teamId)}">Remove</button></div>
       </div>`).join('')||'<div class="empty small">No team grants.</div>'}
     </div></div>`);
   el('addProjectMember').onclick=()=>{
     const options=(orgMembers||[]).map(m=>`<option value="${esc(m.user?.id||m.userId)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('');
     openModal(`<div class="modal-content"><h2>Add project member</h2>
       <label class="form-label">Member</label><select class="field" id="projectMemberId">${options||'<option value="">No members</option>'}</select>
+      <label class="form-label">Access role</label><select class="field" id="projectMemberRole">${roleOptions}</select>
       <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
       if(e.submitter?.value!=='submit')return;
       try{
-        await api(`/api/projects/${projectId}/members`,{method:'POST',body:JSON.stringify({userId:el('projectMemberId').value})});
+        await api(`/api/projects/${projectId}/members`,{method:'POST',body:JSON.stringify({
+          userId:el('projectMemberId').value,
+          roleId:el('projectMemberRole').value||null
+        })});
         showToast('Member added');await renderProjectMembersSettings();
       }catch(error){showToast(error.message,true)}
     });
@@ -2355,10 +2702,15 @@ async function renderProjectMembersSettings(){
     const options=(allTeams||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
     openModal(`<div class="modal-content"><h2>Add project team</h2>
       <label class="form-label">Team</label><select class="field" id="projectTeamId">${options||'<option value="">No teams</option>'}</select>
+      <label class="form-label">Access role</label><select class="field" id="projectTeamRole">${roleOptions}</select>
+      <p class="description">Leave the role empty to fall back to the role attached to the team.</p>
       <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Add</button></div></div>`,async e=>{
       if(e.submitter?.value!=='submit')return;
       try{
-        await api(`/api/projects/${projectId}/teams`,{method:'POST',body:JSON.stringify({teamId:el('projectTeamId').value})});
+        await api(`/api/projects/${projectId}/teams`,{method:'POST',body:JSON.stringify({
+          teamId:el('projectTeamId').value,
+          roleId:el('projectTeamRole').value||null
+        })});
         showToast('Team added');await renderProjectMembersSettings();
       }catch(error){showToast(error.message,true)}
     });
@@ -2438,14 +2790,7 @@ async function renderProjectReviewSettings(){
 }
 
 async function renderProjectBuildSettings(){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
-  renderSettingsShell('project','/settings/build','Runners','Build agents registered for this project.',`
-    <div class="card"><div class="card-header"><h2>Build runners</h2>
-      <button class="button primary" data-route="/runners">Open runners</button>
-    </div>
-    <div class="card-body">
-      <p class="description">Manage runner registration, tokens, and revocation on the Build runners page.</p>
-    </div></div>`);
+  return navigate('/organisation/settings/build');
 }
 
 async function renderSettings(){
@@ -2460,13 +2805,25 @@ async function renderAudit(){
 
 async function renderModules(){
   const catalogue=await api('/api/platform/extensions/modules');
-  const installed=catalogue.filter(x=>x.installed);
-  const available=catalogue.filter(x=>!x.installed);
-  const card=item=>`
+  const moduleOrder={code:1,git:2,review:3,pipelines:4,build:4,deploy:5};
+  const isTierClone=id=>/\.(team|enterprise|commercial)$/i.test(id||'');
+  const rank=item=>{
+    const id=(item.runtimeId||item.extensionId||'').toLowerCase();
+    for(const [key,value] of Object.entries(moduleOrder)){
+      if(id===key||id.endsWith('.'+key)||id.includes('.'+key+'.'))return value;
+    }
+    return 50;
+  };
+  const installed=catalogue.filter(x=>x.installed).sort((a,b)=>rank(a)-rank(b)||String(a.name).localeCompare(b.name));
+  const available=catalogue.filter(x=>!x.installed && !isTierClone(x.extensionId))
+    .sort((a,b)=>rank(a)-rank(b)||String(a.name).localeCompare(b.name));
+  const card=item=>{
+    const edition=editionLabel(item.edition);
+    return `
     <div class="module-card" data-extension-id="${esc(item.extensionId)}" data-module-id="${esc(item.runtimeId||'')}" data-extension-state="${esc(item.state)}" data-edition="${esc(item.edition||'Community')}">
       <span class="module-logo">${esc((item.name||'?')[0])}</span>
       <div>
-        <h3>${esc(item.name)} <span class="pill module-edition">${esc(editionLabel(item.edition))}</span></h3>
+        <h3>${esc(item.name)} <span class="pill module-edition">${esc(edition)}</span></h3>
         <p>${esc(item.summary)}</p>
         <p class="description">${(item.highlights||[]).map(esc).join(' · ')}</p>
         <p class="description" data-capabilities>${(item.capabilities||[]).map(esc).join(' · ')||(item.installed?(item.enabled?'Enabled':'Installed · Disabled'):(item.bundled?'Available bundled package':'Not bundled'))}</p>
@@ -2479,7 +2836,9 @@ async function renderModules(){
         ${item.restartRequired?'<span class="pill">Restart required</span>':''}
       </div>
     </div>`;
-  renderSettingsShell('org','/organisation/settings/modules','Modules','Install product capabilities. Navigation appears only for enabled Modules.',`
+  };
+  renderSettingsShell('org','/organisation/settings/modules','Modules','Edition is licence-driven; Team/Enterprise unlock capabilities on the same module.',`
+    <p class="description" style="margin:0 0 14px">One card per capability. Team and Enterprise are upgrades on the installed module, not separate catalogue rows.</p>
     <div class="card"><div class="card-header"><h2>Installed</h2></div>
       <div class="card-body" id="modulesList">${installed.map(card).join('')||'<div class="empty small">No modules installed yet.</div>'}</div>
     </div>
@@ -2574,24 +2933,40 @@ async function renderLicensing(){
     <div class="card-header"><h2>Modules</h2></div>
     <div class="card-body"><table class="data-table" id="licensingModules"><thead><tr><th>Module</th><th>Licence</th><th>Installed</th></tr></thead><tbody>${modules||'<tr><td colspan="3">No modules</td></tr>'}</tbody></table></div>
   </div>
-  <div class="card" style="margin-top:16px">
+  <div class="card" style="margin-top:16px" id="licenceUploadCard">
     <div class="card-header"><h2>${licence.mode==='Commercial'?'Replace Enterprise licence':'Upload Enterprise licence'}</h2></div>
     <div class="card-body">
-      <label class="form-label">Licence JSON</label>
-      <textarea class="field" id="licensingPayload" rows="6" placeholder="Paste signed licence JSON"></textarea>
-      <div class="modal-actions" style="margin-top:14px">
+      <div class="licence-dropzone" id="licenceDropzone">
+        <input type="file" id="licensingFile" accept=".json,application/json" hidden>
+        <input type="hidden" id="licensingPayload" value="">
+        <div class="licence-dropzone-inner">
+          <span class="licence-dropzone-icon" aria-hidden="true">⇪</span>
+          <strong id="licensingFileName">Drop a signed licence file here</strong>
+          <p class="description">or <button type="button" class="button text" id="licensingBrowse">browse</button> for a <code>.json</code> file from your vendor</p>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px">
         <button class="button" id="licensingCommunity">Use Community</button>
         ${licence.mode==='Commercial'?`<button class="button" id="licensingRemove">Remove Enterprise</button>`:''}
         <button class="button primary" id="licensingInstall">Validate &amp; install</button>
       </div>
     </div>
   </div>`);
+  wireLicenceFileInput('licensingFile','licensingPayload','licensingFileName');
+  wireLicenceDropzone();
+  el('licensingBrowse').onclick=()=>el('licensingFile')?.click();
   el('licensingCommunity').onclick=async()=>{
     try{await api('/api/licensing/community',{method:'POST',body:'{}'});showToast('Community licence active');await renderLicensing()}
     catch(error){showToast(error.message,true)}
   };
   el('licensingInstall').onclick=async()=>{
-    try{await api('/api/licensing/commercial',{method:'POST',body:JSON.stringify({payload:el('licensingPayload').value})});showToast('Enterprise licence installed');await renderLicensing()}
+    try{
+      const payload=el('licensingPayload').value;
+      if(!payload.trim())return showToast('Choose a licence file first',true);
+      await api('/api/licensing/commercial',{method:'POST',body:JSON.stringify({payload})});
+      showToast('Enterprise licence installed');
+      await renderLicensing();
+    }
     catch(error){showToast(error.message,true)}
   };
   const remove=el('licensingRemove');
@@ -2600,6 +2975,29 @@ async function renderLicensing(){
     try{await api('/api/licensing/commercial',{method:'DELETE'});showToast('Enterprise licence removed');await renderLicensing()}
     catch(error){showToast(error.message,true)}
   };
+}
+
+function wireLicenceDropzone(){
+  const zone=el('licenceDropzone');
+  const input=el('licensingFile');
+  if(!zone||!input||zone.dataset.bound)return;
+  zone.dataset.bound='1';
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover')});
+  zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));
+  zone.addEventListener('drop',e=>{
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const file=e.dataTransfer?.files?.[0];
+    if(!file)return;
+    const transfer=new DataTransfer();
+    transfer.items.add(file);
+    input.files=transfer.files;
+    input.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  zone.addEventListener('click',e=>{
+    if(e.target.closest('#licensingBrowse'))return;
+    input.click();
+  });
 }
 
 function refreshSettingsAfterSourceChange(){
@@ -2809,13 +3207,14 @@ async function renderPipelines(route){
     if(first)openRunPipeline(first.id);
     else showToast('No pipeline definitions available',true);
   };
-  el('newPipelineHint').onclick=()=>showToast('Custom pipeline authoring is coming soon');
+  el('newPipelineHint').onclick=()=>navigate('/pipelines/new');
   el('pipelineSearch').oninput=e=>{state.pipelinesSearch=e.target.value;renderPipelines(route)};
   el('pipelineSort').onchange=e=>{state.pipelinesSort=e.target.value;renderPipelines(route)};
   document.querySelectorAll('[data-pipe-filter]').forEach(btn=>btn.onclick=()=>{state.pipelinesFilter=btn.dataset.pipeFilter;renderPipelines(route)});
-  document.querySelectorAll('[data-template]').forEach(btn=>btn.onclick=()=>showToast(`Template “${btn.dataset.template}” is a preview — use .NET Validation to run today`));
+  document.querySelectorAll('[data-template]').forEach(btn=>btn.onclick=()=>navigate('/pipelines/new'));
   document.querySelectorAll('[data-run-pipeline]').forEach(button=>button.onclick=()=>openRunPipeline(button.dataset.runPipeline));
-  document.querySelectorAll('[data-edit-pipeline]').forEach(button=>button.onclick=()=>navigate(`/pipelines/${button.dataset.editPipeline}`));
+  document.querySelectorAll('[data-edit-pipeline]').forEach(button=>button.onclick=()=>navigate(`/pipelines/${button.dataset.editPipeline}/edit`));
+  document.querySelectorAll('[data-view-pipeline]').forEach(button=>button.onclick=()=>navigate(`/pipelines/${button.dataset.viewPipeline}`));
   document.querySelectorAll('[data-toggle-pipeline]').forEach(button=>button.onclick=async()=>{
     try{
       const enabled=button.dataset.enabled==='1';
@@ -2871,12 +3270,315 @@ function pipelineDashboardRow(def,latest){
     <div class="pipe-duration-cell">${esc(duration)}</div>
     <div class="pipe-updated-cell">${esc(updated)}</div>
     <div class="pipe-actions-cell header-actions">
-      <button class="button compact" data-edit-pipeline="${esc(def.id)}">View</button>
+      <button class="button compact" data-view-pipeline="${esc(def.id)}">View</button>
+      <button class="button compact" data-edit-pipeline="${esc(def.id)}">Edit</button>
       <button class="button compact" data-toggle-pipeline="${esc(def.id)}" data-enabled="${def.enabled?'1':'0'}">${def.enabled?'Disable':'Enable'}</button>
       <button class="button compact danger" data-delete-pipeline="${esc(def.id)}">Delete</button>
       <button class="button compact primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>
     </div>
   </article>`;
+}
+
+async function renderPipelineBuilder(route){
+  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  const parts=route.split('/').filter(Boolean);
+  const editId=parts[0]==='pipelines'&&parts[2]==='edit'?parts[1]:null;
+  let definition=null,yamlText='';
+  // Every edit re-renders the builder; fetching here would leave an async gap that detaches the
+  // controls mid-interaction, so the catalogue and the edited definition are loaded only once.
+  if(!state.pipelineJobTemplates){
+    try{state.pipelineJobTemplates=await api('/api/pipelines/job-templates')}catch{state.pipelineJobTemplates=[]}
+  }
+  const templates=state.pipelineJobTemplates;
+  const isNewDraft=!state.pipelineDraft||state.pipelineDraft.editId!==(editId||'new');
+  if(editId&&isNewDraft){
+    definition=await api(`/api/pipelines/definitions/${editId}`);
+    try{const y=await api(`/api/pipelines/definitions/${editId}/yaml`);yamlText=y.yaml||y||''}catch{yamlText=''}
+  }
+  if(isNewDraft){
+    state.pipelineDraft={
+      editId:editId||'new',
+      name:definition?.name||'New pipeline',
+      timeoutSeconds:definition?.timeoutSeconds||3600,
+      triggers:(definition?.triggers||['Manual']).map(String),
+      environment:{...(definition?.environment||{})},
+      // Fields the visual editor does not surface are still carried so YAML round trips keep them.
+      jobs:(definition?.jobs||[]).map(j=>({
+        name:j.name,
+        requiresCapabilities:j.requiresCapabilities||[],
+        environment:{...(j.environment||{})},
+        timeoutSeconds:j.timeoutSeconds||1800,
+        publishCheck:!!j.publishCheck,
+        checkName:j.checkName||'',
+        artifactGlobs:j.artifactGlobs||[],
+        continueOnError:!!j.continueOnError,
+        steps:(j.steps||[]).map(s=>({
+          name:s.name,
+          command:s.command,
+          shell:s.shell||'',
+          environment:{...(s.environment||{})},
+          timeoutSeconds:s.timeoutSeconds||300,
+          continueOnError:!!s.continueOnError
+        }))
+      })),
+      yaml:yamlText,
+      tab:'visual'
+    };
+  }
+  const draft=state.pipelineDraft;
+  crumbs(`Projects <span>/</span> ${esc(state.context?.project?.name||'Project')} <span>/</span> Build <span>/</span> ${editId?'Edit pipeline':'New pipeline'}`);
+  const triggerOpts=['Manual','Push','ChangeOpened','ChangeUpdated','ChangeMerged'];
+  el('content').innerHTML=`
+  <section class="pipeline-builder" id="pipelineBuilder">
+    <header class="list-page-header">
+      <div><h1>${editId?'Edit pipeline':'New pipeline'}</h1><p class="description">Declarative jobs with a visual editor or YAML.</p></div>
+      <div class="header-actions">
+        <button class="button" data-route="/pipelines">Cancel</button>
+        <button class="button primary" id="pipelineBuilderSave">Save pipeline</button>
+      </div>
+    </header>
+    <div class="pr-status-tabs" role="tablist">
+      <button type="button" class="pr-status-tab ${draft.tab==='visual'?'active':''}" data-builder-tab="visual">Visual</button>
+      <button type="button" class="pr-status-tab ${draft.tab==='yaml'?'active':''}" data-builder-tab="yaml">YAML</button>
+    </div>
+    <p class="builder-error" id="pipelineBuilderError" role="alert" hidden></p>
+    <div class="pipeline-builder-grid">
+      <div class="card">
+        <div class="card-body settings-form" id="pipelineBuilderMain">
+          ${draft.tab==='yaml'?`
+            <label class="form-label" for="pipelineYaml">Pipeline YAML</label>
+            <textarea class="field yaml-editor" id="pipelineYaml" rows="22">${esc(draft.yaml||'')}</textarea>
+            <p class="description">Saved via the YAML API. Use Visual to insert premade jobs.</p>
+          `:`
+            <label class="form-label" for="pipelineName">Name</label>
+            <input class="field" id="pipelineName" value="${esc(draft.name)}">
+            <label class="form-label" for="pipelineTimeout">Timeout (seconds)</label>
+            <input class="field" id="pipelineTimeout" type="number" min="60" value="${esc(draft.timeoutSeconds)}">
+            <p class="form-label">Triggers</p>
+            <div class="trigger-row">${triggerOpts.map(t=>`<label class="choice-row"><input type="checkbox" data-trigger="${t}" ${draft.triggers.map(String).some(x=>x.toLowerCase()===t.toLowerCase())?'checked':''}> ${t}</label>`).join('')}</div>
+            <div class="jobs-editor" id="jobsEditor">
+              ${(draft.jobs||[]).map((job,ji)=>`
+                <div class="job-block" data-job-index="${ji}">
+                  <div class="job-block-head">
+                    <input class="field compact" data-job-name value="${esc(job.name)}" placeholder="Job name">
+                    <button type="button" class="button compact" data-move-job="${ji}" data-dir="up" title="Move up" ${ji===0?'disabled':''}>↑</button>
+                    <button type="button" class="button compact" data-move-job="${ji}" data-dir="down" title="Move down" ${ji===draft.jobs.length-1?'disabled':''}>↓</button>
+                    <button type="button" class="button danger compact" data-remove-job="${ji}">Remove</button>
+                  </div>
+                  ${(job.steps||[]).map((step,si)=>`
+                    <div class="step-row">
+                      <input class="field compact" data-step-name data-ji="${ji}" data-si="${si}" value="${esc(step.name)}" placeholder="Step">
+                      <input class="field compact" data-step-command data-ji="${ji}" data-si="${si}" value="${esc(step.command)}" placeholder="Command">
+                      <button type="button" class="button danger compact" data-remove-step="${ji}:${si}" title="Remove step">✕</button>
+                    </div>`).join('')||'<p class="description">No steps yet.</p>'}
+                  <button type="button" class="button text" data-add-step="${ji}">＋ Add step</button>
+                </div>`).join('')||'<div class="empty small">No jobs yet — insert a premade job from the catalogue.</div>'}
+            </div>
+            <button type="button" class="button" id="addEmptyJob">＋ Empty job</button>
+          `}
+        </div>
+      </div>
+      <aside class="card job-catalog">
+        <div class="card-header"><h2>Premade jobs</h2></div>
+        <div class="card-body">
+          ${(templates||[]).map(t=>`
+            <button type="button" class="job-template-card" data-insert-template="${esc(t.id)}">
+              <strong>${esc(t.name)}</strong>
+              <small>${esc(t.description||'')}</small>
+            </button>`).join('')||'<div class="empty small">No templates loaded.</div>'}
+        </div>
+      </aside>
+    </div>
+  </section>`;
+
+  const persistVisualFields=()=>{
+    if(draft.tab!=='visual')return;
+    // Assign even when blank, otherwise clearing the name silently restores the previous value.
+    if(el('pipelineName'))draft.name=el('pipelineName').value;
+    draft.timeoutSeconds=Number(el('pipelineTimeout')?.value||draft.timeoutSeconds);
+    draft.triggers=[...document.querySelectorAll('[data-trigger]:checked')].map(i=>i.dataset.trigger);
+    document.querySelectorAll('[data-job-name]').forEach((input,idx)=>{if(draft.jobs[idx])draft.jobs[idx].name=input.value});
+    document.querySelectorAll('[data-step-name]').forEach(input=>{
+      const ji=+input.dataset.ji,si=+input.dataset.si;
+      if(draft.jobs[ji]?.steps[si])draft.jobs[ji].steps[si].name=input.value;
+    });
+    document.querySelectorAll('[data-step-command]').forEach(input=>{
+      const ji=+input.dataset.ji,si=+input.dataset.si;
+      if(draft.jobs[ji]?.steps[si])draft.jobs[ji].steps[si].command=input.value;
+    });
+  };
+
+  document.querySelectorAll('[data-builder-tab]').forEach(btn=>btn.onclick=async()=>{
+    const next=btn.dataset.builderTab;
+    persistVisualFields();
+    if(draft.tab==='yaml'){
+      draft.yaml=el('pipelineYaml')?.value||draft.yaml;
+      // Leaving the YAML tab folds the document back into the visual model so the two never drift.
+      if(next==='visual'&&(draft.yaml||'').trim()){
+        try{
+          const parsed=await api('/api/pipelines/definitions/validate-yaml',{method:'POST',body:JSON.stringify({yaml:draft.yaml})});
+          applyDefinitionToDraft(draft,parsed.definition);
+        }catch(error){showBuilderError(error.message);return}
+      }
+    }else if(next==='yaml'){
+      try{
+        const rendered=await api('/api/pipelines/definitions/to-yaml',{method:'POST',body:JSON.stringify(pipelineDraftBody(draft))});
+        draft.yaml=rendered.yaml||draft.yaml;
+      }catch{/* keep the last known document rather than blanking the editor */}
+    }
+    draft.tab=next;
+    renderPipelineBuilder(route);
+  });
+  document.querySelectorAll('[data-move-job]').forEach(btn=>btn.onclick=()=>{
+    persistVisualFields();
+    const from=+btn.dataset.moveJob,to=btn.dataset.dir==='up'?from-1:from+1;
+    if(to<0||to>=draft.jobs.length)return;
+    const [moved]=draft.jobs.splice(from,1);
+    draft.jobs.splice(to,0,moved);
+    renderPipelineBuilder(route);
+  });
+  document.querySelectorAll('[data-remove-step]').forEach(btn=>btn.onclick=()=>{
+    persistVisualFields();
+    const [ji,si]=btn.dataset.removeStep.split(':').map(Number);
+    draft.jobs[ji]?.steps.splice(si,1);
+    renderPipelineBuilder(route);
+  });
+  el('addEmptyJob')?.addEventListener('click',()=>{
+    persistVisualFields();
+    draft.jobs.push({name:'Job',requiresCapabilities:[],publishCheck:false,checkName:'',steps:[{name:'Run',command:'echo hello',shell:'',timeoutSeconds:300}]});
+    renderPipelineBuilder(route);
+  });
+  document.querySelectorAll('[data-remove-job]').forEach(btn=>btn.onclick=()=>{
+    persistVisualFields();
+    draft.jobs.splice(+btn.dataset.removeJob,1);
+    renderPipelineBuilder(route);
+  });
+  document.querySelectorAll('[data-add-step]').forEach(btn=>btn.onclick=()=>{
+    persistVisualFields();
+    draft.jobs[+btn.dataset.addStep].steps.push({name:'Step',command:'',shell:'',timeoutSeconds:300});
+    renderPipelineBuilder(route);
+  });
+  document.querySelectorAll('[data-insert-template]').forEach((btn,index)=>btn.onclick=()=>{
+    persistVisualFields();
+    const template=(templates||[])[index]||(templates||[]).find(t=>String(t.id)===String(btn.dataset.insertTemplate));
+    const job=template?.job||template?.Job;
+    if(!job){
+      showToast('Could not load that job template',true);
+      return;
+    }
+    draft.jobs.push({
+      name:job.name||job.Name||template.name,
+      requiresCapabilities:job.requiresCapabilities||job.RequiresCapabilities||[],
+      environment:{...(job.environment||job.Environment||{})},
+      timeoutSeconds:job.timeoutSeconds||job.TimeoutSeconds||1800,
+      publishCheck:!!(job.publishCheck??job.PublishCheck),
+      checkName:job.checkName||job.CheckName||'',
+      artifactGlobs:job.artifactGlobs||job.ArtifactGlobs||[],
+      continueOnError:!!(job.continueOnError??job.ContinueOnError),
+      steps:(job.steps||job.Steps||[{name:'Run',command:'echo ok'}]).map(s=>({
+        name:s.name||s.Name,
+        command:s.command||s.Command,
+        shell:s.shell||s.Shell||'',
+        environment:{...(s.environment||s.Environment||{})},
+        timeoutSeconds:s.timeoutSeconds||s.TimeoutSeconds||300,
+        continueOnError:!!(s.continueOnError??s.ContinueOnError)
+      }))
+    });
+    draft.tab='visual';
+    renderPipelineBuilder(route);
+  });
+  el('pipelineBuilderSave').onclick=async()=>{
+    try{
+      if(draft.tab==='yaml'){
+        const yaml=el('pipelineYaml')?.value??draft.yaml;
+        draft.yaml=yaml;
+        if(editId)await api(`/api/pipelines/definitions/${editId}/yaml`,{method:'PUT',body:JSON.stringify({yaml})});
+        else await api('/api/pipelines/definitions/from-yaml',{method:'POST',body:JSON.stringify({yaml})});
+      }else{
+        persistVisualFields();
+        const problem=pipelineDraftProblem(draft);
+        if(problem)return showBuilderError(problem);
+        const body=pipelineDraftBody(draft);
+        if(editId)await api(`/api/pipelines/definitions/${editId}`,{method:'PUT',body:JSON.stringify(body)});
+        else await api('/api/pipelines/definitions',{method:'POST',body:JSON.stringify(body)});
+      }
+      state.pipelineDraft=null;
+      showToast('Pipeline saved');
+      navigate('/pipelines');
+    }catch(error){showBuilderError(error.message)}
+  };
+}
+
+function showBuilderError(message){
+  const box=el('pipelineBuilderError');
+  if(box){box.textContent=message||'';box.hidden=!message}
+  if(message)showToast(message,true);
+}
+
+/// Mirrors the server-side validation so obvious mistakes never need a round trip.
+function pipelineDraftProblem(draft){
+  if(!String(draft.name||'').trim())return 'Pipeline name is required.';
+  if(!(draft.jobs||[]).length)return 'A pipeline needs at least one job.';
+  for(const job of draft.jobs){
+    if(!String(job.name||'').trim())return 'Every job requires a name.';
+    if(!(job.steps||[]).length)return `Job “${job.name}” needs at least one step.`;
+    if(job.steps.some(step=>!String(step.command||'').trim()))return `Every step in “${job.name}” requires a command.`;
+  }
+  return null;
+}
+
+function pipelineDraftBody(draft){
+  return {
+    name:String(draft.name||'').trim(),
+    timeoutSeconds:Number(draft.timeoutSeconds)||3600,
+    environment:draft.environment||{},
+    triggers:(draft.triggers||[]).length?draft.triggers:['Manual'],
+    jobs:(draft.jobs||[]).map(job=>({
+      name:String(job.name||'').trim(),
+      requiresCapabilities:job.requiresCapabilities||[],
+      environment:job.environment||{},
+      timeoutSeconds:Number(job.timeoutSeconds)||1800,
+      publishCheck:!!job.publishCheck,
+      checkName:job.checkName||null,
+      artifactGlobs:job.artifactGlobs||[],
+      continueOnError:!!job.continueOnError,
+      steps:(job.steps||[]).map(step=>({
+        name:step.name||step.command||'',
+        command:step.command||'',
+        shell:step.shell||null,
+        environment:step.environment||{},
+        timeoutSeconds:Number(step.timeoutSeconds)||300,
+        continueOnError:!!step.continueOnError
+      }))
+    }))
+  };
+}
+
+function applyDefinitionToDraft(draft,definition){
+  if(!definition)return draft;
+  draft.name=definition.name||'';
+  draft.timeoutSeconds=definition.timeoutSeconds||3600;
+  draft.environment={...(definition.environment||{})};
+  draft.triggers=(definition.triggers||[]).map(String);
+  draft.jobs=(definition.jobs||[]).map(job=>({
+    name:job.name||'',
+    requiresCapabilities:job.requiresCapabilities||[],
+    environment:{...(job.environment||{})},
+    timeoutSeconds:job.timeoutSeconds||1800,
+    publishCheck:!!job.publishCheck,
+    checkName:job.checkName||'',
+    artifactGlobs:job.artifactGlobs||[],
+    continueOnError:!!job.continueOnError,
+    steps:(job.steps||[]).map(step=>({
+      name:step.name||'',
+      command:step.command||'',
+      shell:step.shell||'',
+      timeoutSeconds:step.timeoutSeconds||300,
+      continueOnError:!!step.continueOnError,
+      environment:{...(step.environment||{})}
+    }))
+  }));
+  return draft;
 }
 
 function openRunPipeline(definitionId){
@@ -3142,23 +3844,7 @@ async function downloadArtifact(runId,jobId,artifactId,name){
 }
 
 async function renderRunners(){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
-  const runners=await api('/api/pipelines/runners');
-  crumbs(projectCrumb('Build <span>/</span> Runners'));
-  el('content').innerHTML=`<div class="list-page-header"><div><h1>Runners</h1><p>Self-hosted workers connected to this control plane.</p></div>
-    <div class="header-actions"><button class="button" id="refreshRunners">Refresh</button><button class="button primary" id="addRunner">＋ Add Runner</button></div></div>
-    <div class="card">${runners.map(r=>`<article class="pipeline-row">
-      <span class="run-status ${statusClass(r.status)}">${checkIcon(r.status)}</span>
-      <div><h3>${esc(r.name)}</h3><p>${esc(r.operatingSystem||'—')} · ${(r.capabilities||[]).map(esc).join(', ')||'no caps'} · v${esc(r.version||'?')} · jobs ${esc(r.currentJobCount)}/${esc(r.concurrency)} · last seen ${r.lastHeartbeatAt?new Date(r.lastHeartbeatAt).toLocaleTimeString():'—'}</p></div>
-      <div class="header-actions"><span class="status ${statusClass(r.status)}">${esc(r.status)}</span><button class="button danger" data-revoke-runner="${esc(r.id)}">Revoke</button></div>
-    </article>`).join('')||'<div class="empty">No runners registered yet.</div>'}</div>
-    <div class="policy-box" style="margin-top:18px">Pipeline commands execute with the runner process identity. Treat registration as privileged infrastructure.</div>`;
-  el('refreshRunners').onclick=renderRunners;
-  el('addRunner').onclick=openAddRunner;
-  document.querySelectorAll('[data-revoke-runner]').forEach(button=>button.onclick=async()=>{
-    if(!confirm('Revoke this runner? It will need a new registration token.'))return;
-    try{await api(`/api/pipelines/runners/${button.dataset.revokeRunner}`,{method:'DELETE'});showToast('Runner revoked');renderRunners()}catch(error){showToast(error.message,true)}
-  });
+  return navigate('/organisation/settings/build');
 }
 
 function openAddRunner(){
