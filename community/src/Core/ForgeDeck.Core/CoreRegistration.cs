@@ -1,6 +1,5 @@
 using ForgeDeck.Contracts.Audit;
 using ForgeDeck.Contracts.Capabilities;
-using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Integrations;
 using ForgeDeck.Contracts.Licensing;
@@ -12,7 +11,6 @@ using ForgeDeck.Core.Audit;
 using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Domain;
-using ForgeDeck.Core.Events;
 using ForgeDeck.Core.Extensions;
 using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Integrations;
@@ -21,6 +19,7 @@ using ForgeDeck.Core.Modules;
 using ForgeDeck.Core.Persistence;
 using ForgeDeck.Core.Search;
 using ForgeDeck.Core.SourceControl;
+using ForgeDeck.Messaging;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -45,17 +44,22 @@ public static class CoreRegistration
         services.AddSingleton<ICapabilityService, CapabilityService>();
         services.AddSingleton<CapabilityAuthorizer>();
         services.AddSingleton<IAuditWriter, AuditWriter>();
-        services.AddSingleton<IEventPublisher, InMemoryEventPublisher>();
         services.AddSingleton<PermissionAuthorizer>();
         services.AddHttpContextAccessor();
         var connectionString = configuration.GetConnectionString("Platform") ?? "Data Source=data/forgedeck.db";
+        var dbDirectory = Path.GetDirectoryName(Path.GetFullPath(connectionString.Replace("Data Source=", "", StringComparison.OrdinalIgnoreCase).Split(';')[0].Trim()));
+        if (!string.IsNullOrWhiteSpace(dbDirectory))
+        {
+            Directory.CreateDirectory(dbDirectory);
+        }
+
         var keyPath = Path.GetFullPath(configuration["Data:ProtectionKeysPath"] ?? "data/keys");
         Directory.CreateDirectory(keyPath);
         services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyPath)).SetApplicationName("ForgeDeck");
-        services.AddSingleton<IDbConnectionFactory>(new SqliteConnectionFactory(connectionString));
-        services.AddSingleton<CoreSchemaInitializer>();
-        services.AddSingleton<ITenancyStore, SqliteTenancyStore>();
-        services.AddSingleton<IExtensionRegistry, SqliteExtensionRegistry>();
+        services.AddDbContextFactory<PlatformDbContext>(options => PlatformDbContext.Configure(options, connectionString));
+        services.AddForgeDeckMessaging(configuration, connectionString);
+        services.AddSingleton<ITenancyStore, EfTenancyStore>();
+        services.AddSingleton<IExtensionRegistry, EfExtensionRegistry>();
         services.AddSingleton<IExtensionPackageVerifier, SignedExtensionPackageVerifier>();
         services.AddSingleton<ExtensionLifecycleService>();
         services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
@@ -70,8 +74,8 @@ public static class CoreRegistration
         services.AddSingleton<DevelopmentSeedService>();
         services.AddSingleton<PlatformContextStore>();
         services.AddSingleton<IProviderCredentialStore, EncryptedProviderCredentialStore>();
-        services.AddSingleton<ISourceConnectionStore, SqliteSourceConnectionStore>();
-        services.AddSingleton<ILocalRepositoryStore, SqliteLocalRepositoryStore>();
+        services.AddSingleton<ISourceConnectionStore, EfSourceConnectionStore>();
+        services.AddSingleton<ILocalRepositoryStore, EfLocalRepositoryStore>();
         services.AddSingleton<LocalRepositoryInspector>();
         services.AddSingleton<LocalRepositoryService>();
         services.AddSingleton<SourceProviderRegistry>();

@@ -1,6 +1,8 @@
 using System.Text.Json;
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Build.Domain;
 using ForgeDeck.Contracts.Capabilities;
+using ForgeDeck.Contracts.Checks;
 using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Core.Context;
@@ -80,7 +82,8 @@ public sealed class PipelineService(
         string reference,
         string commitSha,
         Guid? changeId = null,
-        string? repositoryUrl = null)
+        string? repositoryUrl = null,
+        Guid? idempotencyKey = null)
     {
         var definition = store.FindDefinition(definitionId) ?? throw new KeyNotFoundException("Pipeline definition was not found.");
         if (!definition.Enabled)
@@ -93,6 +96,11 @@ public sealed class PipelineService(
             throw new ArgumentException("A real commit SHA is required (not 'local').", nameof(commitSha));
         }
 
+        if (idempotencyKey is Guid key && store.FindRunByIdempotencyKey(key) is { } existing)
+        {
+            return existing;
+        }
+
         EnsureConcurrentCapacity();
 
         var toSupersede = changeId is Guid change
@@ -101,7 +109,7 @@ public sealed class PipelineService(
 
         var snapshot = store.GetDefinitionVersionPayload(definition.Id, definition.Version)
                        ?? JsonSerializer.Serialize(definition, Json);
-        var run = PipelineRun.Create(definition, snapshot, trigger, reference, commitSha, changeId, repositoryUrl);
+        var run = PipelineRun.Create(definition, snapshot, trigger, reference, commitSha, changeId, repositoryUrl, idempotencyKey);
         run.Start();
         store.SaveRun(run);
 
@@ -109,9 +117,16 @@ public sealed class PipelineService(
         {
             older.Supersede(run.Id);
             store.SaveRun(older);
+            _ = PublishCancelledAsync(older);
         }
 
-        _ = events.PublishAsync(new PipelineRunStarted(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha));
+        _ = events.PublishAsync(
+            new BuildPipelineRunQueuedEvent(run.Id, run.DefinitionId, run.DefinitionName, run.CommitSha, run.ChangeId),
+            BuildEventPublishOptions.Default);
+        _ = events.PublishAsync(
+            new BuildPipelineRunStartedEvent(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha),
+            BuildEventPublishOptions.Default);
+        _ = PublishChecksAsync(run, CheckStatus.Running);
         return run;
     }
 
@@ -120,7 +135,7 @@ public sealed class PipelineService(
         var run = store.FindRun(runId) ?? throw new KeyNotFoundException("Pipeline run was not found.");
         run.Cancel(reason);
         store.SaveRun(run);
-        _ = events.PublishAsync(new PipelineRunCompleted(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha, "Cancelled"));
+        _ = PublishCancelledAsync(run);
         return run;
     }
 
@@ -148,6 +163,32 @@ public sealed class PipelineService(
         if (active >= CommunityLimits.BuildMaxConcurrentPipelines)
         {
             throw new LicenceRequiredException(KnownCapabilities.Build.Concurrent);
+        }
+    }
+
+    private Task PublishCancelledAsync(PipelineRun run)
+    {
+        _ = events.PublishAsync(
+            new BuildPipelineRunCancelledEvent(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha),
+            BuildEventPublishOptions.Default);
+        return PublishChecksAsync(run, CheckStatus.Cancelled);
+    }
+
+    private async Task PublishChecksAsync(PipelineRun run, CheckStatus status)
+    {
+        foreach (var job in run.Jobs.Where(j => j.PublishCheck))
+        {
+            await events.PublishAsync(
+                new CheckUpdatedEvent(
+                    run.ChangeId,
+                    "Pipelines",
+                    job.CheckName,
+                    status,
+                    run.CommitSha,
+                    DetailsUrl: $"#/runs/{run.Id}",
+                    Summary: null,
+                    RunId: run.Id),
+                BuildEventPublishOptions.Default);
         }
     }
 }

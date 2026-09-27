@@ -7,6 +7,7 @@ ForgeDeck is a modular monolith with an open-core source split. See:
 - [connectors.md](architecture/connectors.md) — connectors vs modules
 - [extensions.md](architecture/extensions.md) — manifests and licensing triad
 - [dependency-rules.md](architecture/dependency-rules.md) — hard invariants
+- [events.md](architecture/events.md) — Universal Event Architecture (envelope, outbox, module contracts)
 
 ## Dependency rules (summary)
 

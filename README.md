@@ -1533,28 +1533,36 @@ deployment completed
 
 # 41. Event architecture
 
-Modules communicate using stable domain events.
+Modules communicate using stable domain events (`ModuleSemanticEvent` naming). See `docs/architecture/events.md`.
 
 Examples:
 
 ```text
-RepositoryCreated
-PushReceived
+GitRepositoryCreatedEvent
+GitRepositoryPushEvent
 
-ChangeCreated
-ChangeUpdated
-ChangeApproved
-ChangeMerged
+ReviewRequestedEvent
+ReviewApprovedEvent
+ReviewMergedEvent
+ReviewRevisionUpdatedEvent
 
-PipelineRunStarted
-PipelineRunCompleted
-CheckUpdated
-ArtifactProduced
+BuildPipelineRunRequestedEvent
+BuildPipelineRunQueuedEvent
+BuildPipelineRunStartedEvent
+BuildPipelineRunSucceededEvent
+BuildPipelineRunFailedEvent
+BuildPipelineRunCancelledEvent
+BuildArtifactProducedEvent
+CheckUpdatedEvent
 
-ReleaseCreated
-DeploymentStarted
-DeploymentCompleted
-DeploymentFailed
+DeployReleaseEvent
+DeployRequestedEvent
+DeployQueuedEvent
+DeployStartedEvent
+DeploySucceededEvent
+DeployFailedEvent
+DeployRollbackRequestedEvent
+DeployRolledBackEvent
 ```
 
 Events should contain:
@@ -1563,7 +1571,8 @@ Events should contain:
 stable IDs
 event version
 timestamp
-correlation ID
+actor
+correlation / causation IDs
 minimal durable payload
 ```
 

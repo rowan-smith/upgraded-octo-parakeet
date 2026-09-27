@@ -23,6 +23,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Server\ForgeDeck.Server\ForgeDeck.Server.csproj" />
+    <ProjectReference Include="..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Git\ForgeDeck.Git.Contracts\ForgeDeck.Git.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,8 @@
 using ForgeDeck.Contracts.Capabilities;
+using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Core.Context;
+using ForgeDeck.Deploy.Contracts.Events;
 using ForgeDeck.Deploy.Domain;
 
 namespace ForgeDeck.Deploy.Application;
@@ -8,7 +10,8 @@ namespace ForgeDeck.Deploy.Application;
 public sealed class DeployService(
     IDeployStore store,
     ICapabilityService capabilities,
-    PlatformContextStore context)
+    PlatformContextStore context,
+    IEventPublisher events)
 {
     public IReadOnlyList<DeploymentEnvironment> ListEnvironments(Guid? projectId = null) =>
         store.ListEnvironments(projectId);
@@ -50,7 +53,8 @@ public sealed class DeployService(
         Guid environmentId,
         string version,
         string triggeredBy,
-        string? notes = null)
+        string? notes = null,
+        Guid? releaseId = null)
     {
         _ = store.FindEnvironment(environmentId)
             ?? throw new KeyNotFoundException("Environment was not found.");
@@ -59,6 +63,9 @@ public sealed class DeployService(
             throw new ArgumentException("Deployment version is required.");
         }
 
+        var resolvedReleaseId = releaseId
+            ?? (Guid.TryParse(version, out var parsed) ? parsed : Guid.NewGuid());
+
         var deployment = new Deployment
         {
             ProjectId = projectId,
@@ -66,9 +73,18 @@ public sealed class DeployService(
             Version = version.Trim(),
             Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(),
             TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "system" : triggeredBy.Trim(),
-            Status = DeploymentStatus.Succeeded
+            Status = DeploymentStatus.Pending
         };
         store.SaveDeployment(deployment);
+        _ = PublishAsync(new DeployQueuedEvent(deployment.Id, resolvedReleaseId, environmentId));
+
+        deployment.Status = DeploymentStatus.InProgress;
+        store.SaveDeployment(deployment);
+        _ = PublishAsync(new DeployStartedEvent(deployment.Id, resolvedReleaseId, environmentId));
+
+        deployment.Status = DeploymentStatus.Succeeded;
+        store.SaveDeployment(deployment);
+        _ = PublishAsync(new DeploySucceededEvent(deployment.Id, resolvedReleaseId, environmentId));
         return deployment;
     }
 
@@ -80,6 +96,8 @@ public sealed class DeployService(
         {
             throw new InvalidOperationException("Deployment was already rolled back.");
         }
+
+        var releaseId = Guid.TryParse(previous.Version, out var parsed) ? parsed : previous.Id;
 
         previous.Status = DeploymentStatus.RolledBack;
         store.SaveDeployment(previous);
@@ -95,8 +113,56 @@ public sealed class DeployService(
             RollbackOfId = previous.Id
         };
         store.SaveDeployment(rollback);
+        _ = PublishAsync(new DeployRolledBackEvent(rollback.Id, previous.EnvironmentId, releaseId));
         return rollback;
     }
+
+    public Deployment RollbackToRelease(Guid environmentId, Guid targetReleaseId, string triggeredBy, string projectKey)
+    {
+        _ = store.FindEnvironment(environmentId)
+            ?? throw new KeyNotFoundException("Environment was not found.");
+
+        var current = store.ListDeployments(environmentId: environmentId, take: 100)
+            .FirstOrDefault(d => d.Status == DeploymentStatus.Succeeded);
+        if (current is not null)
+        {
+            current.Status = DeploymentStatus.RolledBack;
+            store.SaveDeployment(current);
+        }
+
+        var version = targetReleaseId.ToString("N");
+        var projectId = current?.ProjectId
+                        ?? store.FindEnvironment(environmentId)?.ProjectId
+                        ?? context.Project.Id;
+
+        var rollback = new Deployment
+        {
+            ProjectId = projectId,
+            EnvironmentId = environmentId,
+            Version = version,
+            Notes = $"Rollback to release {targetReleaseId:N} ({projectKey})",
+            TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "system" : triggeredBy.Trim(),
+            Status = DeploymentStatus.Succeeded,
+            RollbackOfId = current?.Id
+        };
+        store.SaveDeployment(rollback);
+        _ = PublishAsync(new DeployRolledBackEvent(rollback.Id, environmentId, targetReleaseId));
+        return rollback;
+    }
+
+    public Deployment FailDeployment(Guid deploymentId, string? reason = null)
+    {
+        var deployment = store.FindDeployment(deploymentId)
+            ?? throw new KeyNotFoundException("Deployment was not found.");
+        deployment.Status = DeploymentStatus.Failed;
+        store.SaveDeployment(deployment);
+        var releaseId = Guid.TryParse(deployment.Version, out var parsed) ? parsed : deployment.Id;
+        _ = PublishAsync(new DeployFailedEvent(deployment.Id, releaseId, deployment.EnvironmentId, reason));
+        return deployment;
+    }
+
+    private Task PublishAsync<TEvent>(TEvent data) where TEvent : class =>
+        events.PublishAsync(data, DeployEventPublishOptions.Default);
 
     private void EnsureEnvironmentCapacity(Guid projectId)
     {
@@ -111,4 +177,13 @@ public sealed class DeployService(
             throw new LicenceRequiredException(KnownCapabilities.Deploy.MultiEnvironment);
         }
     }
+}
+
+internal static class DeployEventPublishOptions
+{
+    public static PublishOptions Default { get; } = new()
+    {
+        Actor = new EventActor(ActorType.Extension, "forgedeck.deploy", "Deploy"),
+        Publisher = "forgedeck.deploy"
+    };
 }

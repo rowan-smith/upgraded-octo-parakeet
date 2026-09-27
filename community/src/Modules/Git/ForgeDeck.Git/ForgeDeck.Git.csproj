@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+    <ProjectReference Include="..\ForgeDeck.Git.Contracts\ForgeDeck.Git.Contracts.csproj" />
     <ProjectReference Include="..\..\..\Core\ForgeDeck.Core\ForgeDeck.Core.csproj" />
     <ProjectReference Include="..\..\..\Web\ForgeDeck.Web\ForgeDeck.Web.csproj" />
   </ItemGroup>

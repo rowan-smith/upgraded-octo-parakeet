@@ -3,6 +3,7 @@ using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace Core.Tests;
@@ -13,8 +14,8 @@ internal sealed class TenancyFixture : IDisposable
 
     public TenancyFixture()
     {
-        var connections = new SqliteConnectionFactory($"Data Source={_path};Pooling=False");
-        Store = new SqliteTenancyStore(connections, new CoreSchemaInitializer(connections));
+        var factory = new TestPlatformDbContextFactory($"Data Source={_path};Pooling=False");
+        Store = new EfTenancyStore(factory);
         Passwords = new PasswordHasher<UserAccount>();
         Setup = new SetupService(Store, Passwords, Options.Create(new BootstrapOptions()));
         Memberships = new MembershipService(Store, Passwords);
@@ -54,5 +55,15 @@ internal sealed class TenancyFixture : IDisposable
         {
             File.Delete(_path);
         }
+    }
+}
+
+internal sealed class TestPlatformDbContextFactory(string connectionString) : IDbContextFactory<PlatformDbContext>
+{
+    public PlatformDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<PlatformDbContext>();
+        PlatformDbContext.Configure(options, connectionString);
+        return new PlatformDbContext(options.Options);
     }
 }

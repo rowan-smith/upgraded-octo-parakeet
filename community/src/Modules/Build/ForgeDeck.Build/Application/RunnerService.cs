@@ -17,7 +17,7 @@ public sealed class RunnerService(
         var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var record = new RunnerRegistrationToken
         {
-            TokenHash = SqlitePipelineStore.HashToken(raw),
+            TokenHash = EfPipelineStore.HashToken(raw),
             ExpiresAt = DateTimeOffset.UtcNow.Add(lifetime ?? TimeSpan.FromHours(24)),
             CreatedBy = createdBy
         };
@@ -27,7 +27,7 @@ public sealed class RunnerService(
 
     public RunnerRegistrationResponse Register(RunnerRegistrationRequest request)
     {
-        var hash = SqlitePipelineStore.HashToken(request.RegistrationToken);
+        var hash = EfPipelineStore.HashToken(request.RegistrationToken);
         var token = store.FindRegistrationTokenByHash(hash)
                     ?? throw new UnauthorizedAccessException("Registration token is invalid.");
         if (token.IsConsumed)
@@ -44,7 +44,7 @@ public sealed class RunnerService(
         var runner = new RunnerAgent
         {
             Name = string.IsNullOrWhiteSpace(request.Name) ? "runner" : request.Name.Trim(),
-            TokenHash = SqlitePipelineStore.HashToken(runnerToken),
+            TokenHash = EfPipelineStore.HashToken(runnerToken),
             OperatingSystem = request.OperatingSystem,
             Capabilities = request.Capabilities,
             Concurrency = Math.Max(1, request.Concurrency),
@@ -144,7 +144,7 @@ public sealed class RunnerService(
     public RunnerAgent Authenticate(Guid runnerId, string runnerToken)
     {
         var runner = store.FindRunner(runnerId) ?? throw new UnauthorizedAccessException("Runner was not found.");
-        var hash = SqlitePipelineStore.HashToken(runnerToken);
+        var hash = EfPipelineStore.HashToken(runnerToken);
         if (!string.Equals(runner.TokenHash, hash, StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Runner token is invalid.");

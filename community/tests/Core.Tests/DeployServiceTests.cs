@@ -1,16 +1,18 @@
+using System.Text.Json;
 using ForgeDeck.Contracts.Capabilities;
+using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Licensing;
-using ForgeDeck.Core.Persistence;
 using ForgeDeck.Deploy;
 using ForgeDeck.Deploy.Application;
 using ForgeDeck.Deploy.Domain;
 using ForgeDeck.Deploy.Infrastructure;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -170,9 +172,8 @@ public sealed class DeployServiceTests
     private static Harness CreateHarness(bool withTeam = false)
     {
         var path = Path.Combine(Path.GetTempPath(), $"forgedeck-deploy-{Guid.NewGuid():N}.db");
-        var connections = new SqliteConnectionFactory($"Data Source={path}");
-        var schema = new DeploySchemaInitializer(connections);
-        var store = new SqliteDeployStore(connections, schema);
+        var factory = new TestDeployDbContextFactory($"Data Source={path}");
+        var store = new EfDeployStore(factory);
 
         OrganisationLicenceEntitlement? entitlement = null;
         IPlatformModule[] modules = [new DeployModule()];
@@ -181,17 +182,33 @@ public sealed class DeployServiceTests
             var keys = LicenceCryptography.CreateKeyPair();
             var document = LicenceSkuCatalog.CreateDocument("DEPLOY-TEAM", KnownIds.OrganisationId);
             document.Signature = LicenceCryptography.Sign(document, keys);
-            var json = System.Text.Json.JsonSerializer.Serialize(
+            var json = JsonSerializer.Serialize(
                 document,
-                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
             entitlement = SignedLicenceEntitlementStore.ParseVerified(json, keys);
             modules = [new DeployModule(), new FakeDeployTeamModule()];
         }
 
         var capabilities = new CapabilityService(modules, new SignedLicenceEntitlementStore(entitlement));
         var context = new PlatformContextStore();
-        var service = new DeployService(store, capabilities, context);
+        var service = new DeployService(store, capabilities, context, new NoopPublisher());
         return new Harness(path, service);
+    }
+
+    private sealed class TestDeployDbContextFactory(string connectionString) : IDbContextFactory<DeployDbContext>
+    {
+        public DeployDbContext CreateDbContext()
+        {
+            var options = new DbContextOptionsBuilder<DeployDbContext>().UseSqlite(connectionString).Options;
+            return new DeployDbContext(options);
+        }
+    }
+
+    private sealed class NoopPublisher : IEventPublisher
+    {
+        public Task PublishAsync<TEvent>(TEvent data, PublishOptions? options = null, CancellationToken cancellationToken = default)
+            where TEvent : class =>
+            Task.CompletedTask;
     }
 
     private sealed class FakeDeployTeamModule : IPlatformModule

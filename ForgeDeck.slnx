@@ -13,6 +13,7 @@
     <Project Path="sdk/ForgeDeck.Contracts/ForgeDeck.Contracts.csproj" />
   </Folder>
   <Folder Name="/Community/Core/">
+    <Project Path="community/src/Core/ForgeDeck.Messaging/ForgeDeck.Messaging.csproj" />
     <Project Path="community/src/Core/ForgeDeck.Core/ForgeDeck.Core.csproj" />
   </Folder>
   <Folder Name="/Community/Server/">
@@ -22,9 +23,13 @@
     <Project Path="community/src/Web/ForgeDeck.Web/ForgeDeck.Web.csproj" />
   </Folder>
   <Folder Name="/Community/Modules/">
+    <Project Path="community/src/Modules/Git/ForgeDeck.Git.Contracts/ForgeDeck.Git.Contracts.csproj" />
     <Project Path="community/src/Modules/Git/ForgeDeck.Git/ForgeDeck.Git.csproj" />
+    <Project Path="community/src/Modules/Review/ForgeDeck.Review.Contracts/ForgeDeck.Review.Contracts.csproj" />
     <Project Path="community/src/Modules/Review/ForgeDeck.Review/ForgeDeck.Review.csproj" />
+    <Project Path="community/src/Modules/Build/ForgeDeck.Build.Contracts/ForgeDeck.Build.Contracts.csproj" />
     <Project Path="community/src/Modules/Build/ForgeDeck.Build/ForgeDeck.Build.csproj" />
+    <Project Path="community/src/Modules/Deploy/ForgeDeck.Deploy.Contracts/ForgeDeck.Deploy.Contracts.csproj" />
     <Project Path="community/src/Modules/Deploy/ForgeDeck.Deploy/ForgeDeck.Deploy.csproj" />
     <Project Path="community/src/Modules/ChecksDemo/ForgeDeck.ChecksDemo/ForgeDeck.ChecksDemo.csproj" />
   </Folder>
@@ -47,6 +52,8 @@
   <Folder Name="/Tests/Community/">
     <Project Path="community/tests/Core.Tests/Core.Tests.csproj" />
     <Project Path="community/tests/Integration.Tests/Integration.Tests.csproj" />
+    <Project Path="community/tests/Messaging.UnitTests/Messaging.UnitTests.csproj" />
+    <Project Path="community/tests/Messaging.IntegrationTests/Messaging.IntegrationTests.csproj" />
     <Project Path="community/tests/E2E.Tests/E2E.Tests.csproj" />
     <Project Path="community/tests/E2E.Playwright.Tests/E2E.Playwright.Tests.csproj" />
   </Folder>

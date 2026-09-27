@@ -1,5 +1,4 @@
 using ForgeDeck.Build;
-using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Checks;
 using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Licensing;
@@ -139,7 +138,8 @@ public sealed class ModuleContractTests
 
     private sealed class NoopEvents : IEventPublisher
     {
-        public Task PublishAsync<TEvent>(TEvent domainEvent, CancellationToken cancellationToken = default) where TEvent : IDomainEvent =>
+        public Task PublishAsync<TEvent>(TEvent data, PublishOptions? options = null, CancellationToken cancellationToken = default)
+            where TEvent : class =>
             Task.CompletedTask;
     }
 

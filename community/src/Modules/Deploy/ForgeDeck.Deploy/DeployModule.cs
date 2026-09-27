@@ -1,9 +1,13 @@
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Contracts.Services;
 using ForgeDeck.Deploy.Api;
 using ForgeDeck.Deploy.Application;
+using ForgeDeck.Deploy.Contracts.Events;
 using ForgeDeck.Deploy.Infrastructure;
+using ForgeDeck.Messaging;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,8 +28,14 @@ public sealed class DeployModule : IPlatformModule
             PlatformPermissions.DeployRead,
             PlatformPermissions.DeployExecute
         ],
-        Publishes: ["deploy.started", "deploy.completed", "deploy.failed", "deploy.rolledback"],
-        Subscribes: ["build.completed", "artifact.published"],
+        Publishes: DeployEventContracts.All().Select(c => c.Type).ToArray(),
+        Subscribes:
+        [
+            DeployEventContracts.Release.Type,
+            DeployEventContracts.RollbackRequested.Type,
+            BuildEventContracts.PipelineRunSucceeded.Type,
+            BuildEventContracts.ArtifactProduced.Type
+        ],
         Provides: ["deploy", "deployment-provider"],
         ExtensionPointContributions:
         [
@@ -36,11 +46,17 @@ public sealed class DeployModule : IPlatformModule
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton<DeploySchemaInitializer>();
-        services.AddSingleton<IDeployStore, SqliteDeployStore>();
+        var connectionString = configuration.GetConnectionString("Deploy")
+            ?? configuration.GetConnectionString("Platform")
+            ?? "Data Source=data/forgedeck.db";
+        services.AddDbContextFactory<DeployDbContext>(options => options.UseSqlite(connectionString));
+        services.AddSingleton<IDeployStore, EfDeployStore>();
         services.AddSingleton<DeployService>();
         services.AddSingleton<DeployDomainService>();
         services.AddSingleton<IDeployService>(sp => sp.GetRequiredService<DeployDomainService>());
+        services.AddSingleton(new EventContractRegistration(DeployEventContracts.All().ToArray()));
+        services.AddEventHandler<DeployReleaseEvent, DeployReleaseHandler>("forgedeck.deploy.release");
+        services.AddEventHandler<DeployRollbackRequestedEvent, DeployRollbackRequestHandler>("forgedeck.deploy.rollback-requested");
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints) => endpoints.MapDeployEndpoints();

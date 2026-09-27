@@ -1,16 +1,15 @@
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Contracts.Events;
-using ForgeDeck.Review.Application;
-using ForgeDeck.Review.Domain;
 
 namespace ForgeDeck.Review.Application;
 
-/// <summary>Records high-level pipeline outcomes on Change activity without referencing Pipelines.</summary>
-public sealed class PipelineActivityHandler(IChangeRepository repository) :
-    IEventHandler<PipelineRunStarted>,
-    IEventHandler<PipelineRunCompleted>
+public sealed class PipelineActivityHandler(IChangeRepository repository) : IEventHandler<BuildPipelineRunStartedEvent>
 {
-    public Task HandleAsync(PipelineRunStarted domainEvent, CancellationToken cancellationToken = default)
+    public string ConsumerId => "forgedeck.review.pipeline-started";
+
+    public Task HandleAsync(EventEnvelope<BuildPipelineRunStartedEvent> envelope, CancellationToken cancellationToken = default)
     {
+        var domainEvent = envelope.Data;
         if (domainEvent.ChangeId is not Guid changeId)
         {
             return Task.CompletedTask;
@@ -27,9 +26,17 @@ public sealed class PipelineActivityHandler(IChangeRepository repository) :
         return Task.CompletedTask;
     }
 
-    public Task HandleAsync(PipelineRunCompleted domainEvent, CancellationToken cancellationToken = default)
+    private static string Short(string sha) => sha.Length <= 7 ? sha : sha[..7];
+}
+
+public sealed class PipelineSucceededActivityHandler(IChangeRepository repository) : IEventHandler<BuildPipelineRunSucceededEvent>
+{
+    public string ConsumerId => "forgedeck.review.pipeline-succeeded";
+
+    public Task HandleAsync(EventEnvelope<BuildPipelineRunSucceededEvent> envelope, CancellationToken cancellationToken = default)
     {
-        if (domainEvent.ChangeId is not Guid changeId)
+        var e = envelope.Data;
+        if (e.ChangeId is not Guid changeId)
         {
             return Task.CompletedTask;
         }
@@ -40,15 +47,59 @@ public sealed class PipelineActivityHandler(IChangeRepository repository) :
             return Task.CompletedTask;
         }
 
-        var detail = domainEvent.Status.Equals("Succeeded", StringComparison.OrdinalIgnoreCase)
-            ? $"{domainEvent.PipelineName} passed for {Short(domainEvent.CommitSha)}."
-            : domainEvent.Status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase)
-                ? $"{domainEvent.PipelineName} cancelled for {Short(domainEvent.CommitSha)}."
-                : $"{domainEvent.PipelineName} failed for {Short(domainEvent.CommitSha)} ({domainEvent.Status}).";
-        var type = domainEvent.Status.Equals("Succeeded", StringComparison.OrdinalIgnoreCase) ? "PipelinePassed"
-            : domainEvent.Status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase) ? "PipelineCancelled"
-            : "PipelineFailed";
-        change.RecordActivity(type, "Pipelines", detail);
+        change.RecordActivity("PipelinePassed", "Pipelines", $"{e.PipelineName} passed for {Short(e.CommitSha)}.");
+        repository.Update(change);
+        return Task.CompletedTask;
+    }
+
+    private static string Short(string sha) => sha.Length <= 7 ? sha : sha[..7];
+}
+
+public sealed class PipelineFailedActivityHandler(IChangeRepository repository) : IEventHandler<BuildPipelineRunFailedEvent>
+{
+    public string ConsumerId => "forgedeck.review.pipeline-failed";
+
+    public Task HandleAsync(EventEnvelope<BuildPipelineRunFailedEvent> envelope, CancellationToken cancellationToken = default)
+    {
+        var e = envelope.Data;
+        if (e.ChangeId is not Guid changeId)
+        {
+            return Task.CompletedTask;
+        }
+
+        var change = repository.Find(changeId);
+        if (change is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        change.RecordActivity("PipelineFailed", "Pipelines", $"{e.PipelineName} failed for {Short(e.CommitSha)}.");
+        repository.Update(change);
+        return Task.CompletedTask;
+    }
+
+    private static string Short(string sha) => sha.Length <= 7 ? sha : sha[..7];
+}
+
+public sealed class PipelineCancelledActivityHandler(IChangeRepository repository) : IEventHandler<BuildPipelineRunCancelledEvent>
+{
+    public string ConsumerId => "forgedeck.review.pipeline-cancelled";
+
+    public Task HandleAsync(EventEnvelope<BuildPipelineRunCancelledEvent> envelope, CancellationToken cancellationToken = default)
+    {
+        var e = envelope.Data;
+        if (e.ChangeId is not Guid changeId)
+        {
+            return Task.CompletedTask;
+        }
+
+        var change = repository.Find(changeId);
+        if (change is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        change.RecordActivity("PipelineCancelled", "Pipelines", $"{e.PipelineName} cancelled for {Short(e.CommitSha)}.");
         repository.Update(change);
         return Task.CompletedTask;
     }

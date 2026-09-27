@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\..\sdk\ForgeDeck.Contracts\ForgeDeck.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Modules\Git\ForgeDeck.Git.Contracts\ForgeDeck.Git.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

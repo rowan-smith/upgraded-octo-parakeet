@@ -1,15 +1,20 @@
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Contracts.Capabilities;
-using ForgeDeck.Contracts.Events;
+using ForgeDeck.Contracts.Checks;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.Search;
 using ForgeDeck.Contracts.Services;
 using ForgeDeck.Core.Context;
+using ForgeDeck.Git.Contracts.Events;
+using ForgeDeck.Messaging;
 using ForgeDeck.Review.Api;
 using ForgeDeck.Review.Application;
+using ForgeDeck.Review.Contracts.Events;
 using ForgeDeck.Review.Domain;
 using ForgeDeck.Review.Infrastructure;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -32,8 +37,16 @@ public sealed class ReviewModule : IPlatformModule
             PlatformPermissions.ReviewStatusWrite,
             PlatformPermissions.BuildRead
         ],
-        Publishes: ["review.created", "review.updated", "review.approved", "review.merged"],
-        Subscribes: ["build.started", "build.completed", "build.failed"],
+        Publishes: ReviewEventContracts.All().Select(c => c.Type).ToArray(),
+        Subscribes:
+        [
+            GitEventContracts.RepositoryPush.Type,
+            BuildEventContracts.PipelineRunStarted.Type,
+            BuildEventContracts.PipelineRunSucceeded.Type,
+            BuildEventContracts.PipelineRunFailed.Type,
+            BuildEventContracts.PipelineRunCancelled.Type,
+            CheckUpdatedEventContract.Type
+        ],
         Provides: ["review"],
         ExtensionPointContributions:
         [
@@ -42,6 +55,7 @@ public sealed class ReviewModule : IPlatformModule
             ExtensionPoints.ReviewMergeGates,
             ExtensionPoints.PlatformNavigation
         ]);
+
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ReviewOptions>(configuration.GetSection(ReviewOptions.SectionName));
@@ -59,18 +73,26 @@ public sealed class ReviewModule : IPlatformModule
             return new ReviewPolicyState { MinimumApprovals = minimum };
         });
         services.AddSingleton<ApprovalPolicyResolver>();
-        services.AddSingleton<ReviewSchemaInitializer>();
-        services.AddSingleton<IChangeRepository, SqliteChangeRepository>();
+        var connectionString = configuration.GetConnectionString("Review")
+            ?? configuration.GetConnectionString("Platform")
+            ?? "Data Source=data/forgedeck.db";
+        services.AddDbContextFactory<ReviewDbContext>(options => options.UseSqlite(connectionString));
+        services.AddSingleton<IChangeRepository, EfChangeRepository>();
         services.AddSingleton<ReviewService>();
         services.AddSingleton<ReviewDomainService>();
         services.AddSingleton<IReviewService>(sp => sp.GetRequiredService<ReviewDomainService>());
         services.AddSingleton<CheckQueryService>();
-        services.AddSingleton<PipelineActivityHandler>();
         services.AddSingleton<IOnboardingContributor, ReviewOnboardingContributor>();
         services.AddSingleton<ISearchContributor, ReviewSearchContributor>();
-        services.AddSingleton<IEventHandler<PipelineRunStarted>>(sp => sp.GetRequiredService<PipelineActivityHandler>());
-        services.AddSingleton<IEventHandler<PipelineRunCompleted>>(sp => sp.GetRequiredService<PipelineActivityHandler>());
+        services.AddSingleton(new EventContractRegistration(ReviewEventContracts.All().ToArray()));
+        services.AddEventHandler<BuildPipelineRunStartedEvent, PipelineActivityHandler>("forgedeck.review.pipeline-started");
+        services.AddEventHandler<BuildPipelineRunSucceededEvent, PipelineSucceededActivityHandler>("forgedeck.review.pipeline-succeeded");
+        services.AddEventHandler<BuildPipelineRunFailedEvent, PipelineFailedActivityHandler>("forgedeck.review.pipeline-failed");
+        services.AddEventHandler<BuildPipelineRunCancelledEvent, PipelineCancelledActivityHandler>("forgedeck.review.pipeline-cancelled");
+        services.AddEventHandler<CheckUpdatedEvent, CheckProjectionHandler>("forgedeck.review.check-projection");
+        services.AddEventHandler<GitRepositoryPushEvent, ReviewPushHandler>("forgedeck.review.git-push");
         services.AddHostedService<ChangeRefreshHostedService>();
     }
+
     public void MapEndpoints(IEndpointRouteBuilder endpoints) => endpoints.MapReviewEndpoints();
 }

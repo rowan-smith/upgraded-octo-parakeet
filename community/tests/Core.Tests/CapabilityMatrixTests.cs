@@ -1,6 +1,8 @@
 using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Contracts.Topology;
+using ForgeDeck.Core.Domain;
+using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Licensing;
 
 namespace Core.Tests;
@@ -245,22 +247,25 @@ public sealed class OrganisationDeployPermissionTests
 {
     public static IEnumerable<object[]> RolesAndDeployPerms()
     {
-        foreach (var role in Enum.GetValues<ForgeDeck.Core.Domain.OrganisationRole>())
+        foreach (var role in Enum.GetValues<OrganisationRole>())
         {
-            yield return [role, "deploy.read", true];
-            yield return [role, "deploy.execute", true];
-            yield return [role, "deploy.manage", true];
-            yield return [role, "pipelines.read", true];
-            yield return [role, "pipelines.run", true];
+            // Owner/Admin retain module permissions at organisation scope; Members gain them via project roles.
+            var expected = role is OrganisationRole.Owner
+                or OrganisationRole.Admin;
+            yield return [role, "deploy.read", expected];
+            yield return [role, "deploy.execute", expected];
+            yield return [role, "deploy.manage", expected];
+            yield return [role, "pipelines.read", expected];
+            yield return [role, "pipelines.run", expected];
         }
     }
 
     [Theory]
     [MemberData(nameof(RolesAndDeployPerms))]
-    public void All_roles_include_module_deploy_and_build_permissions(
-        ForgeDeck.Core.Domain.OrganisationRole role, string permission, bool expected)
+    public void Owner_and_admin_include_module_deploy_and_build_permissions(
+        OrganisationRole role, string permission, bool expected)
     {
-        var set = ForgeDeck.Core.Identity.OrganisationPermissions.ForRole(role);
+        var set = OrganisationPermissions.ForRole(role);
         Assert.Equal(expected, set.Contains(permission));
     }
 }

@@ -1,5 +1,6 @@
 using ForgeDeck.Build;
 using ForgeDeck.Build.Application;
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Build.Domain;
 using ForgeDeck.Build.Infrastructure;
 using ForgeDeck.Contracts.Capabilities;
@@ -8,7 +9,9 @@ using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Licensing;
-using ForgeDeck.Core.Persistence;
+using ForgeDeck.Git.Contracts.Events;
+using ForgeDeck.Review.Contracts.Events;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace Core.Tests;
@@ -17,8 +20,21 @@ public sealed class PipelineServiceTests
 {
     private sealed class NoopPublisher : IEventPublisher
     {
-        public Task PublishAsync<TEvent>(TEvent domainEvent, CancellationToken cancellationToken = default) where TEvent : IDomainEvent =>
+        public Task PublishAsync<TEvent>(TEvent data, PublishOptions? options = null, CancellationToken cancellationToken = default)
+            where TEvent : class =>
             Task.CompletedTask;
+    }
+
+    private sealed class CapturingPublisher : IEventPublisher
+    {
+        public List<object> Published { get; } = [];
+
+        public Task PublishAsync<TEvent>(TEvent data, PublishOptions? options = null, CancellationToken cancellationToken = default)
+            where TEvent : class
+        {
+            Published.Add(data);
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
@@ -26,7 +42,7 @@ public sealed class PipelineServiceTests
     {
         await using var harness = CreateHarness();
         var run = harness.Pipelines.StartRun(
-            SqlitePipelineStore.DotNetValidationDefinitionId,
+            EfPipelineStore.DotNetValidationDefinitionId,
             PipelineTrigger.Manual,
             "main",
             "abc1234");
@@ -41,30 +57,63 @@ public sealed class PipelineServiceTests
     }
 
     [Fact]
-    public async Task Change_event_triggers_definitions_without_referencing_review_module()
+    public async Task Review_requested_publishes_pipeline_run_requests_for_matching_definitions()
     {
         await using var harness = CreateHarness();
-        var handler = new ChangeOpenedPipelineTrigger(harness.Pipelines, harness.Store);
+        var publisher = new CapturingPublisher();
+        var trigger = new ReviewRequestedPipelineTrigger(harness.Store, publisher);
         var changeId = Guid.NewGuid();
+        var envelope = Envelope(new ReviewRequestedEvent(changeId, "ATL", "org/repo", "feature", "main", "abc1234"));
 
-        await handler.HandleAsync(new ChangeOpened(changeId, "ATL", "org/repo", "feature", "main", "abc1234"));
+        await trigger.HandleAsync(envelope);
 
-        var runs = harness.Store.FindRunsForChange(changeId);
-        Assert.NotEmpty(runs);
-        await harness.Execution.DrainSimulatedAsync(runs[0].Id);
-        Assert.Contains(harness.Store.FindRunsForChange(changeId), run => run.Status == PipelineRunStatus.Succeeded);
+        Assert.NotEmpty(publisher.Published.OfType<BuildPipelineRunRequestedEvent>());
+        Assert.All(
+            publisher.Published.OfType<BuildPipelineRunRequestedEvent>(),
+            e => Assert.Equal(changeId, e.ChangeId));
     }
 
     [Fact]
-    public async Task Native_push_event_triggers_pipeline_without_referencing_git_module()
+    public async Task Pipeline_run_request_handler_creates_run_idempotently()
     {
         await using var harness = CreateHarness();
-        var handler = new PushReceivedPipelineTrigger(harness.Pipelines, harness.Store);
+        var handler = new BuildPipelineRunRequestHandler(harness.Pipelines, harness.Store);
+        var changeId = Guid.NewGuid();
+        var definitionId = EfPipelineStore.DotNetValidationDefinitionId;
+        var key = Guid.NewGuid();
+        var request = new BuildPipelineRunRequestedEvent(
+            definitionId,
+            "DotNet Validation",
+            "feature",
+            "abc1234",
+            changeId,
+            Trigger: nameof(PipelineTrigger.ChangeOpened),
+            IdempotencyKey: key);
+        var envelope = Envelope(request);
 
-        await handler.HandleAsync(new PushReceived(Guid.NewGuid(), "ATL", "atlas-native", "main", "abc1234"));
+        await handler.HandleAsync(envelope);
+        await handler.HandleAsync(envelope);
 
-        var runs = harness.Pipelines.ListRuns();
-        Assert.Contains(runs, run => run.Trigger == PipelineTrigger.Push && run.CommitSha == "abc1234");
+        var runs = harness.Store.FindRunsForChange(changeId);
+        Assert.Single(runs);
+        Assert.Equal(key, runs[0].IdempotencyKey);
+        await harness.Execution.DrainSimulatedAsync(runs[0].Id);
+        Assert.Equal(PipelineRunStatus.Succeeded, harness.Pipelines.FindRun(runs[0].Id)!.Status);
+    }
+
+    [Fact]
+    public async Task Git_push_publishes_pipeline_run_requests_for_push_triggers()
+    {
+        await using var harness = CreateHarness();
+        var publisher = new CapturingPublisher();
+        var trigger = new GitPushPipelineTrigger(harness.Store, publisher);
+        var envelope = Envelope(new GitRepositoryPushEvent(Guid.NewGuid(), "ATL", "atlas-native", "main", "abc1234"));
+
+        await trigger.HandleAsync(envelope);
+
+        Assert.Contains(
+            publisher.Published.OfType<BuildPipelineRunRequestedEvent>(),
+            e => e.Trigger == nameof(PipelineTrigger.Push) && e.CommitSha == "abc1234");
     }
 
     [Fact]
@@ -102,7 +151,7 @@ public sealed class PipelineServiceTests
         try
         {
             Assert.Throws<ArgumentException>(() =>
-                harness.Pipelines.StartRun(SqlitePipelineStore.DotNetValidationDefinitionId, PipelineTrigger.Manual, "main", "local"));
+                harness.Pipelines.StartRun(EfPipelineStore.DotNetValidationDefinitionId, PipelineTrigger.Manual, "main", "local"));
         }
         finally
         {
@@ -117,14 +166,14 @@ public sealed class PipelineServiceTests
         try
         {
             harness.Pipelines.StartRun(
-                SqlitePipelineStore.DotNetValidationDefinitionId,
+                EfPipelineStore.DotNetValidationDefinitionId,
                 PipelineTrigger.Manual,
                 "main",
                 "abc1234");
 
             var ex = Assert.Throws<LicenceRequiredException>(() =>
                 harness.Pipelines.StartRun(
-                    SqlitePipelineStore.DotNetValidationDefinitionId,
+                    EfPipelineStore.DotNetValidationDefinitionId,
                     PipelineTrigger.Manual,
                     "main",
                     "def5678"));
@@ -137,12 +186,25 @@ public sealed class PipelineServiceTests
         }
     }
 
+    private static EventEnvelope<T> Envelope<T>(T data) where T : class =>
+        new(
+            Guid.NewGuid(),
+            "test",
+            1,
+            DateTimeOffset.UtcNow,
+            new EventActor(ActorType.System, "test", "test"),
+            Guid.NewGuid(),
+            null,
+            null,
+            null,
+            "test",
+            data);
+
     private static TestHarness CreateHarness()
     {
         var path = Path.Combine(Path.GetTempPath(), $"forgedeck-pipelines-{Guid.NewGuid():N}.db");
-        var connections = new SqliteConnectionFactory($"Data Source={path}");
-        var schema = new PipelineSchemaInitializer(connections);
-        var store = new SqlitePipelineStore(connections, schema);
+        var factory = new TestBuildDbContextFactory($"Data Source={path}");
+        var store = new EfPipelineStore(factory);
         var events = new NoopPublisher();
         var capabilities = new CapabilityService(
             [new BuildModule()],
@@ -152,6 +214,15 @@ public sealed class PipelineServiceTests
         var options = Options.Create(new PipelinesOptions { ExecutionMode = "Simulated" });
         var execution = new JobExecutionService(store, options, events);
         return new TestHarness(path, store, pipelines, execution);
+    }
+
+    private sealed class TestBuildDbContextFactory(string connectionString) : IDbContextFactory<BuildDbContext>
+    {
+        public BuildDbContext CreateDbContext()
+        {
+            var options = new DbContextOptionsBuilder<BuildDbContext>().UseSqlite(connectionString).Options;
+            return new BuildDbContext(options);
+        }
     }
 
     private sealed class TestHarness(string path, IPipelineStore store, PipelineService pipelines, JobExecutionService execution) : IAsyncDisposable

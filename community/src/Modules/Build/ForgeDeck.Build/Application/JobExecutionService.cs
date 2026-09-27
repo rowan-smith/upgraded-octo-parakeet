@@ -1,4 +1,6 @@
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Build.Domain;
+using ForgeDeck.Contracts.Checks;
 using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Pipelines;
 using Microsoft.Extensions.Options;
@@ -70,7 +72,7 @@ public sealed class JobExecutionService(IPipelineStore store, IOptions<Pipelines
         store.SaveRun(run);
         if (run.CompletedAt is not null)
         {
-            _ = events.PublishAsync(new PipelineRunCompleted(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha, run.Status.ToString()));
+            _ = PublishTerminalAsync(run);
         }
 
         return run;
@@ -91,6 +93,13 @@ public sealed class JobExecutionService(IPipelineStore store, IOptions<Pipelines
         var job = RequireJob(run, jobId);
         job.Artifacts.Add(artifact);
         store.SaveRun(run);
+        if (!string.IsNullOrWhiteSpace(artifact.Name))
+        {
+            _ = events.PublishAsync(
+                new BuildArtifactProducedEvent(run.Id, run.DefinitionName, artifact.Name, artifact.StoragePath),
+                BuildEventPublishOptions.Default);
+        }
+
         return run;
     }
 
@@ -129,7 +138,7 @@ public sealed class JobExecutionService(IPipelineStore store, IOptions<Pipelines
                 store.SaveRun(run);
                 if (run.CompletedAt is not null)
                 {
-                    _ = events.PublishAsync(new PipelineRunCompleted(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha, run.Status.ToString()));
+                    _ = PublishTerminalAsync(run);
                 }
 
                 return run;
@@ -144,7 +153,7 @@ public sealed class JobExecutionService(IPipelineStore store, IOptions<Pipelines
         store.SaveRun(run);
         if (run.CompletedAt is not null)
         {
-            _ = events.PublishAsync(new PipelineRunCompleted(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha, run.Status.ToString()));
+            _ = PublishTerminalAsync(run);
         }
 
         return run;
@@ -171,6 +180,56 @@ public sealed class JobExecutionService(IPipelineStore store, IOptions<Pipelines
             await Task.Yield();
         }
     }
+
+    private async Task PublishTerminalAsync(PipelineRun run)
+    {
+        switch (run.Status)
+        {
+            case PipelineRunStatus.Succeeded:
+            case PipelineRunStatus.PartiallySucceeded:
+                await events.PublishAsync(
+                    new BuildPipelineRunSucceededEvent(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha),
+                    BuildEventPublishOptions.Default);
+                break;
+            case PipelineRunStatus.Failed:
+                await events.PublishAsync(
+                    new BuildPipelineRunFailedEvent(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha, run.FailureReason),
+                    BuildEventPublishOptions.Default);
+                break;
+            case PipelineRunStatus.Cancelled:
+                await events.PublishAsync(
+                    new BuildPipelineRunCancelledEvent(run.Id, run.ChangeId, run.DefinitionName, run.CommitSha),
+                    BuildEventPublishOptions.Default);
+                break;
+        }
+
+        foreach (var job in run.Jobs.Where(j => j.PublishCheck))
+        {
+            await events.PublishAsync(
+                new CheckUpdatedEvent(
+                    run.ChangeId,
+                    "Pipelines",
+                    job.CheckName,
+                    MapCheckStatus(job.Status, run.Status),
+                    run.CommitSha,
+                    DetailsUrl: $"#/runs/{run.Id}",
+                    Summary: job.FailureReason,
+                    RunId: run.Id),
+                BuildEventPublishOptions.Default);
+        }
+    }
+
+    private static CheckStatus MapCheckStatus(JobStatus jobStatus, PipelineRunStatus runStatus) => jobStatus switch
+    {
+        JobStatus.Succeeded => CheckStatus.Passed,
+        JobStatus.Cancelled => CheckStatus.Cancelled,
+        JobStatus.Skipped => CheckStatus.Skipped,
+        JobStatus.Failed or JobStatus.Lost => CheckStatus.Failed,
+        _ when runStatus == PipelineRunStatus.Cancelled => CheckStatus.Cancelled,
+        _ when runStatus is PipelineRunStatus.Succeeded or PipelineRunStatus.PartiallySucceeded => CheckStatus.Passed,
+        _ when runStatus == PipelineRunStatus.Failed => CheckStatus.Failed,
+        _ => CheckStatus.Neutral
+    };
 
     private PipelineRun RequireRun(Guid runId) =>
         store.FindRun(runId) ?? throw new KeyNotFoundException("Pipeline run was not found.");

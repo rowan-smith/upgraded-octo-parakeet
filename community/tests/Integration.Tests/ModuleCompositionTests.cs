@@ -4,7 +4,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 
 namespace Integration.Tests;
 
@@ -120,7 +119,20 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
         var push = await client.PostAsJsonAsync($"/api/git/repositories/{repositoryId}/push", new { branch = "main", message = "Integration push" });
         push.EnsureSuccessStatusCode();
 
-        var runs = await client.GetStringAsync("/api/pipelines/runs");
+        // Durable outbox delivery is asynchronous; wait for the Push-triggered run.
+        string runs = "";
+        deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            runs = await client.GetStringAsync("/api/pipelines/runs");
+            if (runs.Contains("Push", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            await Task.Delay(100);
+        }
+
         Assert.Contains("Push", runs);
         Assert.Contains("Integration push", await push.Content.ReadAsStringAsync());
     }
@@ -230,6 +242,7 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Core:SeedDemoOnEmpty", "true");
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
+            builder.UseSetting("Events:Dispatcher:PollIntervalMilliseconds", "50");
 
             // Former appsettings.{Full,ReviewOnly,GitOnly,Disabled}.json profiles → explicit module gates.
             switch (environment)

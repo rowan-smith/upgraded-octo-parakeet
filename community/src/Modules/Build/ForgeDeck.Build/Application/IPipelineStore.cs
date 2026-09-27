@@ -12,6 +12,7 @@ public interface IPipelineStore
 
     IReadOnlyList<PipelineRun> ListRuns(int take = 100);
     PipelineRun? FindRun(Guid id);
+    PipelineRun? FindRunByIdempotencyKey(Guid idempotencyKey);
     IReadOnlyList<PipelineRun> FindRunsForChange(Guid changeId);
     IReadOnlyList<PipelineRun> FindActiveRunsForChange(Guid changeId, Guid definitionId);
     void SaveRun(PipelineRun run);

@@ -14,6 +14,7 @@ public sealed class PipelineRun
     public required string CommitSha { get; init; }
     public Guid? ChangeId { get; init; }
     public string? RepositoryUrl { get; init; }
+    public Guid? IdempotencyKey { get; init; }
     [JsonInclude] public Guid? SupersededByRunId { get; private set; }
     [JsonInclude] public bool IsSuperseded { get; private set; }
     [JsonInclude] public PipelineRunStatus Status { get; private set; } = PipelineRunStatus.Queued;
@@ -31,7 +32,8 @@ public sealed class PipelineRun
         string reference,
         string commitSha,
         Guid? changeId = null,
-        string? repositoryUrl = null)
+        string? repositoryUrl = null,
+        Guid? idempotencyKey = null)
     {
         var run = new PipelineRun
         {
@@ -44,6 +46,7 @@ public sealed class PipelineRun
             CommitSha = commitSha,
             ChangeId = changeId,
             RepositoryUrl = repositoryUrl,
+            IdempotencyKey = idempotencyKey,
             Jobs = definition.Jobs.Select((job, index) => PipelineJob.FromDefinition(job, index)).ToList()
         };
         foreach (var job in run.Jobs)

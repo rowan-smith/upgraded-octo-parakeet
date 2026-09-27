@@ -89,6 +89,7 @@ async function loadWorkspace(){
   if(!state.selectedConnectionId||!state.connections.some(c=>c.id===state.selectedConnectionId))
     state.selectedConnectionId=state.connections[0]?.id||null;
   if(hasModule('review'))state.changes=await api('/api/review/changes');
+  await refreshPermissions().catch(()=>{});
   paintShell();renderNavigation();bindShell();
   const route=location.hash.slice(1)||'/home';
   await navigate(route,false);
@@ -140,7 +141,16 @@ function permissionButton(label,attrs,permission,options={}){
 }
 async function refreshPermissions(){
   try{
-    const effective=await api('/api/access/effective');
+    const params=new URLSearchParams();
+    const projectId=state.context?.project?.id;
+    if(projectId && !isOrgRoute(state.route||location.hash.slice(1)||'/home')){
+      params.set('scopeType','Project');
+      params.set('scopeId',projectId);
+    }else{
+      params.set('scopeType','Organisation');
+    }
+    const qs=params.toString();
+    const effective=await api(`/api/access/effective${qs?`?${qs}`:''}`);
     state.permissions=effective.permissions||[];
     if(state.me)state.me.permissions=state.permissions;
   }catch{/* keep cached */}
@@ -151,6 +161,9 @@ function closePermissionDrawer(){
   drawer.hidden=true;
   drawer.setAttribute('aria-hidden','true');
 }
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')closePermissionDrawer();
+});
 async function openPermissionExplain(permission,scopeType,scopeId,userId){
   const params=new URLSearchParams({permission});
   if(scopeType)params.set('scopeType',scopeType);
@@ -780,6 +793,10 @@ function openProjectSwitcher(){
 }
 
 function openCreateProject(){
+  if(!canCreateProject()){
+    showToast('You need permission to create projects.',true);
+    return;
+  }
   openProjectWizard();
 }
 
@@ -870,6 +887,8 @@ function renderNavigation(){
 
 async function navigate(route,push=true){
   route=normalizeRoute(route);
+  const prevOrg=isOrgRoute(state.route);
+  const nextOrg=isOrgRoute(route);
   state.route=route;
   if(push){
     const next=`#${route}`;
@@ -884,6 +903,7 @@ async function navigate(route,push=true){
       }
     }
   }
+  if(prevOrg!==nextOrg)await refreshPermissions().catch(()=>{});
   renderNavigation();
   setActiveNav(route);
   try{
@@ -918,7 +938,8 @@ async function navigate(route,push=true){
     if(route.startsWith('/settings'))return await renderProjectSettings(route);
     if(route.startsWith('/people/members/'))return await renderMemberDetail(route.split('/')[3]);
     if(route.startsWith('/people/teams/'))return await renderTeamDetail(route.split('/')[3]);
-    if(route==='/people')return await renderPeople();
+    if(route.startsWith('/people/roles/'))return await renderRoleDetail(route.split('/')[3]);
+    if(route==='/people'){state.peopleTab='members';return await renderPeople()}
     if(route==='/profile')return await renderProfile();
     if(route.startsWith('/invite/'))return await renderInviteAccept(decodeURIComponent(route.slice('/invite/'.length)));
     return await renderOrgHome();
@@ -1063,7 +1084,7 @@ async function renderOrgHome(){
     <div class="card-body">
       <p class="description">Welcome, ${esc(greetingName)}. Your organisation is ready — create a project to start shipping.</p>
       <ul class="get-started-list">
-        <li><button class="button primary" id="homeCreateFirstProject">Create your first Project</button></li>
+        ${canCreateProject()?'<li><button class="button primary" id="homeCreateFirstProject">Create your first Project</button></li>':''}
         <li><button class="button" data-route="/people">Invite people</button></li>
         <li><button class="button" data-route="/organisation/settings/modules">Browse Modules</button></li>
       </ul>
@@ -1075,7 +1096,7 @@ async function renderOrgHome(){
   </div>
   <div class="header-actions">
     <button class="button" data-route="/projects">All projects</button>
-    <button class="button primary" id="homeNewProject">＋ New project</button>
+    ${canCreateProject()?'<button class="button primary" id="homeNewProject">＋ New project</button>':''}
   </div></div>
   ${getStarted}
   ${!hasModule('code')&&!hasModule('review')&&!hasModule('pipelines')&&!hasModule('deploy')?`<div class="card" style="margin-bottom:18px"><div class="card-header"><h2>Extend ForgeDeck</h2><button class="button primary" data-route="/organisation/settings/modules">Browse Modules</button></div>
@@ -1112,7 +1133,7 @@ async function renderOrgHome(){
       </div>
     </section>`:''}
   </div>`;
-  el('homeNewProject').onclick=()=>openCreateProject();
+  el('homeNewProject')&&(el('homeNewProject').onclick=()=>openCreateProject());
   const first=el('homeCreateFirstProject');
   if(first)first.onclick=()=>openCreateProject();
   document.querySelectorAll('[data-open-project]').forEach(btn=>btn.onclick=()=>openProject(btn.dataset.openProject));
@@ -1140,7 +1161,7 @@ async function renderProjectsPage(){
     <h1>Projects</h1>
     <p class="description">All projects in ${esc(org?.name||'this organisation')}.</p>
   </div>
-  <div class="header-actions"><button class="button primary" id="projectsNew">＋ New project</button></div></div>
+  <div class="header-actions">${canCreateProject()?'<button class="button primary" id="projectsNew">＋ New project</button>':''}</div></div>
   <div class="projects-grid">
     ${projects.map(p=>{
       const starred=starredIds.has(p.id);
@@ -1165,7 +1186,7 @@ async function renderProjectsPage(){
       </article>`;
     }).join('')||'<div class="empty">No projects yet. Create one to get started.</div>'}
   </div>`;
-  el('projectsNew').onclick=()=>openCreateProject();
+  el('projectsNew')&&(el('projectsNew').onclick=()=>openCreateProject());
   document.querySelectorAll('[data-open-project]').forEach(btn=>btn.onclick=()=>openProject(btn.dataset.openProject));
   document.querySelectorAll('[data-star-project]').forEach(btn=>btn.onclick=async()=>{
     const ok=await toggleProjectStar(btn.dataset.starProject,btn.dataset.starred==='1');
@@ -1279,13 +1300,21 @@ async function renderOverview(){
   const filtered=filterOverviewPullRequests(state.changes,filter,me);
   const sortedPrs=filtered.slice().sort((a,b)=>new Date(b.updatedAt||b.createdAt)-new Date(a.updatedAt||a.createdAt)).slice(0,12);
 
-  let runs=[],commits=[];
+  let runs=[],commits=[],owningTeam=null;
   try{
     const jobs=[];
     if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
     if(hasModule('code')&&source()){
       jobs.push(api(`/api/source/repositories/${source().id}/commits?branch=${encodeURIComponent(source().defaultBranch||'main')}`)
         .then(r=>commits=r||[]).catch(()=>[]));
+    }
+    if(project?.id){
+      jobs.push(api(`/api/projects`).then(list=>{
+        const full=(list||[]).find(p=>p.id===project.id);
+        if(full?.owningTeamId){
+          return api(`/api/teams/${full.owningTeamId}`).then(t=>{owningTeam=t.team||t}).catch(()=>{});
+        }
+      }).catch(()=>{}));
     }
     await Promise.all(jobs);
   }catch{/* overview widgets degrade gracefully */}
@@ -1322,7 +1351,7 @@ async function renderOverview(){
       <div class="header-actions">
         ${hasModule('code')?'<button class="button" data-route="/files">Browse files</button>':''}
         ${hasModule('review')?'<button class="button" data-route="/changes">Open PRs</button>':''}
-        ${hasModule('pipelines')?'<button class="button primary" data-route="/pipelines">Run pipeline</button>':''}
+        ${hasModule('pipelines')&&can('pipelines.run')?'<button class="button primary" data-route="/pipelines">Run pipeline</button>':hasModule('pipelines')?'<button class="button" data-route="/pipelines">Pipelines</button>':''}
       </div>
     </header>
 
@@ -1357,6 +1386,9 @@ async function renderOverview(){
             <div class="meta-list" style="margin-top:12px">
               <div class="meta-row"><span>Project</span><strong>${esc(project?.name||'—')}</strong></div>
               <div class="meta-row"><span>Organisation</span><strong>${esc(org?.name||'—')}</strong></div>
+              <div class="meta-row"><span>Owned by</span><strong>${owningTeam
+                ?`<button class="button text" data-route="/people/teams/${esc(owningTeam.id)}">${esc(owningTeam.name)}</button>`
+                :'—'}</strong></div>
               <div class="meta-row"><span>Default branch</span><strong>${esc(defaultBranch)}</strong></div>
             </div>
           </div>
@@ -1435,36 +1467,24 @@ async function renderPeople(){
   if(tab==='teams')return renderPeopleTeams(tabs);
   if(tab==='roles')return renderPeopleRoles(tabs);
   if(tab==='invitations')return renderPeopleInvitations(tabs);
-  const [members,teams]=await Promise.all([
-    api('/api/organisation/members'),
-    api('/api/teams').catch(()=>[])
-  ]);
-  const teamCountByUser={};
-  await Promise.all((teams||[]).map(async team=>{
-    try{
-      const detail=await api(`/api/teams/${team.id}`);
-      (detail.members||[]).forEach(m=>{
-        const id=m.user?.id||m.userId;
-        if(id)teamCountByUser[id]=(teamCountByUser[id]||0)+1;
-      });
-    }catch{/* ignore */}
-  }));
+  const members=await api('/api/organisation/members');
   const canInvite=can('users.manage')||can('users.invite');
   el('content').innerHTML=`<div class="list-page-header"><div><h1>People</h1><p>Organisation members, teams, and roles.</p></div>
     ${canInvite?'<button class="button primary" id="inviteMember">Invite member</button>':''}</div>${tabs}
     <div class="card table-wrap"><table class="data-table">
-      <thead><tr><th>Account</th><th>Organisation role</th><th>Teams</th><th>Expiration</th><th>Last activity</th></tr></thead>
+      <thead><tr><th>Account</th><th>Organisation role</th><th>Teams</th><th>Project access</th><th>Expiration</th><th>Last activity</th></tr></thead>
       <tbody>${members.map(m=>{
         const userId=m.user?.id;
         const name=m.profile?.displayName||m.user?.username||'Member';
         return `<tr class="click-row" data-member="${esc(userId)}">
           <td><div class="table-identity"><span class="avatar sm">${esc(initials(name))}</span><div><strong>${esc(name)}</strong><div class="muted">@${esc(m.user?.username)} · ${esc(m.user?.email)}</div></div></div></td>
           <td>${esc(m.membership?.role||'Member')}</td>
-          <td>${teamCountByUser[userId]||0}</td>
+          <td>${m.summary?.teams??0}</td>
+          <td>${m.summary?.projects??0}</td>
           <td>${m.membership?.expiresAt?esc(new Date(m.membership.expiresAt).toLocaleDateString()):'Never'}</td>
           <td>${esc(relativeTime(m.user?.lastLoginAt||m.membership?.joinedAt))}</td>
         </tr>`;
-      }).join('')||'<tr><td colspan="5"><div class="empty">No members.</div></td></tr>'}</tbody>
+      }).join('')||'<tr><td colspan="6"><div class="empty">No members.</div></td></tr>'}</tbody>
     </table></div>`;
   wirePeopleTabs();
   document.querySelectorAll('[data-member]').forEach(row=>row.onclick=()=>navigate(`/people/members/${row.dataset.member}`));
@@ -1494,18 +1514,25 @@ function openInviteMemberModal(){
 }
 
 async function renderPeopleTeams(tabs){
-  const teams=await api('/api/teams');
+  const [teams,roles]=await Promise.all([
+    api('/api/teams'),
+    api('/api/access/roles').catch(()=>[])
+  ]);
+  const roleName=id=>(roles||[]).find(r=>r.id===id)?.name;
   const canCreate=can('teams.manage')||can('teams.create');
+  const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator','member'].includes(r.slug));
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Teams</h1><p>Group people and own or access projects.</p></div>
     ${canCreate?'<button class="button primary" id="createTeam">New team</button>':''}</div>${tabs}
     <div class="card table-wrap"><table class="data-table">
-      <thead><tr><th>Team</th><th>Description</th><th>Updated</th><th></th></tr></thead>
-      <tbody>${(teams||[]).map(t=>`<tr class="click-row" data-team="${esc(t.id)}">
-        <td><strong>${esc(t.name)}</strong><div class="muted">/${esc(t.slug)}</div></td>
-        <td>${esc(t.description||'—')}</td>
+      <thead><tr><th>Team</th><th>Leads</th><th>Members</th><th>Projects</th><th>Default access</th><th>Updated</th></tr></thead>
+      <tbody>${(teams||[]).map(t=>`<tr class="click-row module-card" data-team="${esc(t.id)}">
+        <td><strong>${esc(t.name)}</strong><div class="muted">/${esc(t.slug)}${t.description?` · ${esc(t.description)}`:''}</div></td>
+        <td>${t.summary?.leads??0}</td>
+        <td>${t.summary?.members??0}</td>
+        <td>${t.summary?.projects??0}</td>
+        <td>${t.roleId?esc(roleName(t.roleId)||'custom'):'—'}</td>
         <td>${esc(relativeTime(t.updatedAt||t.createdAt))}</td>
-        <td><button class="button text" data-open-team="${esc(t.id)}">Open</button></td>
-      </tr>`).join('')||'<tr><td colspan="4"><div class="empty">No teams yet.</div></td></tr>'}</tbody>
+      </tr>`).join('')||'<tr><td colspan="6"><div class="empty">No teams yet.</div></td></tr>'}</tbody>
     </table></div>`;
   wirePeopleTabs();
   const create=el('createTeam');
@@ -1513,19 +1540,24 @@ async function renderPeopleTeams(tabs){
     <label class="form-label" for="teamName">Name</label><input class="field" id="teamName" value="Platform">
     <label class="form-label" for="teamSlug">Slug</label><input class="field" id="teamSlug" value="platform">
     <label class="form-label" for="teamDesc">Description</label><input class="field" id="teamDesc" placeholder="Optional">
+    <label class="form-label" for="teamRole">Default project role</label>
+    <select class="field" id="teamRole"><option value="">No default role</option>${projectRoles.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
+    <p class="description">Used when this team is granted project access without an explicit role.</p>
     <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Create team</button></div></div>`,async e=>{
     if(e.submitter?.value!=='submit')return;
     try{
-      const team=await api('/api/teams',{method:'POST',body:JSON.stringify({
+      await api('/api/teams',{method:'POST',body:JSON.stringify({
         name:el('teamName').value,
         slug:el('teamSlug').value,
-        description:el('teamDesc').value||null
+        description:el('teamDesc').value||null,
+        roleId:el('teamRole').value||null
       })});
       showToast('Team created');
-      navigate(`/people/teams/${team.id}`);
+      state.peopleTab='teams';
+      await renderPeople();
     }catch(error){showToast(error.message,true)}
   });
-  document.querySelectorAll('[data-team],[data-open-team]').forEach(elBtn=>elBtn.onclick=()=>navigate(`/people/teams/${elBtn.dataset.team||elBtn.dataset.openTeam}`));
+  document.querySelectorAll('[data-team]').forEach(elBtn=>elBtn.onclick=()=>navigate(`/people/teams/${elBtn.dataset.team}`));
 }
 
 async function renderPeopleRoles(tabs){
@@ -1534,16 +1566,50 @@ async function renderPeopleRoles(tabs){
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Roles</h1><p>Organisation roles and reusable templates. Team-specific roles are managed on each team.</p></div>
     ${canAny('roles.manage','users.manage')?'<button class="button primary" id="createOrgRole">Create role</button>':''}
     <button class="button" data-route="/organisation/settings/permissions">Permission catalogue</button></div>${tabs}
-    <div class="card">${orgRoles.map(role=>`<div class="module-card">
+    <div class="card">${orgRoles.map(role=>`<div class="module-card click-row" data-role="${esc(role.id)}">
       <div><h3>${esc(role.name)}</h3><p>${role.isSystem?'System role':'Custom'} · ${role.permissions?.length||0} permissions${role.description?` · ${esc(role.description)}`:''}</p></div>
       <span class="module-state">${esc(role.scopeType||'Organisation')}</span>
-    </div>`).join('')||'<div class="empty">No organisation roles.</div>'}</div>`;
+    </div>`).join('')||'<div class="empty">No organisation roles.</div>'}
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>All system roles</h2></div>
+      <div class="card-body">${(roles||[]).filter(r=>r.isSystem).map(role=>`<div class="module-card click-row" data-role="${esc(role.id)}">
+        <div><h3>${esc(role.name)}</h3><p>${esc(role.scopeType)} · ${role.permissions?.length||0} permissions</p></div>
+        <span class="module-state">${esc(role.slug)}</span>
+      </div>`).join('')}</div></div></div>`;
   wirePeopleTabs();
+  document.querySelectorAll('[data-role]').forEach(card=>card.onclick=()=>navigate(`/people/roles/${card.dataset.role}`));
   const create=el('createOrgRole');
   if(create)create.onclick=async()=>{
     const catalogue=await api('/api/access/permissions').catch(()=>[]);
     openAccessRoleEditor(null,catalogue);
   };
+}
+
+async function renderRoleDetail(roleId){
+  const [roles,catalogue]=await Promise.all([
+    api('/api/access/roles').catch(()=>[]),
+    api('/api/access/permissions').catch(()=>[])
+  ]);
+  const role=(roles||[]).find(r=>r.id===roleId);
+  if(!role)return renderError(new Error('Role not found.'));
+  crumbs(orgCrumb(`People <span>/</span> Roles <span>/</span> ${esc(role.name)}`));
+  const descriptions=Object.fromEntries((catalogue||[]).map(p=>[p.key,p]));
+  el('content').innerHTML=`<div class="list-page-header"><div>
+    <p class="eyebrow"><button class="button text" data-route="/people">← People</button></p>
+    <h1>${esc(role.name)}</h1>
+    <p class="description">${role.isSystem?'System':'Custom'} · ${esc(role.scopeType||'Organisation')} · /${esc(role.slug)}${role.description?` · ${esc(role.description)}`:''}</p>
+  </div>
+  ${!role.isSystem&&canAny('roles.manage','users.manage')?`<div class="header-actions"><button class="button" id="editRoleDetail">Edit</button></div>`:''}
+  </div>
+  <div class="card"><div class="card-header"><h2>Permissions</h2></div>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Permission</th><th>Title</th><th></th></tr></thead>
+      <tbody>${(role.permissions||[]).map(p=>`<tr>
+        <td><code>${esc(p)}</code></td>
+        <td>${esc(descriptions[p]?.title||'—')}</td>
+        <td><button class="button text" data-explain="${esc(p)}">Why?</button></td>
+      </tr>`).join('')||'<tr><td colspan="3"><div class="empty">No permissions.</div></td></tr>'}</tbody></table></div></div>`;
+  document.querySelectorAll('[data-explain]').forEach(btn=>btn.onclick=()=>openPermissionExplain(btn.dataset.explain,role.scopeType||'Organisation'));
+  const edit=el('editRoleDetail');
+  if(edit)edit.onclick=()=>openAccessRoleEditor(role,catalogue);
 }
 
 async function renderPeopleInvitations(tabs){
@@ -1688,7 +1754,7 @@ async function renderTeamDetail(teamId){
     ${['overview','members','projects','roles','permissions','settings'].map(id=>`<button class="button ${tab===id?'primary':''}" data-team-tab="${id}">${id[0].toUpperCase()+id.slice(1)}</button>`).join('')}
   </div>`;
   const canManageMembers=can('teams.manage')||can('team.members.manage');
-  const canCreateProject=can('projects.create')||can('team.projects.create');
+  const canCreateProjectOnTeam=canCreateProject();
   const leads=(detail.members||[]).filter(m=>m.role?.slug==='team-lead');
   let body='';
   if(tab==='overview'){
@@ -1698,7 +1764,9 @@ async function renderTeamDetail(teamId){
       <article class="metric-card"><p class="metric-label">Projects</p><p class="metric-value">${(projects||[]).filter(p=>p.owningTeamId===teamId).length}</p></article>
     </div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h2>About</h2></div>
-      <div class="card-body"><p class="description">${esc(team.description||'No description.')}</p></div></div>`;
+      <div class="card-body"><p class="description">${esc(team.description||'No description.')}</p>
+        <p class="description">Default project role: <strong>${esc((roles||[]).find(r=>r.id===team.roleId)?.name||'none')}</strong></p>
+      </div></div>`;
   }else if(tab==='members'){
     body=`<div class="card"><div class="card-header"><h2>Members</h2>
       ${canManageMembers?'<button class="button primary" id="teamAddMember">Add member</button>':''}
@@ -1708,12 +1776,13 @@ async function renderTeamDetail(teamId){
         <td><button class="button text" data-route="/people/members/${esc(m.user?.id)}">${esc(m.profile?.displayName||m.user?.username)}</button></td>
         <td>${esc(m.role?.name||'Team Member')}</td>
         <td>${m.membership?.expiresAt?esc(new Date(m.membership.expiresAt).toLocaleDateString()):'Never'}</td>
-        <td>${canManageMembers?`<button class="button danger text" data-remove-member="${esc(m.user?.id)}">Remove</button>`:''}</td>
+        <td>${canManageMembers?`<button class="button text" data-change-role="${esc(m.user?.id)}" data-role-id="${esc(m.role?.id||'')}">Change role</button>
+          <button class="button danger text" data-remove-member="${esc(m.user?.id)}">Remove</button>`:''}</td>
       </tr>`).join('')||'<tr><td colspan="4"><div class="empty">No members.</div></td></tr>'}</tbody></table></div></div>`;
   }else if(tab==='projects'){
     const owned=(projects||[]).filter(p=>p.owningTeamId===teamId);
     body=`<div class="card"><div class="card-header"><h2>Projects</h2>
-      ${canCreateProject?`<button class="button primary" id="teamNewProject">New project</button>`:''}
+      ${canCreateProjectOnTeam?`<button class="button primary" id="teamNewProject">New project</button>`:''}
     </div>
     <div class="card-body">${owned.map(p=>`<div class="module-card"><div><h3>${esc(p.name)}</h3><p>/${esc(p.slug)} · Owner</p></div></div>`).join('')||'<div class="empty">No owned projects yet.</div>'}</div></div>`;
   }else if(tab==='roles'){
@@ -1723,10 +1792,16 @@ async function renderTeamDetail(teamId){
     body=`<div class="card"><div class="card-body"><p class="description">Team administration is granted through Team Lead / custom team roles and direct grants.</p>
       <button class="button" data-route="/organisation/settings/permissions">Open permission settings</button></div></div>`;
   }else{
+    const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator','member'].includes(r.slug));
     body=`<div class="card"><div class="card-body settings-form">
       <label class="form-label">Name</label><input class="field" id="teamSettingsName" value="${esc(team.name)}" ${can('teams.manage')?'':'disabled'}>
       <label class="form-label">Description</label><input class="field" id="teamSettingsDesc" value="${esc(team.description||'')}" ${can('teams.manage')?'':'disabled'}>
-      ${can('teams.manage')?'<div class="modal-actions" style="margin-top:16px"><button class="button primary" id="teamSettingsSave">Save</button></div>':''}
+      <label class="form-label" for="teamDetailRole">Default project role</label>
+      <select class="field" id="teamDetailRole" ${can('teams.manage')?'':'disabled'}>
+        <option value="">No default role</option>
+        ${projectRoles.map(r=>`<option value="${esc(r.id)}" ${r.id===team.roleId?'selected':''}>${esc(r.name)}</option>`).join('')}
+      </select>
+      ${can('teams.manage')?'<div class="modal-actions" style="margin-top:16px"><button class="button" id="teamRoleSave" value="role">Update role</button><button class="button primary" id="teamSettingsSave">Save</button></div>':''}
     </div></div>`;
   }
   el('content').innerHTML=`<div class="list-page-header"><div>
@@ -1758,14 +1833,44 @@ async function renderTeamDetail(teamId){
       showToast('Member removed');renderTeamDetail(teamId);
     }catch(error){showToast(error.message,true)}
   });
+  document.querySelectorAll('[data-change-role]').forEach(btn=>btn.onclick=()=>{
+    openModal(`<div class="modal-content"><h2>Change team role</h2>
+      <label class="form-label">Team role</label>
+      <select class="field" id="changeTeamRole">${teamRoles.map(r=>`<option value="${esc(r.id)}" ${r.id===btn.dataset.roleId?'selected':''}>${esc(r.name)}</option>`).join('')}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Save</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api(`/api/teams/${teamId}/members/${btn.dataset.changeRole}`,{method:'PATCH',body:JSON.stringify({
+          userId:btn.dataset.changeRole,
+          roleId:el('changeTeamRole').value
+        })});
+        showToast('Role updated');renderTeamDetail(teamId);
+      }catch(error){showToast(error.message,true)}
+    });
+  });
   const newProject=el('teamNewProject');
   if(newProject)newProject.onclick=()=>openProjectWizard({owningTeamId:teamId});
+  const saveRole=el('teamRoleSave');
+  if(saveRole)saveRole.onclick=async()=>{
+    try{
+      const roleId=el('teamDetailRole').value||null;
+      await api(`/api/teams/${teamId}`,{method:'PATCH',body:JSON.stringify({
+        roleId,
+        clearRole:!roleId
+      })});
+      showToast('Team role updated');
+      renderTeamDetail(teamId);
+    }catch(error){showToast(error.message,true)}
+  };
   const save=el('teamSettingsSave');
   if(save)save.onclick=async()=>{
     try{
+      const roleId=el('teamDetailRole')?.value||null;
       await api(`/api/teams/${teamId}`,{method:'PATCH',body:JSON.stringify({
         name:el('teamSettingsName').value,
-        description:el('teamSettingsDesc').value
+        description:el('teamSettingsDesc').value,
+        roleId,
+        clearRole:!roleId
       })});
       showToast('Team updated');renderTeamDetail(teamId);
     }catch(error){showToast(error.message,true)}
@@ -1902,7 +2007,7 @@ function renderChanges(){
       <div class="header-actions">
         <button class="button" id="refreshChanges">Refresh</button>
         <button class="button" id="discoverButton">Discover</button>
-        <button class="button primary" id="importButton">＋ New pull request</button>
+        ${permissionButton('＋ New pull request','id="importButton"','review.request',{primary:true,hide:true})}
       </div>
     </div>
     <div class="pr-status-tabs" role="tablist">
@@ -1944,7 +2049,7 @@ function renderChanges(){
     <div id="recentClosedList"></div>
   </div>`;
 
-  el('importButton').onclick=openImport;
+  const importBtn=el('importButton');if(importBtn)importBtn.onclick=openImport;
   el('discoverButton').onclick=openDiscover;
   el('refreshChanges').onclick=async()=>{state.changes=await api('/api/review/changes');renderChanges();showToast('Changes refreshed')};
   el('viewAllClosed').onclick=()=>{state.changesTab='closed';el('statusFilter').value='Closed';syncChangesTabUi();applyChangeFilters()};
@@ -2057,17 +2162,17 @@ function renderChange(){
   </div>
   <div class="header-actions">
     <button class="button" id="refreshChange">↻ Refresh</button>
-    <button class="button" id="reviewButton" ${['Merged','Closed'].includes(c.status)?'disabled':''}>Review changes</button>
-    <button class="button primary" id="mergeButton" ${c.canMerge?'':'disabled'}>Merge</button>
-    <button class="button danger" id="closeButton" ${['Merged','Closed'].includes(c.status)?'disabled':''}>Close</button>
+    ${permissionButton('Review changes','id="reviewButton"'+(['Merged','Closed'].includes(c.status)?' disabled':''),'review.approve',{hide:true})}
+    ${permissionButton('Merge','id="mergeButton"'+(c.canMerge?'':' disabled'),'review.merge',{primary:true,hide:true})}
+    ${permissionButton('Close','id="closeButton"'+(['Merged','Closed'].includes(c.status)?' disabled':''),'review.manage',{danger:true,hide:true})}
   </div></div>
   <div class="tabbar" role="tablist">${tabs().map(tab=>`<button class="tab ${state.tab===tab.id?'active':''}" data-tab="${tab.id}" role="tab">${esc(tab.label)}${tab.id==='discussion'?`<span class="count">${c.comments.length}</span>`:''}</button>`).join('')}</div>
   <div id="tabContent"></div>`;
   document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=async()=>{state.tab=button.dataset.tab;renderChange()});
   el('refreshChange').onclick=()=>refreshActiveChange(true);
-  el('reviewButton').onclick=openReview;
-  el('mergeButton').onclick=openMergeConfirm;
-  el('closeButton').onclick=()=>mutate(`/api/review/changes/${c.id}/close`,{},'Change closed');
+  const reviewBtn=el('reviewButton');if(reviewBtn)reviewBtn.onclick=openReview;
+  const mergeBtn=el('mergeButton');if(mergeBtn)mergeBtn.onclick=openMergeConfirm;
+  const closeBtn=el('closeButton');if(closeBtn)closeBtn.onclick=()=>mutate(`/api/review/changes/${c.id}/close`,{},'Change closed');
   renderTab();
 }
 
@@ -2332,8 +2437,8 @@ async function renderFiles(route){
       </div>
       <div class="header-actions">
         <button class="button" id="cloneButton">&lt;&gt; Code</button>
-        ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Run pipeline</button>':''}
-        ${hasModule('review')?'<button class="button primary" data-route="/changes">＋ Create pull request</button>':''}
+        ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Pipelines</button>':''}
+        ${hasModule('review')?permissionButton('＋ Create pull request','data-route="/changes"','review.request',{primary:true,hide:true}):''}
       </div>
     </div>
   </section>
@@ -2647,7 +2752,7 @@ async function renderOrgProjectsSettings(){
   state.projects=projects;
   renderSettingsShell('org','/organisation/settings/projects','Projects','Create, open, and remove projects.',`
     <div class="card"><div class="card-header"><h2>Projects</h2>
-      <button class="button primary" id="orgProjectsNew">＋ New project</button>
+      ${canCreateProject()?'<button class="button primary" id="orgProjectsNew">＋ New project</button>':''}
     </div>
     <div class="card-body">
       ${projects.map(p=>`<div class="module-card">
@@ -2659,7 +2764,7 @@ async function renderOrgProjectsSettings(){
         </div>
       </div>`).join('')||'<div class="empty small">No projects yet.</div>'}
     </div></div>`);
-  el('orgProjectsNew').onclick=()=>openCreateProject();
+  el('orgProjectsNew')&&(el('orgProjectsNew').onclick=()=>openCreateProject());
   document.querySelectorAll('[data-open-project]').forEach(btn=>btn.onclick=()=>openProject(btn.dataset.openProject));
   document.querySelectorAll('[data-delete-project]').forEach(btn=>btn.onclick=async()=>{
     if(!confirm('Delete this project? This cannot be undone.'))return;
@@ -2700,7 +2805,7 @@ async function renderOrgUsersSettings(){
       <div><h3>${esc(m.profile?.displayName||m.user?.username)}</h3><p>@${esc(m.user?.username)} · ${esc(m.user?.email)} · ${esc(m.membership?.role)} · ${esc(m.membership?.status)}</p></div>
       <span class="module-state">${esc(m.membership?.role)}</span>
     </div>`).join('')||'<div class="empty">No members.</div>'}</div>
-    <div class="modal-actions" style="margin-top:12px"><button class="button primary" id="inviteMember">Invite</button>
+    <div class="modal-actions" style="margin-top:12px">${canAny('users.manage','users.invite')?'<button class="button primary" id="inviteMember">Invite</button>':''}
     <button class="button" data-route="/people">Open People</button></div>`;
   }
   renderSettingsShell('org','/organisation/settings/users','Users & Groups','Members, teams, and invitations for this organisation.',body);
@@ -2753,15 +2858,47 @@ async function renderOrgSecuritySettings(){
 }
 
 async function renderOrgPermissionsSettings(){
-  const [roles,catalogue]=await Promise.all([
+  const tab=state.orgPermsTab||'roles';
+  const [roles,catalogue,grants,members]=await Promise.all([
     api('/api/access/roles').catch(()=>[]),
-    api('/api/access/permissions').catch(()=>[])
+    api('/api/access/permissions/catalogue').catch(()=>api('/api/access/permissions').catch(()=>[])),
+    api('/api/access/grants?scopeType=Organisation').catch(()=>[]),
+    api('/api/organisation/members').catch(()=>[])
   ]);
   const byCategory={};
   (catalogue||[]).forEach(p=>(byCategory[p.category]??=[]).push(p));
-  renderSettingsShell('org','/organisation/settings/permissions','Permissions','Groups and roles control fine-grained access inside projects.',`
-    <div class="card"><div class="card-header"><h2>Roles</h2>
-      <button class="button primary" id="createAccessRole">New custom role</button>
+  const tabs=`<div class="filterbar">
+    <button class="button ${tab==='roles'?'primary':''}" id="orgPermRoles">Roles</button>
+    <button class="button ${tab==='grants'?'primary':''}" id="orgPermGrants">Direct grants</button>
+    <button class="button ${tab==='catalogue'?'primary':''}" id="orgPermCatalogue">Permission catalogue</button>
+  </div>`;
+  let body='';
+  if(tab==='grants'){
+    const canManage=canAny('permissions.manage','users.manage');
+    body=`${tabs}<div class="card" style="margin-top:12px"><div class="card-header"><h2>Organisation direct grants</h2>
+      ${canManage?'<button class="button primary" id="grantOrgPerm">Grant permission</button>':''}
+    </div>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Permission</th><th>Granted</th></tr></thead>
+      <tbody>${(grants||[]).map(g=>{
+        const member=(members||[]).find(m=>(m.user?.id||m.userId)===g.userId);
+        return `<tr><td>${esc(member?.profile?.displayName||member?.user?.username||g.userId)}</td>
+          <td><code>${esc(g.permissionId)}</code></td>
+          <td>${esc(g.grantedAt?new Date(g.grantedAt).toLocaleString():'—')}</td></tr>`;
+      }).join('')||'<tr><td colspan="3"><div class="empty small">No direct organisation grants.</div></td></tr>'}</tbody></table></div></div>`;
+  }else if(tab==='catalogue'){
+    body=`${tabs}<div class="card" style="margin-top:12px"><div class="card-header"><h2>Permission catalogue</h2></div>
+      <div class="card-body">
+        ${Object.entries(byCategory).map(([cat,items])=>`
+          <p class="form-label">${esc(cat)}</p>
+          <div class="perm-grid">${items.map(p=>`<div class="perm-chip" title="${esc(p.description||'')}">
+            <code>${esc(p.key)}</code><span>${esc(p.title||p.key)}</span>
+            <small>${esc((p.allowedScopes||[]).join(', ')||'—')}${p.active===false?' · inactive':''}</small>
+          </div>`).join('')}</div>
+        `).join('')||'<div class="empty small">Catalogue unavailable.</div>'}
+      </div></div>`;
+  }else{
+    body=`${tabs}<div class="card" style="margin-top:12px"><div class="card-header"><h2>Roles</h2>
+      ${canAny('roles.manage','users.manage')?'<button class="button primary" id="createAccessRole">New custom role</button>':''}
     </div>
     <div class="card-body" id="accessRolesList">
       ${(roles||[]).map(r=>`
@@ -2769,7 +2906,7 @@ async function renderOrgPermissionsSettings(){
           <span class="module-logo">${esc((r.name||'?')[0])}</span>
           <div>
             <h3>${esc(r.name)} ${r.isSystem?'<span class="pill">System</span>':''}</h3>
-            <p class="description">${esc(r.description||r.slug)} · ${(r.permissions||[]).length} permissions</p>
+            <p class="description">${esc(r.description||r.slug)} · ${esc(r.scopeType||'Organisation')} · ${(r.permissions||[]).length} permissions</p>
           </div>
           <div class="settings-row-actions">
             ${r.isSystem?'':'<button class="button" data-edit-role="'+esc(r.id)+'">Edit</button>'}
@@ -2777,15 +2914,26 @@ async function renderOrgPermissionsSettings(){
           </div>
         </div>`).join('')||'<div class="empty small">No roles yet.</div>'}
     </div></div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Permission catalogue</h2></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Permission catalogue</h2>
+      <button class="button text" id="orgPermCatalogueJump">Open full catalogue</button>
+    </div>
       <div class="card-body">
-        ${Object.entries(byCategory).map(([cat,items])=>`
+        ${Object.entries(byCategory).slice(0,4).map(([cat,items])=>`
           <p class="form-label">${esc(cat)}</p>
-          <div class="perm-grid">${items.map(p=>`<div class="perm-chip" title="${esc(p.description)}"><code>${esc(p.key)}</code><span>${esc(p.title)}</span></div>`).join('')}</div>
+          <div class="perm-grid">${items.slice(0,8).map(p=>`<div class="perm-chip" title="${esc(p.description||'')}">
+            <code>${esc(p.key)}</code><span>${esc(p.title||p.key)}</span>
+          </div>`).join('')}</div>
         `).join('')||'<div class="empty small">Catalogue unavailable.</div>'}
-      </div>
-    </div>`);
-  el('createAccessRole').onclick=()=>openAccessRoleEditor(null,catalogue);
+      </div></div>`;
+  }
+  renderSettingsShell('org','/organisation/settings/permissions','Permissions','Roles are the normal way to administer access; direct grants are the escape hatch.',body);
+  el('orgPermRoles').onclick=()=>{state.orgPermsTab='roles';renderOrgPermissionsSettings()};
+  el('orgPermGrants').onclick=()=>{state.orgPermsTab='grants';renderOrgPermissionsSettings()};
+  el('orgPermCatalogue').onclick=()=>{state.orgPermsTab='catalogue';renderOrgPermissionsSettings()};
+  const catalogueJump=el('orgPermCatalogueJump');
+  if(catalogueJump)catalogueJump.onclick=()=>{state.orgPermsTab='catalogue';renderOrgPermissionsSettings()};
+  const create=el('createAccessRole');
+  if(create)create.onclick=()=>openAccessRoleEditor(null,catalogue);
   document.querySelectorAll('[data-edit-role]').forEach(btn=>btn.onclick=()=>{
     const role=(roles||[]).find(r=>r.id===btn.dataset.editRole);
     openAccessRoleEditor(role,catalogue);
@@ -2798,6 +2946,26 @@ async function renderOrgPermissionsSettings(){
       await renderOrgPermissionsSettings();
     }catch(error){showToast(error.message,true)}
   });
+  const grant=el('grantOrgPerm');
+  if(grant)grant.onclick=()=>{
+    openModal(`<div class="modal-content"><h2>Grant organisation permission</h2>
+      <p class="description">Advanced escape hatch. Prefer roles for normal administration.</p>
+      <label class="form-label">Member</label><select class="field" id="grantUserId">${(members||[]).map(m=>`<option value="${esc(m.user?.id)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('')}</select>
+      <label class="form-label">Permission</label><select class="field" id="grantPermissionId">${(catalogue||[]).filter(p=>(p.allowedScopes||['Organisation']).includes('Organisation')).map(p=>`<option value="${esc(p.key)}">${esc(p.key)} — ${esc(p.title||'')}</option>`).join('')}</select>
+      <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant</button></div></div>`,async e=>{
+      if(e.submitter?.value!=='submit')return;
+      try{
+        await api('/api/access/grants',{method:'POST',body:JSON.stringify({
+          userId:el('grantUserId').value,
+          permissionId:el('grantPermissionId').value,
+          scopeType:'Organisation'
+        })});
+        showToast('Permission granted');
+        state.orgPermsTab='grants';
+        renderOrgPermissionsSettings();
+      }catch(error){showToast(error.message,true)}
+    });
+  };
 }
 
 function openAccessRoleEditor(role,catalogue){
@@ -2974,8 +3142,9 @@ async function renderProjectMembersSettings(){
   const projectId=state.context?.project?.id;
   if(!projectId)return renderError(new Error('No project selected.'));
   const accessTab=state.projectAccessTab||'teams';
+  const memberView=state.projectMemberView||'direct';
   const [members,teams,orgMembers,allTeams,roles]=await Promise.all([
-    api(`/api/projects/${projectId}/members`).catch(()=>[]),
+    api(`/api/projects/${projectId}/members${memberView==='effective'?'?includeInherited=true':''}`).catch(()=>[]),
     api(`/api/projects/${projectId}/teams`).catch(()=>[]),
     api('/api/organisation/members').catch(()=>[]),
     api('/api/teams').catch(()=>[]),
@@ -2983,40 +3152,46 @@ async function renderProjectMembersSettings(){
   ]);
   const projectRoles=(roles||[]).filter(r=>!r.scopeType||r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator'].includes(r.slug));
   const roleOptions=`<option value="">Select a project role</option>${projectRoles.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}`;
-  const roleLabel=grant=>grant.roleName?esc(grant.roleName):'Access only';
+  const roleLabel=grant=>grant.roleName?esc(grant.roleName):(grant.roles||[]).join(' + ')||'Access only';
   const canManage=canAny('projects.manage','project.members.manage');
   const tabs=`<div class="filterbar">
     <button class="button ${accessTab==='teams'?'primary':''}" id="accessTeamsTab">Teams</button>
     <button class="button ${accessTab==='members'?'primary':''}" id="accessMembersTab">Individual members</button>
   </div>`;
+  const memberFilters=accessTab==='members'?`<div class="filterbar" style="margin-top:8px">
+    <button class="button ${memberView==='direct'?'primary':''}" id="memberViewDirect">Direct access</button>
+    <button class="button ${memberView==='effective'?'primary':''}" id="memberViewEffective">All effective members</button>
+  </div>`:'';
   renderSettingsShell('project','/settings/members','Members & Teams','Grant project access to teams and individual members. Roles combine additively.',`
-    ${tabs}
+    ${tabs}${memberFilters}
     ${accessTab==='teams'?`<div class="card"><div class="card-header"><h2>Teams</h2>
       ${canManage?'<button class="button primary" id="addProjectTeam">Add team</button>':''}
     </div>
-    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Team</th><th>Relationship</th><th>Project role</th><th></th></tr></thead>
-      <tbody>${(teams||[]).map(t=>`<tr>
-        <td><strong>${esc(t.name||t.teamId)}</strong><div class="muted">/${esc(t.slug||'—')}</div></td>
-        <td>${esc(t.relationship||(t.owning?'Owner':'Access'))}</td>
-        <td>${roleLabel(t)}</td>
-        <td>${canManage?`<button class="button danger text" data-revoke-team="${esc(t.teamId)}">Remove</button>`:''}</td>
-      </tr>`).join('')||'<tr><td colspan="4"><div class="empty small">No team grants.</div></td></tr>'}</tbody></table></div></div>`
-    :`<div class="card"><div class="card-header"><h2>Individual members</h2>
-      ${canManage?'<button class="button primary" id="addProjectMember">Add member</button>':''}
+    <div class="card-body">${(teams||[]).map(t=>`<div class="module-card">
+        <div><h3>${esc(t.name||t.teamId)}</h3><p>/${esc(t.slug||'—')} · ${esc(t.relationship||(t.owning?'Owner':'Access'))} · ${t.roleName?`role: ${esc(t.roleName)}`:'no role'} · ${t.memberCount!=null?`${t.memberCount} members`:''}</p></div>
+        ${canManage&&t.relationship!=='Owner'?`<button class="button danger text" data-revoke-team="${esc(t.teamId)}">Remove</button>`:''}
+      </div>`).join('')||'<div class="empty small">No team grants.</div>'}</div></div>`
+    :`<div class="card"><div class="card-header"><h2>${memberView==='effective'?'All effective members':'Direct members'}</h2>
+      ${canManage&&memberView==='direct'?'<button class="button primary" id="addProjectMember">Add member</button>':''}
     </div>
-    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Project role</th><th>Access type</th><th></th></tr></thead>
+    <div class="card-body table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Project role</th><th>Access type</th><th>Source</th><th></th></tr></thead>
       <tbody>${(members||[]).map(m=>`<tr>
         <td><strong>${esc(m.displayName||m.username||m.userId)}</strong><div class="muted">@${esc(m.username||'—')}</div></td>
         <td>${roleLabel(m)}</td>
-        <td>Direct</td>
-        <td>${canManage?`<button class="button danger text" data-revoke-member="${esc(m.userId)}">Remove</button>`:''}</td>
-      </tr>`).join('')||'<tr><td colspan="4"><div class="empty small">No direct member grants.</div></td></tr>'}</tbody></table></div></div>`}`);
+        <td>${esc(m.accessType||'Direct')}</td>
+        <td>${esc((m.sources||[]).join(', ')||'—')}</td>
+        <td>${canManage&&(m.accessType||'Direct').includes('Direct')?`<button class="button danger text" data-revoke-member="${esc(m.userId)}">Remove</button>`:''}</td>
+      </tr>`).join('')||'<tr><td colspan="5"><div class="empty small">No members in this view.</div></td></tr>'}</tbody></table></div></div>`}`);
   el('accessTeamsTab').onclick=()=>{state.projectAccessTab='teams';renderProjectMembersSettings()};
   el('accessMembersTab').onclick=()=>{state.projectAccessTab='members';renderProjectMembersSettings()};
+  const directView=el('memberViewDirect');
+  if(directView)directView.onclick=()=>{state.projectMemberView='direct';renderProjectMembersSettings()};
+  const effectiveView=el('memberViewEffective');
+  if(effectiveView)effectiveView.onclick=()=>{state.projectMemberView='effective';renderProjectMembersSettings()};
   const addMember=el('addProjectMember');
   if(addMember)addMember.onclick=()=>{
     const options=(orgMembers||[]).map(m=>`<option value="${esc(m.user?.id||m.userId)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('');
-    openModal(`<div class="modal-content"><h2>Add project access</h2>
+    openModal(`<div class="modal-content"><h2>Add project member</h2>
       <label class="form-label">Member</label><select class="field" id="projectMemberId">${options||'<option value="">No members</option>'}</select>
       <label class="form-label">Project role</label><select class="field" id="projectMemberRole">${roleOptions}</select>
       <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant access</button></div></div>`,async e=>{
@@ -3033,10 +3208,10 @@ async function renderProjectMembersSettings(){
   const addTeam=el('addProjectTeam');
   if(addTeam)addTeam.onclick=()=>{
     const options=(allTeams||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
-    openModal(`<div class="modal-content"><h2>Add project access</h2>
+    openModal(`<div class="modal-content"><h2>Add project team</h2>
       <label class="form-label">Team</label><select class="field" id="projectTeamId">${options||'<option value="">No teams</option>'}</select>
       <label class="form-label">Project role</label><select class="field" id="projectTeamRole">${roleOptions}</select>
-      <p class="description">All active team members inherit this project role.</p>
+      <p class="description">Leave blank to fall back to the role attached to the team. All active team members inherit this project role.</p>
       <div class="modal-actions"><button class="button" value="cancel">Cancel</button><button class="button primary" value="submit">Grant access</button></div></div>`,async e=>{
       if(e.submitter?.value!=='submit')return;
       try{
@@ -3082,6 +3257,7 @@ async function renderProjectPermissionsSettings(){
     api('/api/organisation/members').catch(()=>[])
   ]);
   const canManage=canAny('project.permissions.manage','projects.manage','permissions.manage');
+  const inspectUserId=state.inspectAccessUserId||'';
   renderSettingsShell('project','/settings/permissions','Permissions','Direct grants and an access inspector for this project.',`
     <div class="card"><div class="card-header"><h2>Direct user grants</h2>
       ${canManage?'<button class="button primary" id="grantProjectPerm">Grant direct permission</button>':''}
@@ -3091,18 +3267,42 @@ async function renderProjectPermissionsSettings(){
         const member=(members||[]).find(m=>(m.user?.id||m.userId)===g.userId);
         return `<tr><td>${esc(member?.profile?.displayName||member?.user?.username||g.userId)}</td><td><code>${esc(g.permissionId)}</code></td><td>Direct</td></tr>`;
       }).join('')||'<tr><td colspan="3"><div class="empty small">No direct grants.</div></td></tr>'}</tbody></table></div></div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Access inspector</h2>
-      <button class="button" id="inspectAccess">Inspect current user</button>
-    </div>
-    <div class="card-body">
-      <p class="description">Effective permissions for you on this project: <strong>${(effective.permissions||[]).length}</strong></p>
-      <div class="table-wrap"><table class="data-table"><thead><tr><th>Permission</th><th></th></tr></thead>
-        <tbody>${(effective.permissions||[]).slice(0,40).map(p=>`<tr><td><code>${esc(p)}</code></td><td><button class="button text" data-explain="${esc(p)}">Why?</button></td></tr>`).join('')
-          ||'<tr><td colspan="2"><div class="empty small">No effective permissions.</div></td></tr>'}</tbody></table></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Access inspector</h2></div>
+    <div class="card-body settings-form">
+      <label class="form-label" for="inspectUser">User</label>
+      <select class="field" id="inspectUser">
+        <option value="">Current user (${esc(actor())})</option>
+        ${(members||[]).map(m=>`<option value="${esc(m.user?.id)}" ${inspectUserId===m.user?.id?'selected':''}>${esc(m.profile?.displayName||m.user?.username)}</option>`).join('')}
+      </select>
+      <div class="modal-actions" style="margin-top:12px"><button class="button primary" id="inspectAccess">Inspect</button></div>
+      <div id="inspectAccessResult" style="margin-top:16px">
+        <p class="description">Effective permissions for you on this project: <strong>${(effective.permissions||[]).length}</strong></p>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>Permission</th><th></th></tr></thead>
+          <tbody>${(effective.permissions||[]).slice(0,40).map(p=>`<tr><td><code>${esc(p)}</code></td><td><button class="button text" data-explain="${esc(p)}">Why?</button></td></tr>`).join('')
+            ||'<tr><td colspan="2"><div class="empty small">No effective permissions.</div></td></tr>'}</tbody></table></div>
+      </div>
     </div></div>`);
-  document.querySelectorAll('[data-explain]').forEach(btn=>btn.onclick=()=>openPermissionExplain(btn.dataset.explain,'Project',projectId));
+  document.querySelectorAll('[data-explain]').forEach(btn=>btn.onclick=()=>openPermissionExplain(btn.dataset.explain,'Project',projectId,inspectUserId||undefined));
   const inspect=el('inspectAccess');
-  if(inspect)inspect.onclick=()=>openPermissionExplain((effective.permissions||[])[0]||'project.read','Project',projectId);
+  if(inspect)inspect.onclick=async()=>{
+    const userId=el('inspectUser').value||'';
+    state.inspectAccessUserId=userId;
+    try{
+      const qs=new URLSearchParams({scopeType:'Project',scopeId:projectId});
+      if(userId)qs.set('userId',userId);
+      const result=await api(`/api/access/effective?${qs}`);
+      const member=(members||[]).find(m=>(m.user?.id||m.userId)=== (userId||state.me?.id));
+      const name=userId?(member?.profile?.displayName||member?.user?.username||userId):actor();
+      const sources=Object.entries(result.sources||{}).slice(0,5).map(([perm,list])=>`${perm}: ${(list||[]).map(s=>s.kind).join(', ')}`).join('; ');
+      el('inspectAccessResult').innerHTML=`
+        <p class="description"><strong>${esc(name)}</strong> · Access ${ (result.permissions||[]).length?'Allowed':'Denied'} · <strong>${(result.permissions||[]).length}</strong> effective permissions</p>
+        ${sources?`<p class="description muted">Sample sources: ${esc(sources)}</p>`:''}
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>Permission</th><th></th></tr></thead>
+          <tbody>${(result.permissions||[]).slice(0,50).map(p=>`<tr><td><code>${esc(p)}</code></td><td><button class="button text" data-explain="${esc(p)}">Why?</button></td></tr>`).join('')
+            ||'<tr><td colspan="2"><div class="empty small">No effective permissions.</div></td></tr>'}</tbody></table></div>`;
+      document.querySelectorAll('#inspectAccessResult [data-explain]').forEach(btn=>btn.onclick=()=>openPermissionExplain(btn.dataset.explain,'Project',projectId,userId||undefined));
+    }catch(error){showToast(error.message,true)}
+  };
   const grant=el('grantProjectPerm');
   if(grant)grant.onclick=async()=>{
     const catalogue=await api('/api/access/permissions').catch(()=>[]);
@@ -3140,7 +3340,7 @@ async function renderProjectRepositoriesSettings(){
       <div class="side-stat"><span>Detected GitHub</span><strong>${esc(local.status?.detectedGitHub?.fullName||'—')}</strong></div>
     </div>`:'<div class="empty small">Associate a local working copy to surface branch and dirty-tree status on the overview.</div>'}
     </div>
-    <div class="card" style="margin-top:18px"><div class="card-header"><h2>Source repositories</h2><button class="button primary" id="connectRepository">Connect GitHub</button></div>
+    <div class="card" style="margin-top:18px"><div class="card-header"><h2>Source repositories</h2>${canAny('source.repository.connect','projects.manage','core.integration.manage')?'<button class="button primary" id="connectRepository">Connect GitHub</button>':''}</div>
       ${state.connections.map(connection=>`<div class="module-card"><span class="module-logo">G</span><div><h3>${esc(connection.repositoryId.owner)}/${esc(connection.repositoryId.name)}</h3><p>${esc(connection.url)} · default ${esc(connection.defaultBranch)}</p></div><span class="module-state">● Connected</span></div>`).join('')||'<div class="empty">No repository connected.</div>'}
     </div>
   </div>
@@ -3152,7 +3352,7 @@ async function renderProjectRepositoriesSettings(){
   const connectLocal=el('connectLocal');if(connectLocal)connectLocal.onclick=openConnectLocal;
   const disconnectLocal=el('disconnectLocal');if(disconnectLocal)disconnectLocal.onclick=disconnectLocalRepository;
   const settingsOpenFolder=el('settingsOpenFolder');if(settingsOpenFolder)settingsOpenFolder.onclick=openLocalFolder;
-  el('connectRepository').onclick=openConnect;
+  const connectRepo=el('connectRepository');if(connectRepo)connectRepo.onclick=openConnect;
   el('credentialButton').onclick=openCredential;
   if(el('deleteCredential'))el('deleteCredential').onclick=deleteCredential;
 }
@@ -3507,9 +3707,9 @@ async function renderPipelines(route){
       </div>
       <div class="header-actions">
         <button class="button" data-route="/files">&lt;&gt; Code</button>
-        <button class="button" id="runPipelineQuick" ${definitions[0]?.enabled===false?'disabled':''}>Run pipeline</button>
+        ${permissionButton('Run pipeline','id="runPipelineQuick"'+(definitions[0]?.enabled===false?' disabled':''),'pipelines.run',{hide:true})}
         <button class="button" id="refreshPipelines">Refresh</button>
-        <button class="button primary" id="newPipelineHint">＋ New pipeline</button>
+        ${permissionButton('＋ New pipeline','id="newPipelineHint"','pipelines.manage',{primary:true,hide:true})}
       </div>
     </div>
   </section>
@@ -3598,12 +3798,14 @@ async function renderPipelines(route){
   </div>`;
 
   el('refreshPipelines').onclick=()=>renderPipelines(route);
-  el('runPipelineQuick').onclick=()=>{
+  const runQuick=el('runPipelineQuick');
+  if(runQuick)runQuick.onclick=()=>{
     const first=definitions.find(d=>d.enabled)||definitions[0];
     if(first)openRunPipeline(first.id);
     else showToast('No pipeline definitions available',true);
   };
-  el('newPipelineHint').onclick=()=>navigate('/pipelines/new');
+  const newPipe=el('newPipelineHint');
+  if(newPipe)newPipe.onclick=()=>navigate('/pipelines/new');
   el('pipelineSearch').oninput=e=>{state.pipelinesSearch=e.target.value;renderPipelines(route)};
   el('pipelineSort').onchange=e=>{state.pipelinesSort=e.target.value;renderPipelines(route)};
   document.querySelectorAll('[data-pipe-filter]').forEach(btn=>btn.onclick=()=>{state.pipelinesFilter=btn.dataset.pipeFilter;renderPipelines(route)});
@@ -3667,10 +3869,10 @@ function pipelineDashboardRow(def,latest){
     <div class="pipe-updated-cell">${esc(updated)}</div>
     <div class="pipe-actions-cell header-actions">
       <button class="button compact" data-view-pipeline="${esc(def.id)}">View</button>
-      <button class="button compact" data-edit-pipeline="${esc(def.id)}">Edit</button>
+      ${can('pipelines.manage')?`<button class="button compact" data-edit-pipeline="${esc(def.id)}">Edit</button>
       <button class="button compact" data-toggle-pipeline="${esc(def.id)}" data-enabled="${def.enabled?'1':'0'}">${def.enabled?'Disable':'Enable'}</button>
-      <button class="button compact danger" data-delete-pipeline="${esc(def.id)}">Delete</button>
-      <button class="button compact primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>
+      <button class="button compact danger" data-delete-pipeline="${esc(def.id)}">Delete</button>`:''}
+      ${can('pipelines.run')?`<button class="button compact primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>`:''}
     </div>
   </article>`;
 }
@@ -4497,7 +4699,7 @@ async function renderEnvironments(route){
   el('content').innerHTML=`
     <div class="page-header">
       <div><h1>Environments</h1><p class="description">Community allows one environment; Team unlocks multi-environment.</p></div>
-      <button class="button primary" id="createEnvironment">New environment</button>
+      ${permissionButton('New environment','id="createEnvironment"','deploy.manage',{primary:true,hide:true})}
     </div>
     <section class="card">
       ${(environments||[]).length?`<table class="table"><thead><tr><th>Name</th><th>Description</th><th>Created</th><th></th></tr></thead><tbody>
@@ -4540,7 +4742,7 @@ async function renderDeployments(route){
   el('content').innerHTML=`
     <div class="page-header">
       <div><h1>Deployments</h1><p class="description">Deploy a version to an environment and roll back when needed.</p></div>
-      <button class="button primary" id="createDeployment">New deployment</button>
+      ${permissionButton('New deployment','id="createDeployment"','deploy.execute',{primary:true,hide:true})}
     </div>
     <section class="card">
       ${(deployments||[]).length?`<table class="table"><thead><tr><th>Version</th><th>Environment</th><th>Status</th><th>Triggered by</th><th>When</th><th></th></tr></thead><tbody>
@@ -4550,7 +4752,7 @@ async function renderDeployments(route){
           <td><span class="${statusClass(d.status)}">${esc(d.status)}</span></td>
           <td>${esc(d.triggeredBy||'—')}</td>
           <td>${esc((d.createdAt||'').slice(0,16).replace('T',' '))}</td>
-          <td>${d.status!=='RolledBack'?`<button class="button" data-rollback="${esc(d.id)}">Rollback</button>`:''}</td>
+          <td>${d.status!=='RolledBack'&&can('deploy.execute')?`<button class="button" data-rollback="${esc(d.id)}">Rollback</button>`:''}</td>
         </tr>`).join('')}
       </tbody></table>`:`<div class="empty small">No deployments yet.</div>`}
     </section>`;

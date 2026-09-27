@@ -9,6 +9,7 @@ using ForgeDeck.Core.SourceControl;
 using ForgeDeck.Review;
 using ForgeDeck.Review.Application;
 using ForgeDeck.Review.Domain;
+using Microsoft.Extensions.Options;
 
 namespace Core.Tests;
 
@@ -84,8 +85,8 @@ public sealed class ReviewModuleTests
     [Fact]
     public void Local_github_remote_detection_supports_https_and_ssh()
     {
-        var https = ForgeDeck.Core.SourceControl.LocalRepositoryInspector.DetectGitHub("https://github.com/acme/platform.git");
-        var ssh = ForgeDeck.Core.SourceControl.LocalRepositoryInspector.DetectGitHub("git@github.com:acme/platform.git");
+        var https = LocalRepositoryInspector.DetectGitHub("https://github.com/acme/platform.git");
+        var ssh = LocalRepositoryInspector.DetectGitHub("git@github.com:acme/platform.git");
         Assert.Equal("acme/platform", https?.FullName);
         Assert.Equal("acme/platform", ssh?.FullName);
     }
@@ -162,7 +163,7 @@ public sealed class ReviewModuleTests
             context,
             new ReviewPolicyState { MinimumApprovals = 1 },
             []);
-        var options = Microsoft.Extensions.Options.Options.Create(new ReviewOptions
+        var options = Options.Create(new ReviewOptions
         {
             RequiredChecks = ["Build", "Unit Tests", "Integration Tests", "E2E Tests"]
         });
@@ -199,7 +200,7 @@ public sealed class ReviewModuleTests
             context,
             new ReviewPolicyState { MinimumApprovals = 1 },
             []);
-        var options = Microsoft.Extensions.Options.Options.Create(new ReviewOptions
+        var options = Options.Create(new ReviewOptions
         {
             RequiredChecks = ["Build"]
         });
@@ -251,7 +252,8 @@ public sealed class ReviewModuleTests
 
     private sealed class NoopEventPublisher : IEventPublisher
     {
-        public Task PublishAsync<TEvent>(TEvent domainEvent, CancellationToken cancellationToken = default) where TEvent : IDomainEvent =>
+        public Task PublishAsync<TEvent>(TEvent data, PublishOptions? options = null, CancellationToken cancellationToken = default)
+            where TEvent : class =>
             Task.CompletedTask;
     }
 

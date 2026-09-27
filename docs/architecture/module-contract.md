@@ -20,8 +20,20 @@ Ship `module.json` (YAML conceptual equivalent of `module.yaml`). Legacy `extens
 
 Fields: metadata, compatibility, runtime (`in-process` | `out-of-process` | `container`), permissions, events, provides/requires, capabilities, extensionPoints, licensing.
 
+`events.publishes` / `events.subscribes` in the package document should match the module’s runtime event contracts (wire type strings). First-party modules also declare the same lists on `ModuleManifest.Publishes` / `Subscribes`.
+
 Sample first-party: `community/src/Modules/Review/module.json`  
 Sample third-party: `packaging/Extensions/samples/acme-security.module.json`
+
+## Event registration (in-process)
+
+| Mechanism | Role |
+|-----------|------|
+| `*.Contracts` + `EventContract<T>` | Stable CLR payload + wire type/version |
+| `EventContractRegistration` | Host registers contracts into `IEventRegistry` at startup |
+| `AddEventHandler<TEvent,THandler>(consumerId)` | DI registration; activated via `ActivateRegisteredHandlers` (skipped in safe mode) |
+
+Platform-neutral contracts (e.g. `CheckUpdatedEvent`) live in `sdk/ForgeDeck.Contracts`. Module-specific events live in `ForgeDeck.{Module}.Contracts`. Full bus semantics: [events.md](events.md).
 
 ## Runtime contracts (`sdk/ForgeDeck.Contracts`)
 

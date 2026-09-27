@@ -1,11 +1,12 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Core.Capabilities;
+using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Licensing;
 using ForgeDeck.Core.Persistence;
 using ForgeDeck.Review;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -134,16 +135,14 @@ public sealed class EntitlementModelTests
         Assert.True(caps.Has(OrganisationId, KnownCapabilities.Review.BasicApproval));
     }
 
-    private static SqliteTenancyStore CreateSqliteStore(int userCount = 0)
+    private static ITenancyStore CreateSqliteStore(int userCount = 0)
     {
         var db = Path.Combine(Path.GetTempPath(), $"fd-ent-store-{Guid.NewGuid():N}.db");
-        var connections = new SqliteConnectionFactory($"Data Source={db}");
-        var schema = new CoreSchemaInitializer(connections);
-        var store = new SqliteTenancyStore(connections, schema);
+        var store = new EfTenancyStore(new TestPlatformDbContextFactory($"Data Source={db}"));
         store.EnsureInstanceId();
         for (var i = 0; i < userCount; i++)
         {
-            store.SaveUser(new ForgeDeck.Core.Domain.UserAccount
+            store.SaveUser(new UserAccount
             {
                 Id = Guid.NewGuid(),
                 Email = $"u{i}@example.test",
@@ -158,9 +157,7 @@ public sealed class EntitlementModelTests
     private static Harness CreateHarness()
     {
         var db = Path.Combine(Path.GetTempPath(), $"fd-ent-{Guid.NewGuid():N}.db");
-        var connections = new SqliteConnectionFactory($"Data Source={db}");
-        var schema = new CoreSchemaInitializer(connections);
-        var store = new SqliteTenancyStore(connections, schema);
+        var store = new EfTenancyStore(new TestPlatformDbContextFactory($"Data Source={db}"));
         store.EnsureInstanceId();
         var keys = LicenceCryptography.CreateKeyPair();
         var entitlements = new ManagedLicenceEntitlementStore((OrganisationLicenceEntitlement?)null, keys);
@@ -179,8 +176,8 @@ public sealed class EntitlementModelTests
         public string EnvironmentName { get; set; } = "Development";
         public string ApplicationName { get; set; } = "ForgeDeck";
         public string ContentRootPath { get; set; } = Path.GetTempPath();
-        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
-            new Microsoft.Extensions.FileProviders.NullFileProvider();
+        public IFileProvider ContentRootFileProvider { get; set; } =
+            new NullFileProvider();
     }
 
     private sealed class Harness(string dbPath, LicenceService licences, LicenceKeyPair keys, ManagedLicenceEntitlementStore entitlements) : IDisposable

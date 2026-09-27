@@ -1,38 +1,38 @@
 using ForgeDeck.Contracts.Integrations;
 using ForgeDeck.Core.Persistence;
+using ForgeDeck.Core.Persistence.Entities;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 
 namespace ForgeDeck.Core.Integrations;
 
 public sealed class EncryptedProviderCredentialStore : IProviderCredentialStore
 {
-    private readonly IDbConnectionFactory _connections;
+    private readonly IDbContextFactory<PlatformDbContext> _factory;
     private readonly IDataProtector _protector;
 
-    public EncryptedProviderCredentialStore(IDbConnectionFactory connections, CoreSchemaInitializer schema, IDataProtectionProvider protection)
+    public EncryptedProviderCredentialStore(IDbContextFactory<PlatformDbContext> factory, IDataProtectionProvider protection)
     {
-        _connections = connections;
+        _factory = factory;
         _protector = protection.CreateProtector("ForgeDeck.ProviderCredentials.v1");
-        schema.EnsureCreated();
+        using var db = _factory.CreateDbContext();
+        PlatformDbContext.EnsureCreated(db);
     }
 
     public string? Get(string providerId)
     {
-        using var connection = _connections.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT protected_secret FROM core_integrations WHERE provider_id = $provider";
-        Add(command, "$provider", providerId);
-        var protectedSecret = command.ExecuteScalar() as string;
+        using var db = _factory.CreateDbContext();
+        var protectedSecret = db.Integrations.AsNoTracking()
+            .Where(x => x.ProviderId == providerId)
+            .Select(x => x.ProtectedSecret)
+            .FirstOrDefault();
         return protectedSecret is null ? null : _protector.Unprotect(protectedSecret);
     }
 
     public bool IsConfigured(string providerId)
     {
-        using var connection = _connections.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM core_integrations WHERE provider_id = $provider";
-        Add(command, "$provider", providerId);
-        return Convert.ToInt32(command.ExecuteScalar()) > 0;
+        using var db = _factory.CreateDbContext();
+        return db.Integrations.AsNoTracking().Any(x => x.ProviderId == providerId);
     }
 
     public void Set(string providerId, string secret)
@@ -42,29 +42,31 @@ public sealed class EncryptedProviderCredentialStore : IProviderCredentialStore
             throw new ArgumentException("A token is required.");
         }
 
-        using var connection = _connections.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO core_integrations(provider_id, protected_secret, updated_at) VALUES($provider, $secret, $updated)
-            ON CONFLICT(provider_id) DO UPDATE SET protected_secret = excluded.protected_secret, updated_at = excluded.updated_at
-            """;
-        Add(command, "$provider", providerId);
-        Add(command, "$secret", _protector.Protect(secret.Trim()));
-        Add(command, "$updated", DateTimeOffset.UtcNow.ToString("O"));
-        command.ExecuteNonQuery();
+        using var db = _factory.CreateDbContext();
+        var existing = db.Integrations.Find(providerId);
+        var protectedSecret = _protector.Protect(secret.Trim());
+        var updatedAt = DateTimeOffset.UtcNow;
+        if (existing is null)
+        {
+            db.Integrations.Add(new ProviderCredentialRow
+            {
+                ProviderId = providerId,
+                ProtectedSecret = protectedSecret,
+                UpdatedAt = updatedAt
+            });
+        }
+        else
+        {
+            existing.ProtectedSecret = protectedSecret;
+            existing.UpdatedAt = updatedAt;
+        }
+
+        db.SaveChanges();
     }
 
     public void Delete(string providerId)
     {
-        using var connection = _connections.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM core_integrations WHERE provider_id = $provider";
-        Add(command, "$provider", providerId);
-        command.ExecuteNonQuery();
-    }
-
-    private static void Add(System.Data.Common.DbCommand command, string name, object value)
-    {
-        var parameter = command.CreateParameter(); parameter.ParameterName = name; parameter.Value = value; command.Parameters.Add(parameter);
+        using var db = _factory.CreateDbContext();
+        db.Integrations.Where(x => x.ProviderId == providerId).ExecuteDelete();
     }
 }

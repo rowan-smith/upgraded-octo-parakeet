@@ -3,7 +3,9 @@ using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.SourceControl;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.SourceControl;
+using ForgeDeck.Review.Contracts.Events;
 using ForgeDeck.Review.Domain;
+using Microsoft.Extensions.Options;
 
 namespace ForgeDeck.Review.Application;
 
@@ -13,7 +15,7 @@ public sealed class ReviewService(
     SourceRepositoryService sources,
     PlatformContextStore context,
     IEventPublisher events,
-    Microsoft.Extensions.Options.IOptions<ReviewOptions> options,
+    IOptions<ReviewOptions> options,
     ApprovalPolicyResolver policies,
     CheckQueryService checks,
     IEnumerable<ICheckProvider> checkProviders)
@@ -82,14 +84,23 @@ public sealed class ReviewService(
         var external = await providers.Changes(connection.RepositoryId.Provider).GetChangeAsync(connection.RepositoryId, externalId, token);
         var change = Change.FromExternal(context.Project.Id, sourceRepository, external);
         repository.Add(change);
-        await events.PublishAsync(new ChangeOpened(
-            change.Id,
-            context.Project.Key,
-            $"{sourceRepository.Owner}/{sourceRepository.Name}",
-            change.SourceBranch,
-            change.TargetBranch,
-            change.HeadCommit,
-            ResolveCloneUrl(sourceRepository)), token);
+        await events.PublishAsync(
+            new ReviewRequestedEvent(
+                change.Id,
+                context.Project.Key,
+                $"{sourceRepository.Owner}/{sourceRepository.Name}",
+                change.SourceBranch,
+                change.TargetBranch,
+                change.HeadCommit,
+                ResolveCloneUrl(sourceRepository)),
+            new PublishOptions
+            {
+                Actor = new EventActor(ActorType.User, change.Author, change.Author),
+                Publisher = "forgedeck.review",
+                ProjectId = context.Project.Id,
+                OrganisationId = context.Organisation.Id
+            },
+            token);
         return change;
     }
 
@@ -196,15 +207,24 @@ public sealed class ReviewService(
         change.Synchronize(external); repository.Update(change);
         if (!string.Equals(previousCommitSha, change.HeadCommit, StringComparison.OrdinalIgnoreCase))
         {
-            await events.PublishAsync(new ChangeUpdated(
-                change.Id,
-                context.Project.Key,
-                $"{change.Repository.Owner}/{change.Repository.Name}",
-                change.SourceBranch,
-                change.TargetBranch,
-                change.HeadCommit,
-                previousCommitSha,
-                ResolveCloneUrl(change.Repository)), token);
+            await events.PublishAsync(
+                new ReviewRevisionUpdatedEvent(
+                    change.Id,
+                    context.Project.Key,
+                    $"{change.Repository.Owner}/{change.Repository.Name}",
+                    change.SourceBranch,
+                    change.TargetBranch,
+                    change.HeadCommit,
+                    previousCommitSha,
+                    ResolveCloneUrl(change.Repository)),
+                new PublishOptions
+                {
+                    Actor = new EventActor(ActorType.System, "forgedeck.review", "Review"),
+                    Publisher = "forgedeck.review",
+                    ProjectId = context.Project.Id,
+                    OrganisationId = context.Organisation.Id
+                },
+                token);
         }
         return change;
     }

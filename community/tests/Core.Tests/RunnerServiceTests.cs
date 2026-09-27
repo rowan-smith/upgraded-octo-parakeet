@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ForgeDeck.Build;
 using ForgeDeck.Build.Application;
 using ForgeDeck.Build.Domain;
@@ -12,8 +13,8 @@ using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Licensing;
-using ForgeDeck.Core.Persistence;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -24,7 +25,8 @@ public sealed class RunnerServiceTests
 {
     private sealed class NoopPublisher : IEventPublisher
     {
-        public Task PublishAsync<TEvent>(TEvent domainEvent, CancellationToken cancellationToken = default) where TEvent : IDomainEvent =>
+        public Task PublishAsync<TEvent>(TEvent data, PublishOptions? options = null, CancellationToken cancellationToken = default)
+            where TEvent : class =>
             Task.CompletedTask;
     }
 
@@ -343,9 +345,8 @@ public sealed class RunnerServiceTests
     private static Harness CreateHarness()
     {
         var path = Path.Combine(Path.GetTempPath(), $"forgedeck-runners-{Guid.NewGuid():N}.db");
-        var connections = new SqliteConnectionFactory($"Data Source={path}");
-        var schema = new PipelineSchemaInitializer(connections);
-        var store = new SqlitePipelineStore(connections, schema);
+        var factory = new TestBuildDbContextFactory($"Data Source={path}");
+        var store = new EfPipelineStore(factory);
         var events = new NoopPublisher();
         var capabilities = new CapabilityService(
             [new BuildModule()],
@@ -355,7 +356,7 @@ public sealed class RunnerServiceTests
         var keys = LicenceCryptography.CreateKeyPair();
         var document = LicenceSkuCatalog.CreateDocument("BUILD-TEAM", KnownIds.OrganisationId);
         document.Signature = LicenceCryptography.Sign(document, keys);
-        var json = System.Text.Json.JsonSerializer.Serialize(document, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        var json = JsonSerializer.Serialize(document, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         var entitlement = SignedLicenceEntitlementStore.ParseVerified(json, keys)!;
         capabilities = new CapabilityService(
             [new BuildModule(), team],
@@ -370,14 +371,23 @@ public sealed class RunnerServiceTests
         return new Harness(path, store, pipelines, runners, execution, credentials);
     }
 
-    private sealed class FakeBuildTeamModule : ForgeDeck.Contracts.Modules.IPlatformModule
+    private sealed class TestBuildDbContextFactory(string connectionString) : IDbContextFactory<BuildDbContext>
+    {
+        public BuildDbContext CreateDbContext()
+        {
+            var options = new DbContextOptionsBuilder<BuildDbContext>().UseSqlite(connectionString).Options;
+            return new BuildDbContext(options);
+        }
+    }
+
+    private sealed class FakeBuildTeamModule : IPlatformModule
     {
         public ModuleManifest Manifest { get; } = new(
             "build-team", "Build Team", "0.1.0", "Team",
             [KnownCapabilities.Build.Concurrent], [], []);
 
-        public void RegisterServices(Microsoft.Extensions.DependencyInjection.IServiceCollection services, Microsoft.Extensions.Configuration.IConfiguration configuration) { }
-        public void MapEndpoints(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints) { }
+        public void RegisterServices(IServiceCollection services, IConfiguration configuration) { }
+        public void MapEndpoints(IEndpointRouteBuilder endpoints) { }
     }
 
     private sealed class Harness(

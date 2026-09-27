@@ -1,13 +1,17 @@
 using ForgeDeck.Build.Api;
 using ForgeDeck.Build.Application;
+using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Build.Infrastructure;
 using ForgeDeck.Contracts.Checks;
-using ForgeDeck.Contracts.Events;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.Search;
 using ForgeDeck.Contracts.Services;
+using ForgeDeck.Git.Contracts.Events;
+using ForgeDeck.Messaging;
+using ForgeDeck.Review.Contracts.Events;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -33,8 +37,16 @@ public sealed class BuildModule : IPlatformModule
             PlatformPermissions.BuildTrigger,
             PlatformPermissions.BuildArtifactsRead
         ],
-        Publishes: ["build.started", "build.completed", "build.failed", "artifact.published"],
-        Subscribes: ["repository.push", "review.created", "review.updated"],
+        Publishes: BuildEventContracts.All().Select(c => c.Type)
+            .Append(CheckUpdatedEventContract.Type)
+            .ToArray(),
+        Subscribes:
+        [
+            ReviewEventContracts.Requested.Type,
+            ReviewEventContracts.RevisionUpdated.Type,
+            GitEventContracts.RepositoryPush.Type,
+            BuildEventContracts.PipelineRunRequested.Type
+        ],
         Provides: ["build", "check-provider", "build.execution"],
         ExtensionPointContributions:
         [
@@ -47,8 +59,11 @@ public sealed class BuildModule : IPlatformModule
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<PipelinesOptions>(configuration.GetSection(PipelinesOptions.SectionName));
-        services.AddSingleton<PipelineSchemaInitializer>();
-        services.AddSingleton<IPipelineStore, SqlitePipelineStore>();
+        var connectionString = configuration.GetConnectionString("Build")
+            ?? configuration.GetConnectionString("Platform")
+            ?? "Data Source=data/forgedeck.db";
+        services.AddDbContextFactory<BuildDbContext>(options => options.UseSqlite(connectionString));
+        services.AddSingleton<IPipelineStore, EfPipelineStore>();
         services.AddSingleton<PipelineService>();
         services.AddSingleton<BuildDomainService>();
         services.AddSingleton<IBuildService>(sp => sp.GetRequiredService<BuildDomainService>());
@@ -57,9 +72,11 @@ public sealed class BuildModule : IPlatformModule
         services.AddSingleton<ICheckProvider, PipelineCheckProvider>();
         services.AddSingleton<IOnboardingContributor, PipelinesOnboardingContributor>();
         services.AddSingleton<ISearchContributor, PipelineSearchContributor>();
-        services.AddSingleton<IEventHandler<ChangeOpened>, ChangeOpenedPipelineTrigger>();
-        services.AddSingleton<IEventHandler<ChangeUpdated>, ChangeUpdatedPipelineTrigger>();
-        services.AddSingleton<IEventHandler<PushReceived>, PushReceivedPipelineTrigger>();
+        services.AddSingleton(new EventContractRegistration(BuildEventContracts.All().ToArray()));
+        services.AddEventHandler<ReviewRequestedEvent, ReviewRequestedPipelineTrigger>("forgedeck.build.review-requested");
+        services.AddEventHandler<ReviewRevisionUpdatedEvent, ReviewRevisionUpdatedPipelineTrigger>("forgedeck.build.review-revision-updated");
+        services.AddEventHandler<GitRepositoryPushEvent, GitPushPipelineTrigger>("forgedeck.build.git-push");
+        services.AddEventHandler<BuildPipelineRunRequestedEvent, BuildPipelineRunRequestHandler>("forgedeck.build.pipeline-run-requested");
         services.AddHostedService<SimulatedRunnerHostedService>();
         services.AddHostedService<RunnerHeartbeatMonitor>();
     }

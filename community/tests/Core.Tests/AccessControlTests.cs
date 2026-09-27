@@ -372,8 +372,9 @@ public sealed class AccessRoleServiceTests
         fixture.Roles.EnsureSystemRoles();
         var second = new RoleService(fixture.Store).List();
 
-        Assert.Equal(8, first.Count);
-        Assert.Equal(8, second.Count);
+        var systemCount = SystemAccessRoles.Definitions.Count;
+        Assert.Equal(systemCount, first.Count);
+        Assert.Equal(systemCount, second.Count);
         Assert.Equal(first.Select(r => r.Id).OrderBy(id => id), second.Select(r => r.Id).OrderBy(id => id));
     }
 
@@ -385,8 +386,9 @@ public sealed class AccessRoleServiceTests
         fixture.Roles.Create("Release Captain", "release-captain", ["deploy.read"]);
 
         var roles = fixture.Roles.List();
-        Assert.Equal(9, roles.Count);
-        Assert.True(roles.Take(8).All(role => role.IsSystem));
+        var systemCount = SystemAccessRoles.Definitions.Count;
+        Assert.Equal(systemCount + 1, roles.Count);
+        Assert.True(roles.Take(systemCount).All(role => role.IsSystem));
         Assert.False(roles[^1].IsSystem);
     }
 
@@ -591,7 +593,7 @@ public sealed class AccessRoleServiceTests
         fixture.Roles.Delete(role.Id);
 
         Assert.Null(fixture.Roles.Find(role.Id));
-        Assert.Equal(8, fixture.Roles.List().Count);
+        Assert.Equal(SystemAccessRoles.Definitions.Count, fixture.Roles.List().Count);
     }
 
     [Fact]

@@ -1,46 +1,46 @@
-using System.Data.Common;
 using System.Text.Json;
 using ForgeDeck.Contracts.Audit;
 using ForgeDeck.Core.Persistence;
+using ForgeDeck.Core.Persistence.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace ForgeDeck.Core.Audit;
 
-/// <summary>SQLite-backed audit log with an in-memory hot cache for recent reads.</summary>
+/// <summary>EF Core-backed audit log with an in-memory hot cache for recent reads.</summary>
 public sealed class AuditStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly IDbConnectionFactory _connections;
+    private readonly IDbContextFactory<PlatformDbContext> _factory;
     private readonly object _gate = new();
     private readonly List<AuditEvent> _cache = [];
     private bool _loaded;
 
-    public AuditStore(IDbConnectionFactory connections, CoreSchemaInitializer schema)
+    public AuditStore(IDbContextFactory<PlatformDbContext> factory)
     {
-        _connections = connections;
-        schema.EnsureCreated();
+        _factory = factory;
+        using var db = _factory.CreateDbContext();
+        PlatformDbContext.EnsureCreated(db);
     }
 
     public void Append(AuditEvent auditEvent)
     {
         EnsureLoaded();
         var metadata = auditEvent.Metadata is null ? null : JsonSerializer.Serialize(auditEvent.Metadata, Json);
-        using var connection = _connections.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO core_audit(id, actor, organisation, project, module, action, resource, timestamp, correlation_id, metadata)
-            VALUES($id, $actor, $org, $project, $module, $action, $resource, $ts, $corr, $meta)
-            """;
-        Add(command, "$id", auditEvent.Id.ToString());
-        Add(command, "$actor", auditEvent.Actor);
-        Add(command, "$org", auditEvent.Organisation);
-        Add(command, "$project", auditEvent.Project);
-        Add(command, "$module", auditEvent.Module);
-        Add(command, "$action", auditEvent.Action);
-        Add(command, "$resource", auditEvent.Resource);
-        Add(command, "$ts", auditEvent.Timestamp.ToString("O"));
-        Add(command, "$corr", auditEvent.CorrelationId);
-        Add(command, "$meta", (object?)metadata ?? DBNull.Value);
-        command.ExecuteNonQuery();
+        using var db = _factory.CreateDbContext();
+        db.AuditEvents.Add(new AuditEventRow
+        {
+            Id = auditEvent.Id,
+            Actor = auditEvent.Actor,
+            Organisation = auditEvent.Organisation,
+            Project = auditEvent.Project,
+            Module = auditEvent.Module,
+            Action = auditEvent.Action,
+            Resource = auditEvent.Resource,
+            Timestamp = auditEvent.Timestamp,
+            CorrelationId = auditEvent.CorrelationId,
+            MetadataJson = metadata
+        });
+        db.SaveChanges();
 
         lock (_gate)
         {
@@ -71,44 +71,35 @@ public sealed class AuditStore
                 return;
             }
 
-            using var connection = _connections.Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                SELECT id, actor, organisation, project, module, action, resource, timestamp, correlation_id, metadata
-                FROM core_audit
-                ORDER BY timestamp DESC
-                LIMIT 500
-                """;
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            using var db = _factory.CreateDbContext();
+            var rows = db.AuditEvents.AsNoTracking()
+                .OrderByDescending(x => x.Timestamp)
+                .Take(500)
+                .ToList();
+
+            foreach (var row in rows)
             {
                 object? metadata = null;
-                if (!reader.IsDBNull(9))
+                if (row.MetadataJson is not null)
                 {
-                    try { metadata = JsonSerializer.Deserialize<JsonElement>(reader.GetString(9)); }
-                    catch { metadata = reader.GetString(9); }
+                    try { metadata = JsonSerializer.Deserialize<JsonElement>(row.MetadataJson); }
+                    catch { metadata = row.MetadataJson; }
                 }
+
                 _cache.Add(new AuditEvent(
-                    Guid.Parse(reader.GetString(0)),
-                    reader.GetString(1),
-                    reader.GetString(2),
-                    reader.GetString(3),
-                    reader.GetString(4),
-                    reader.GetString(5),
-                    reader.GetString(6),
-                    DateTimeOffset.Parse(reader.GetString(7)),
-                    reader.GetString(8),
+                    row.Id,
+                    row.Actor,
+                    row.Organisation,
+                    row.Project,
+                    row.Module,
+                    row.Action,
+                    row.Resource,
+                    row.Timestamp,
+                    row.CorrelationId,
                     metadata));
             }
+
             _loaded = true;
         }
-    }
-
-    private static void Add(DbCommand command, string name, object value)
-    {
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = name;
-        parameter.Value = value;
-        command.Parameters.Add(parameter);
     }
 }

@@ -1,7 +1,12 @@
 using ForgeDeck.Build;
+using ForgeDeck.Build.Application;
+using ForgeDeck.Contracts.Topology;
 using ForgeDeck.Deploy;
+using ForgeDeck.Deploy.Application;
 using ForgeDeck.Git;
+using ForgeDeck.Git.Application;
 using ForgeDeck.Review;
+using ForgeDeck.Review.Application;
 
 namespace Core.Tests;
 
@@ -26,6 +31,12 @@ public sealed class ArchitectureTests
         Assert.DoesNotContain("ForgeDeck.Review", deployReferences);
         Assert.DoesNotContain("ForgeDeck.Build", deployReferences);
         Assert.DoesNotContain("ForgeDeck.Git", deployReferences);
+
+        // Peer *.Contracts references are allowed for cross-module events.
+        Assert.Contains("ForgeDeck.Git.Contracts", reviewReferences);
+        Assert.Contains("ForgeDeck.Build.Contracts", reviewReferences);
+        Assert.Contains("ForgeDeck.Git.Contracts", pipelineReferences);
+        Assert.Contains("ForgeDeck.Review.Contracts", pipelineReferences);
     }
 
     [Fact]
@@ -105,21 +116,21 @@ public sealed class ArchitectureTests
     [Fact]
     public void Domain_service_contracts_are_registered_by_first_party_modules()
     {
-        Assert.Equal("git", new ForgeDeck.Git.Application.GitDomainService().ServiceId);
-        Assert.Equal("review", new ForgeDeck.Review.Application.ReviewDomainService().ServiceId);
-        Assert.Equal("build", new ForgeDeck.Build.Application.BuildDomainService().ServiceId);
-        Assert.Equal("deploy", new ForgeDeck.Deploy.Application.DeployDomainService().ServiceId);
+        Assert.Equal("git", new GitDomainService().ServiceId);
+        Assert.Equal("review", new ReviewDomainService().ServiceId);
+        Assert.Equal("build", new BuildDomainService().ServiceId);
+        Assert.Equal("deploy", new DeployDomainService().ServiceId);
         Assert.True(File.Exists(Path.Combine(FindRepoRoot(), "docs", "architecture", "deployment-topology.md")));
         Assert.True(File.Exists(Path.Combine(FindRepoRoot(), "compose.team-split.yaml")));
-        Assert.Equal("scm", ForgeDeck.Contracts.Topology.DeploymentDomains.Scm);
-        Assert.Equal("Build", ForgeDeck.Contracts.Topology.ModuleDatabases.ConnectionKeys.Build);
-        Assert.Equal("Deploy", ForgeDeck.Contracts.Topology.ModuleDatabases.ConnectionKeys.Deploy);
+        Assert.Equal("scm", DeploymentDomains.Scm);
+        Assert.Equal("Build", ModuleDatabases.ConnectionKeys.Build);
+        Assert.Equal("Deploy", ModuleDatabases.ConnectionKeys.Deploy);
         Assert.Equal(
-            ForgeDeck.Contracts.Topology.DeploymentProfiles.TeamSplit,
-            ForgeDeck.Contracts.Topology.DeploymentProfileResolver.Resolve("team-split"));
+            DeploymentProfiles.TeamSplit,
+            DeploymentProfileResolver.Resolve("team-split"));
         Assert.Equal(
-            ForgeDeck.Contracts.Topology.DeploymentProfiles.Appliance,
-            ForgeDeck.Contracts.Topology.DeploymentProfileResolver.Resolve(null));
+            DeploymentProfiles.Appliance,
+            DeploymentProfileResolver.Resolve(null));
     }
 
     private static string FindRepoRoot()
