@@ -7,6 +7,7 @@ using ForgeDeck.Git.Contracts.Events;
 using ForgeDeck.Git.Infrastructure;
 using ForgeDeck.Messaging;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -32,7 +33,11 @@ public sealed class GitModule : IPlatformModule
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton<IGitRepositoryStore, InMemoryGitRepositoryStore>();
+        var connectionString = configuration.GetConnectionString("Git")
+            ?? configuration.GetConnectionString("Platform")
+            ?? "Data Source=data/forgedeck.db";
+        services.AddDbContextFactory<GitDbContext>(options => options.UseSqlite(connectionString));
+        services.AddSingleton<IGitRepositoryStore, EfGitRepositoryStore>();
         services.AddSingleton<GitRepositoryService>();
         services.AddSingleton<GitDomainService>();
         services.AddSingleton<IGitService>(sp => sp.GetRequiredService<GitDomainService>());

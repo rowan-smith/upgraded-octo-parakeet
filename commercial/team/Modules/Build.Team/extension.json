@@ -9,9 +9,6 @@
     "forgedeck.build >= 0.2.0"
   ],
   "provides": [
-    "Build.Concurrent",
-    "Build.Schedules",
-    "Build.ProtectedSecrets",
-    "Build.SharedRunners"
+    "Build.Concurrent"
   ]
 }

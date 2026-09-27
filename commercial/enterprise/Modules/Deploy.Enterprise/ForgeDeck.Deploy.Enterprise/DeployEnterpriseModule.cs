@@ -1,4 +1,3 @@
-using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Deploy.Team;
 using Microsoft.AspNetCore.Routing;
@@ -8,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ForgeDeck.Deploy.Enterprise;
 
 /// <summary>
-/// Enterprise Deploy delta. Declares multi-site, change windows, advanced rollback, compliance audit.
+/// Enterprise Deploy delta. Enterprise capabilities are planned; none declared yet.
 /// Multi-environment lives in Deploy.Team.
 /// </summary>
 public sealed class DeployEnterpriseModule : IPlatformModule
@@ -20,12 +19,7 @@ public sealed class DeployEnterpriseModule : IPlatformModule
         "Deploy Enterprise",
         "0.1.0",
         "Enterprise",
-        [
-            KnownCapabilities.Deploy.MultiSite,
-            KnownCapabilities.Deploy.AdvancedRollback,
-            KnownCapabilities.Deploy.ChangeWindow,
-            KnownCapabilities.Deploy.ComplianceAudit
-        ],
+        [],
         [],
         []);
 

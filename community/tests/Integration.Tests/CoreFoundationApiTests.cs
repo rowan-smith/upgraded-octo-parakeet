@@ -4,7 +4,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 
 namespace Integration.Tests;
 
@@ -307,6 +306,8 @@ public sealed class CoreFoundationApiTests : IClassFixture<WebApplicationFactory
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Core:SeedDemoOnEmpty", "false");
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
+            builder.UseSetting("Bootstrap:Username", "admin");
+            builder.UseSetting("Bootstrap:Password", "admin");
         });
     }
 

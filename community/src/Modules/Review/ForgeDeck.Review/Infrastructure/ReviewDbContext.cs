@@ -1,6 +1,5 @@
+using ForgeDeck.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 
 namespace ForgeDeck.Review.Infrastructure;
 
@@ -36,17 +35,13 @@ public sealed class ReviewDbContext(DbContextOptions<ReviewDbContext> options) :
 
     public void EnsureSchema()
     {
+        var table = Model.GetEntityTypes().Select(e => e.GetTableName()).First(t => t != null)!;
+        SchemaBootstrap.EnsureRelationalTables(this, table);
         Database.OpenConnection();
-        var conn = Database.GetDbConnection();
-        using var cmd = conn.CreateCommand();
-        var table = Model.GetEntityTypes().Select(e => e.GetTableName()).First(t => t != null);
-        cmd.CommandText = $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{table}'";
-        var exists = Convert.ToInt64(cmd.ExecuteScalar()) > 0;
-        if (!exists)
-        {
-            var creator = (IRelationalDatabaseCreator)Database.GetService(typeof(IRelationalDatabaseCreator));
-            creator.CreateTables();
-        }
+        SchemaBootstrap.Record(
+            Database.GetDbConnection(),
+            "review",
+            SchemaBootstrap.PlatformSchemaVersion);
     }
 }
 

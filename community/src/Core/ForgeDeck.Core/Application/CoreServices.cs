@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using ForgeDeck.Contracts.Capabilities;
@@ -10,6 +11,7 @@ using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Licensing;
 using ForgeDeck.Core.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace ForgeDeck.Core.Application;
@@ -59,6 +61,7 @@ public sealed class SetupService(
     ITenancyStore store,
     IPasswordHasher<UserAccount> passwords,
     IOptions<BootstrapOptions> bootstrapOptions,
+    IHostEnvironment? hostEnvironment = null,
     LicenceService? licences = null,
     IEnumerable<IOnboardingContributor>? contributors = null,
     IServiceProvider? services = null)
@@ -105,6 +108,12 @@ public sealed class SetupService(
         }
 
         var opts = bootstrapOptions.Value;
+        if (opts.IsDevelopmentDefault &&
+            string.Equals(hostEnvironment?.EnvironmentName, Environments.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Bootstrap with development defaults is not allowed in Production.");
+        }
+
         if (!string.Equals(username?.Trim(), opts.Username, StringComparison.Ordinal) ||
             !string.Equals(password, opts.Password, StringComparison.Ordinal))
         {
@@ -222,10 +231,7 @@ public sealed class SetupService(
             throw new ArgumentException("Username is invalid.");
         }
 
-        if (request.Password.Length < 8)
-        {
-            throw new ArgumentException("Password must contain at least 8 characters.");
-        }
+        PasswordPolicy.Validate(request.Password);
 
         var now = DateTimeOffset.UtcNow;
         var user = new UserAccount
@@ -277,10 +283,7 @@ public sealed class SetupService(
             throw new ArgumentException("Username is invalid.");
         }
 
-        if (request.Password.Length < 8)
-        {
-            throw new ArgumentException("Password must contain at least 8 characters.");
-        }
+        PasswordPolicy.Validate(request.Password);
 
         var now = DateTimeOffset.UtcNow;
         var organisation = new Organisation
@@ -401,15 +404,26 @@ public sealed class SetupService(
 
 public sealed class AuthService(ITenancyStore store, IPasswordHasher<UserAccount> passwords)
 {
+    private readonly ConcurrentDictionary<string, (int Failures, DateTimeOffset? LockoutUntil)> _attempts =
+        new(StringComparer.OrdinalIgnoreCase);
+
     public LoginResult? Login(string email, string password)
     {
-        var user = store.FindUserByEmail(email);
+        var key = (email ?? string.Empty).Trim();
+        if (_attempts.TryGetValue(key, out var state) && state.LockoutUntil is { } until && until > DateTimeOffset.UtcNow)
+        {
+            throw new InvalidOperationException("Account temporarily locked. Try again later.");
+        }
+
+        var user = store.FindUserByEmail(key);
         if (user is null || user.Status != UserStatus.Active ||
             passwords.VerifyHashedPassword(user, user.PasswordHash, password) == PasswordVerificationResult.Failed)
         {
+            RecordFailure(key);
             return null;
         }
 
+        _attempts.TryRemove(key, out _);
         var rawToken = TokenHash.CreateRaw();
         store.SaveSession(new AuthSession
         {
@@ -421,6 +435,25 @@ public sealed class AuthService(ITenancyStore store, IPasswordHasher<UserAccount
         user.UpdatedAt = DateTimeOffset.UtcNow;
         store.SaveUser(user);
         return new(rawToken, user, store.GetProfile(user.Id));
+    }
+
+    private void RecordFailure(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return;
+        }
+
+        _attempts.AddOrUpdate(
+            key,
+            _ => (1, null),
+            (_, existing) =>
+            {
+                var failures = existing.LockoutUntil is { } expired && expired <= DateTimeOffset.UtcNow
+                    ? 1
+                    : existing.Failures + 1;
+                return (failures, failures >= 5 ? DateTimeOffset.UtcNow.AddMinutes(15) : null);
+            });
     }
 
     public void Logout(string token) => store.RevokeSession(TokenHash.Compute(token), DateTimeOffset.UtcNow);
@@ -450,10 +483,7 @@ public sealed class MembershipService(ITenancyStore store, IPasswordHasher<UserA
             throw new ArgumentException("Username is invalid.");
         }
 
-        if (password.Length < 8)
-        {
-            throw new ArgumentException("Password must contain at least 8 characters.");
-        }
+        PasswordPolicy.Validate(password);
 
         var user = new UserAccount { Email = email.Trim(), Username = username.Trim(), PasswordHash = "" };
         user.PasswordHash = passwords.HashPassword(user, password);
@@ -1009,10 +1039,7 @@ public sealed class InvitationService(ITenancyStore store, IPasswordHasher<UserA
             throw new ArgumentException("Username is invalid.");
         }
 
-        if (password.Length < 8)
-        {
-            throw new ArgumentException("Password must contain at least 8 characters.");
-        }
+        PasswordPolicy.Validate(password);
 
         var existing = store.FindUserByEmail(invitation.Email);
         UserAccount user;

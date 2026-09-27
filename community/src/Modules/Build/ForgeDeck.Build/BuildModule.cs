@@ -19,6 +19,7 @@ namespace ForgeDeck.Build;
 
 public sealed class BuildModule : IPlatformModule
 {
+    // Runtime id is "pipelines" (nav/routes); licence/entitlement id is "build" via PlatformModules.Normalize.
     public ModuleManifest Manifest { get; } = new(
         "pipelines", "Build", "0.2.0", "Community", ["Pipelines.BasicExecution"],
         [

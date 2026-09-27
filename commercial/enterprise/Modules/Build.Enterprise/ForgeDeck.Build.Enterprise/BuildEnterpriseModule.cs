@@ -1,5 +1,4 @@
 using ForgeDeck.Build.Team;
-using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Modules;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
@@ -8,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ForgeDeck.Build.Enterprise;
 
 /// <summary>
-/// Enterprise Build delta. Declares runner groups, compliance, approvals, audit, attestation.
+/// Enterprise Build delta. Enterprise capabilities are planned; none declared yet.
 /// Concurrent / Team capabilities live in Build.Team.
 /// </summary>
 public sealed class BuildEnterpriseModule : IPlatformModule
@@ -20,13 +19,7 @@ public sealed class BuildEnterpriseModule : IPlatformModule
         "Build Enterprise",
         "0.1.0",
         "Enterprise",
-        [
-            KnownCapabilities.Build.RunnerGroups,
-            KnownCapabilities.Build.Compliance,
-            KnownCapabilities.Build.Approvals,
-            KnownCapabilities.Build.Audit,
-            KnownCapabilities.Build.Attestation
-        ],
+        [],
         [],
         []);
 

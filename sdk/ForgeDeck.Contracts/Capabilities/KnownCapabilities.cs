@@ -3,6 +3,7 @@ namespace ForgeDeck.Contracts.Capabilities;
 /// <summary>
 /// Capability identifiers aligned with the feature matrix (capability maturity).
 /// Commercial capabilities require a signed licence grant and an installed commercial package.
+/// Sets list only capabilities that are implemented and shipped today; string constants are kept for planned work.
 /// </summary>
 public static class KnownCapabilities
 {
@@ -19,18 +20,14 @@ public static class KnownCapabilities
         public const string SeparationOfDuties = "Review.SeparationOfDuties";
         public const string ComplianceExport = "Review.ComplianceExport";
 
-        /// <summary>Team: coordinate reviews (multi-approval, CODEOWNERS, advanced workflow).</summary>
+        /// <summary>Team soft unlock shipped today: multi-approval via MultiApprovalPolicyFactory.</summary>
         public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            MultiApproval, TeamApproval, CodeOwners
+            MultiApproval
         };
 
-        /// <summary>Enterprise: govern reviews (policy, SoD, compliance evidence).</summary>
-        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            PathPolicy, ConditionalPolicy, PolicyComposition, ReviewDismissal,
-            SeparationOfDuties, ComplianceExport
-        };
+        /// <summary>Enterprise review capabilities are planned; none shipped yet.</summary>
+        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public static IReadOnlySet<string> Commercial { get; } = new HashSet<string>(
             Team.Concat(Enterprise), StringComparer.OrdinalIgnoreCase);
@@ -48,15 +45,14 @@ public static class KnownCapabilities
         public const string Audit = "Build.Audit";
         public const string Attestation = "Build.Attestation";
 
+        /// <summary>Team soft unlock shipped today: concurrent pipelines gated in Community PipelineService.</summary>
         public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            Concurrent, Schedules, ProtectedSecrets, SharedRunners
+            Concurrent
         };
 
-        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            RunnerGroups, Compliance, Approvals, Audit, Attestation
-        };
+        /// <summary>Enterprise build capabilities are planned; none shipped yet.</summary>
+        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public static IReadOnlySet<string> Commercial { get; } = new HashSet<string>(
             Team.Concat(Enterprise), StringComparer.OrdinalIgnoreCase);
@@ -74,15 +70,14 @@ public static class KnownCapabilities
         public const string ChangeWindow = "Deploy.ChangeWindow";
         public const string ComplianceAudit = "Deploy.ComplianceAudit";
 
+        /// <summary>Team soft unlock shipped today: multi-environment gated in Community DeployService.</summary>
         public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            MultiEnvironment, Approvals, MultiApproval, EnvironmentPolicy, PromotionPolicy
+            MultiEnvironment
         };
 
-        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            MultiSite, AdvancedRollback, ChangeWindow, ComplianceAudit
-        };
+        /// <summary>Enterprise deploy capabilities are planned; none shipped yet.</summary>
+        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public static IReadOnlySet<string> Commercial { get; } = new HashSet<string>(
             Team.Concat(Enterprise), StringComparer.OrdinalIgnoreCase);
@@ -95,15 +90,11 @@ public static class KnownCapabilities
         public const string Mirror = "Git.Mirror";
         public const string GeoReplication = "Git.GeoReplication";
 
-        public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ProtectedBranches, PushRules
-        };
+        /// <summary>Git Team capabilities are planned; no commercial package yet.</summary>
+        public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            Mirror, GeoReplication
-        };
+        /// <summary>Git Enterprise capabilities are planned; none shipped yet.</summary>
+        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public static IReadOnlySet<string> Commercial { get; } = new HashSet<string>(
             Team.Concat(Enterprise), StringComparer.OrdinalIgnoreCase);
@@ -116,15 +107,11 @@ public static class KnownCapabilities
         public const string SecurityScanning = "Code.SecurityScanning";
         public const string ComplianceViews = "Code.ComplianceViews";
 
-        public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            AdvancedSearch, BlameInsights
-        };
+        /// <summary>Code Team capabilities are planned; no commercial package yet.</summary>
+        public static IReadOnlySet<string> Team { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            SecurityScanning, ComplianceViews
-        };
+        /// <summary>Code Enterprise capabilities are planned; none shipped yet.</summary>
+        public static IReadOnlySet<string> Enterprise { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public static IReadOnlySet<string> Commercial { get; } = new HashSet<string>(
             Team.Concat(Enterprise), StringComparer.OrdinalIgnoreCase);

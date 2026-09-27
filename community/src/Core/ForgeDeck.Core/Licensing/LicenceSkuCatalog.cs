@@ -5,6 +5,7 @@ namespace ForgeDeck.Core.Licensing;
 /// <summary>
 /// Commercial SKUs expand to per-module entitlement maps. There is no special "Team installation" —
 /// only five module entitlements (plus optional platform features).
+/// Git/Code Team and Enterprise SKUs are reserved/planned (no commercial packages yet; capability sets empty).
 /// </summary>
 public static class LicenceSkuCatalog
 {
@@ -16,6 +17,7 @@ public static class LicenceSkuCatalog
         {
             TeamBundle => Bundle(EntitlementLevel.Team),
             EnterpriseBundle or "ENTERPRISE-PLATFORM" => Bundle(EntitlementLevel.Enterprise),
+            // Planned: no Git/Code commercial packages yet — SKUs still expand to tier levels with empty caps.
             "GIT-TEAM" => Single(PlatformModules.Git, EntitlementLevel.Team),
             "GIT-ENTERPRISE" => Single(PlatformModules.Git, EntitlementLevel.Enterprise),
             "CODE-TEAM" => Single(PlatformModules.Code, EntitlementLevel.Team),

@@ -30,3 +30,17 @@ public sealed class Deployment
     public Guid? RollbackOfId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+public sealed record DeployBuildRunReference(
+    Guid RunId,
+    string PipelineName,
+    string CommitSha,
+    Guid? ChangeId,
+    DateTimeOffset RecordedAt);
+
+public sealed record DeployArtifactReference(
+    Guid RunId,
+    string PipelineName,
+    string ArtifactName,
+    string? Uri,
+    DateTimeOffset RecordedAt);

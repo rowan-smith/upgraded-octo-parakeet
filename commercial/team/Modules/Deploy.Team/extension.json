@@ -9,10 +9,6 @@
     "forgedeck.deploy >= 0.1.0"
   ],
   "provides": [
-    "Deploy.MultiEnvironment",
-    "Deploy.Approvals",
-    "Deploy.MultiApproval",
-    "Deploy.EnvironmentPolicy",
-    "Deploy.PromotionPolicy"
+    "Deploy.MultiEnvironment"
   ]
 }

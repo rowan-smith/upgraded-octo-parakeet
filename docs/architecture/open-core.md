@@ -41,6 +41,9 @@ These flags remain for FOSS CI and local builds. **Production commercial / air-g
 - [modules.md](modules.md)
 - [extensions.md](extensions.md)
 - [dependency-rules.md](dependency-rules.md)
+- [boundaries.md](boundaries.md)
+- [schema-versioning.md](schema-versioning.md)
+- [naming.md](naming.md)
 
 ## Future
 

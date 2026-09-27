@@ -101,7 +101,11 @@ public sealed class SmokeTests : IClassFixture<WebApplicationFactory<Program>>
             builder.UseSetting("Core:SeedDemoOnEmpty", "true");
         });
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "mvp-admin-token");
+        var response = client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" }).GetAwaiter().GetResult();
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        var token = doc.RootElement.GetProperty("token").GetString();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 }

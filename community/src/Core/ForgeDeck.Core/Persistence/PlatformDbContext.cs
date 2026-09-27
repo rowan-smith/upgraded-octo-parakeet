@@ -50,6 +50,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             db.Instances.Add(new InstanceRow { Singleton = 1 });
             db.SaveChanges();
         }
+
+        SchemaBootstrap.Record(db, "platform", SchemaBootstrap.PlatformSchemaVersion);
     }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)

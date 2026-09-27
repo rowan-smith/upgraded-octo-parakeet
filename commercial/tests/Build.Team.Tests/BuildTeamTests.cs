@@ -43,6 +43,6 @@ public sealed class BuildTeamTests
             new SignedLicenceEntitlementStore(entitlement));
 
         Assert.True(service.Has(OrganisationId, KnownCapabilities.Build.Concurrent));
-        Assert.True(service.Has(OrganisationId, KnownCapabilities.Build.Schedules));
+        Assert.False(service.Has(OrganisationId, KnownCapabilities.Build.Schedules));
     }
 }

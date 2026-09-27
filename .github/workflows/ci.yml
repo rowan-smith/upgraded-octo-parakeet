@@ -24,11 +24,22 @@ jobs:
           dotnet build community/tests/Core.Tests/Core.Tests.csproj -c Release
           dotnet build community/tests/Integration.Tests/Integration.Tests.csproj -c Release
           dotnet build community/tests/E2E.Tests/E2E.Tests.csproj -c Release
+          dotnet build community/tests/Messaging.UnitTests/Messaging.UnitTests.csproj -c Release
+          dotnet build community/tests/Messaging.IntegrationTests/Messaging.IntegrationTests.csproj -c Release
       - name: Test Community
         run: |
-          dotnet test community/tests/Core.Tests/Core.Tests.csproj -c Release --no-build
+          dotnet test community/tests/Core.Tests/Core.Tests.csproj -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./coverage
           dotnet test community/tests/Integration.Tests/Integration.Tests.csproj -c Release --no-build
           dotnet test community/tests/E2E.Tests/E2E.Tests.csproj -c Release --no-build
+          dotnet test community/tests/Messaging.UnitTests/Messaging.UnitTests.csproj -c Release --no-build
+          dotnet test community/tests/Messaging.IntegrationTests/Messaging.IntegrationTests.csproj -c Release --no-build
+      - name: Upload Core coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-coverage
+          path: coverage
+          retention-days: 14
 
   team:
     name: Team host

@@ -43,6 +43,6 @@ public sealed class DeployTeamTests
             new SignedLicenceEntitlementStore(entitlement));
 
         Assert.True(service.Has(OrganisationId, KnownCapabilities.Deploy.MultiEnvironment));
-        Assert.True(service.Has(OrganisationId, KnownCapabilities.Deploy.PromotionPolicy));
+        Assert.False(service.Has(OrganisationId, KnownCapabilities.Deploy.PromotionPolicy));
     }
 }

@@ -6,10 +6,12 @@ using ForgeDeck.Core;
 using ForgeDeck.Core.Api;
 using ForgeDeck.Core.Application;
 using ForgeDeck.Core.Extensions;
+using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Modules;
 using ForgeDeck.Core.Persistence;
 using ForgeDeck.Core.SourceControl;
 using ForgeDeck.Messaging;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +27,20 @@ IReadOnlyList<IPlatformModule> modules = safeMode
 
 builder.Services.AddPlatformCore(modules, builder.Configuration);
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("auth", o =>
+    {
+        o.Window = TimeSpan.FromMinutes(1);
+        o.PermitLimit = 20;
+    });
+    options.AddFixedWindowLimiter("runner-register", o =>
+    {
+        o.Window = TimeSpan.FromMinutes(1);
+        o.PermitLimit = 10;
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
 if (!safeMode)
 {
     builder.Services.AddGitHubConnector();
@@ -36,6 +52,13 @@ foreach (var module in modules)
 }
 
 var app = builder.Build();
+
+var bootstrap = app.Configuration.GetSection("Bootstrap").Get<BootstrapOptions>() ?? new();
+if (app.Environment.IsProduction() && bootstrap.IsDevelopmentDefault)
+{
+    throw new InvalidOperationException("Bootstrap:IsDevelopmentDefault must be false in Production.");
+}
+
 using (var platformDb = app.Services.GetRequiredService<IDbContextFactory<PlatformDbContext>>().CreateDbContext())
 {
     PlatformDbContext.EnsureCreated(platformDb);
@@ -61,8 +84,16 @@ if (!safeMode)
 
 app.Services.GetRequiredService<DevelopmentSeedService>().SeedIfEnabled();
 app.Services.GetRequiredService<SourceConnectionSeeder>().Seed();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseRateLimiter();
 app.UseMiddleware<SourceProviderExceptionMiddleware>();
 app.UseExtensionGates();
 app.UseMvpAuthentication();

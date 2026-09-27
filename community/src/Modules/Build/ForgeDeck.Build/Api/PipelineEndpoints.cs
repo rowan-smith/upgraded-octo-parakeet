@@ -48,7 +48,7 @@ public static class PipelineEndpoints
 
         group.MapGet("/runners", ListRunners);
         group.MapPost("/runners/registration-tokens", CreateRegistrationToken);
-        group.MapPost("/runners/register", RegisterRunner);
+        group.MapPost("/runners/register", RegisterRunner).RequireRateLimiting("runner-register");
         group.MapPost("/runners/{id:guid}/heartbeat", Heartbeat);
         group.MapPost("/runners/{id:guid}/work", RequestWork);
         group.MapDelete("/runners/{id:guid}", RevokeRunner);

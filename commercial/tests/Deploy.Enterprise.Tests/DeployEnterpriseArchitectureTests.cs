@@ -24,34 +24,25 @@ public sealed class DeployEnterpriseArchitectureTests
     }
 
     [Fact]
-    public void Enterprise_declares_enterprise_capabilities_only()
+    public void Enterprise_capabilities_not_shipped_yet()
     {
-        var caps = new DeployEnterpriseModule().Manifest.Capabilities;
-        Assert.Contains(KnownCapabilities.Deploy.MultiSite, caps);
-        Assert.DoesNotContain(KnownCapabilities.Deploy.MultiEnvironment, caps);
+        Assert.Empty(KnownCapabilities.Deploy.Enterprise);
+        Assert.Empty(new DeployEnterpriseModule().Manifest.Capabilities);
     }
 
     [Fact]
-    public void Enterprise_capability_requires_enterprise_package_and_licence()
+    public void Enterprise_sku_still_grants_team_soft_unlock_with_team_package()
     {
         var entitlement = CreateVerifiedEntitlement(
             OrganisationId,
             "Enterprise",
-            [
-                KnownCapabilities.Deploy.MultiEnvironment,
-                KnownCapabilities.Deploy.MultiSite
-            ]);
-
-        var withoutEnterprise = new CapabilityService(
-            [new DeployModule(), new DeployTeamModule()],
-            new SignedLicenceEntitlementStore(entitlement));
-        Assert.False(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Deploy.MultiSite));
-        Assert.True(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Deploy.MultiEnvironment));
+            [KnownCapabilities.Deploy.MultiEnvironment]);
 
         var withEnterprise = new CapabilityService(
             [new DeployModule(), new DeployTeamModule(), new DeployEnterpriseModule()],
             new SignedLicenceEntitlementStore(entitlement));
-        Assert.True(withEnterprise.Has(OrganisationId, KnownCapabilities.Deploy.MultiSite));
+        Assert.True(withEnterprise.Has(OrganisationId, KnownCapabilities.Deploy.MultiEnvironment));
+        Assert.False(withEnterprise.Has(OrganisationId, KnownCapabilities.Deploy.MultiSite));
     }
 
     private static OrganisationLicenceEntitlement CreateVerifiedEntitlement(

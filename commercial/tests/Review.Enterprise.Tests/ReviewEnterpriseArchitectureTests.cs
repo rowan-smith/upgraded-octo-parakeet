@@ -44,37 +44,26 @@ public sealed class ReviewEnterpriseArchitectureTests
     }
 
     [Fact]
-    public void Enterprise_declares_enterprise_capabilities_only()
+    public void Enterprise_capabilities_not_shipped_yet()
     {
-        var caps = new ReviewEnterpriseModule().Manifest.Capabilities;
-        Assert.Contains(KnownCapabilities.Review.SeparationOfDuties, caps);
-        Assert.DoesNotContain(KnownCapabilities.Review.MultiApproval, caps);
-        Assert.DoesNotContain(KnownCapabilities.Review.CodeOwners, caps);
+        Assert.Empty(KnownCapabilities.Review.Enterprise);
+        Assert.Empty(new ReviewEnterpriseModule().Manifest.Capabilities);
     }
 
     [Fact]
-    public void Enterprise_capability_requires_enterprise_package_and_licence()
+    public void Enterprise_sku_still_grants_team_soft_unlock_with_team_package()
     {
         var entitlement = CreateVerifiedEntitlement(
             OrganisationId,
             "Enterprise",
-            [
-                KnownCapabilities.Review.MultiApproval,
-                KnownCapabilities.Review.CodeOwners,
-                KnownCapabilities.Review.SeparationOfDuties
-            ]);
-
-        var withoutEnterprise = new CapabilityService(
-            [new ReviewModule(), new ReviewTeamModule()],
-            new SignedLicenceEntitlementStore(entitlement));
-        Assert.False(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Review.SeparationOfDuties));
-        Assert.True(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Review.MultiApproval));
-        Assert.True(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Review.CodeOwners));
+            [KnownCapabilities.Review.MultiApproval]);
 
         var withEnterprise = new CapabilityService(
             [new ReviewModule(), new ReviewTeamModule(), new ReviewEnterpriseModule()],
             new SignedLicenceEntitlementStore(entitlement));
-        Assert.True(withEnterprise.Has(OrganisationId, KnownCapabilities.Review.SeparationOfDuties));
+        Assert.True(withEnterprise.Has(OrganisationId, KnownCapabilities.Review.MultiApproval));
+        Assert.False(withEnterprise.Has(OrganisationId, KnownCapabilities.Review.CodeOwners));
+        Assert.False(withEnterprise.Has(OrganisationId, KnownCapabilities.Review.SeparationOfDuties));
     }
 
     [Fact]
@@ -110,7 +99,7 @@ public sealed class ReviewEnterpriseArchitectureTests
                 ["review"] = new LicenceModuleDocument
                 {
                     Edition = "Enterprise",
-                    Capabilities = [KnownCapabilities.Review.CodeOwners]
+                    Capabilities = [KnownCapabilities.Review.MultiApproval]
                 }
             }
         };

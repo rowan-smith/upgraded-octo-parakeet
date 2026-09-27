@@ -3,7 +3,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 
 namespace Integration.Tests;
 
@@ -49,23 +48,30 @@ public sealed class PipelineControlPlaneTests : IClassFixture<WebApplicationFact
         Assert.Contains("token", await token.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
     }
 
-    private WebApplicationFactory<Program> CreateHost(string environment) =>
-        _factory.WithWebHostBuilder(builder =>
+    private WebApplicationFactory<Program> CreateHost(string environment)
+    {
+        var database = Path.Combine(Path.GetTempPath(), $"forgedeck-pipe-{Guid.NewGuid():N}.db");
+        var keys = Path.Combine(Path.GetTempPath(), $"forgedeck-keys-{Guid.NewGuid():N}");
+        var cs = $"Data Source={database}";
+        return _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(environment);
-            var database = Path.Combine(Path.GetTempPath(), $"forgedeck-pipe-{Guid.NewGuid():N}.db");
-            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:Platform"] = $"Data Source={database}",
-                ["Data:ProtectionKeysPath"] = Path.Combine(Path.GetTempPath(), $"forgedeck-keys-{Guid.NewGuid():N}"),
-                ["Pipelines:ExecutionMode"] = "Simulated"
-            }));
+            builder.UseEnvironment("Development");
+            builder.UseSetting("ConnectionStrings:Platform", cs);
+            builder.UseSetting("ConnectionStrings:Build", cs);
+            builder.UseSetting("Data:ProtectionKeysPath", keys);
+            builder.UseSetting("Pipelines:ExecutionMode", "Runner");
+            builder.UseSetting("Core:SeedDemoOnEmpty", "true");
         });
+    }
 
     private static HttpClient AuthenticatedClient(WebApplicationFactory<Program> factory)
     {
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "mvp-admin-token");
+        var response = client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" }).GetAwaiter().GetResult();
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        var token = doc.RootElement.GetProperty("token").GetString();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 }

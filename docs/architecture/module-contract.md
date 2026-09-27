@@ -11,7 +11,7 @@ Platform Core (Auth, RBAC, Projects, Events, Licensing, Registry)
         ▼
  Module host
    ├── InProcessModuleHost     (current first-party path)
-   └── OutOfProcessModuleHost  (preferred third-party boundary; scaffold today)
+   └── OutOfProcessModuleHost  (preferred third-party boundary; not implemented — throws NotSupportedException)
 ```
 
 ## Package document
@@ -43,7 +43,7 @@ Platform-neutral contracts (e.g. `CheckUpdatedEvent`) live in `sdk/ForgeDeck.Con
 | `IModuleContext` | Capabilities, entitlements, events, provider catalogue |
 | `IModuleLifecycle` | Optional Start/Stop |
 | `IProviderCatalogue` | “Does something provide Check?” not “Is Build installed?” |
-| `IModuleHost` | Start/stop packages (in-proc or OOP scaffold) |
+| `IModuleHost` | Start/stop packages (in-proc; OOP throws NotSupportedException) |
 | `PlatformPermissions` / `ExtensionPoints` | Stable permission and contribution ids |
 
 ## Provider kinds
@@ -57,7 +57,7 @@ Bundled modules are the default providers. External Jenkins/SAST/K8s plugins sho
 | Module class | Hosting |
 |--------------|---------|
 | First-party ForgeDeck.* | In-process today (performance); still declare permissions/events |
-| Third-party | Out-of-process / container via `IModuleHost` (scaffold — no process spawn yet) |
+| Third-party | Out-of-process / container via `IModuleHost` (not implemented — throws `NotSupportedException`) |
 
 A third-party crash must not take down the Core process once OOP hosting is fully wired.
 

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using ForgeDeck.Contracts.Capabilities;
-using ForgeDeck.Contracts.Licensing;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Licensing;
@@ -14,28 +13,12 @@ public sealed class DeployEnterpriseCapabilityGrantMatrixTests
 {
     private static readonly Guid OrganisationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
-    public static IEnumerable<object[]> EnterpriseCapabilities() =>
-        KnownCapabilities.Deploy.Enterprise.Select(c => new object[] { c });
-
     public static IEnumerable<object[]> TeamCapabilities() =>
         KnownCapabilities.Deploy.Team.Select(c => new object[] { c });
 
-    [Theory]
-    [MemberData(nameof(EnterpriseCapabilities))]
-    public void Enterprise_sku_and_packages_grant_enterprise_capability(string capability)
-    {
-        var service = CreateService("DEPLOY-ENTERPRISE",
-            [new DeployModule(), new DeployTeamModule(), new DeployEnterpriseModule()]);
-        Assert.True(service.Has(OrganisationId, capability));
-    }
-
-    [Theory]
-    [MemberData(nameof(EnterpriseCapabilities))]
-    public void Enterprise_capability_absent_without_enterprise_package(string capability)
-    {
-        var service = CreateService("DEPLOY-ENTERPRISE", [new DeployModule(), new DeployTeamModule()]);
-        Assert.False(service.Has(OrganisationId, capability));
-    }
+    [Fact]
+    public void Enterprise_capabilities_not_shipped_yet() =>
+        Assert.Empty(KnownCapabilities.Deploy.Enterprise);
 
     [Theory]
     [MemberData(nameof(TeamCapabilities))]

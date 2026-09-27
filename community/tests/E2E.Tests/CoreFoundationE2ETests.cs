@@ -376,6 +376,8 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Core:SeedDemoOnEmpty", "false");
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
+            builder.UseSetting("Bootstrap:Username", "admin");
+            builder.UseSetting("Bootstrap:Password", "admin");
         });
     }
 
@@ -392,7 +394,11 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
         });
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "mvp-admin-token");
+        var response = client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" }).GetAwaiter().GetResult();
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        var token = doc.RootElement.GetProperty("token").GetString();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 

@@ -12,4 +12,9 @@ public interface IDeployStore
     IReadOnlyList<Deployment> ListDeployments(Guid? projectId = null, Guid? environmentId = null, int take = 100);
     Deployment? FindDeployment(Guid id);
     void SaveDeployment(Deployment deployment);
+
+    void SaveBuildRunReference(Guid runId, string pipelineName, string commitSha, Guid? changeId);
+    void SaveArtifactReference(Guid runId, string pipelineName, string artifactName, string? uri);
+    IReadOnlyList<DeployBuildRunReference> ListBuildRunReferences(int take = 50);
+    IReadOnlyList<DeployArtifactReference> ListArtifactReferences(Guid? runId = null, int take = 50);
 }

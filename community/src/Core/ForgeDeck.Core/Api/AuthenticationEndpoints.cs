@@ -10,12 +10,19 @@ public static class AuthenticationEndpoints
     {
         app.MapPost("/api/auth/login", (LoginRequest request, AuthService auth) =>
         {
-            var result = auth.Login(request.Email, request.Password);
-            return result is null ? Results.Unauthorized() : Results.Ok(new { result.Token, result.User, result.Profile });
-        });
+            try
+            {
+                var result = auth.Login(request.Email, request.Password);
+                return result is null ? Results.Unauthorized() : Results.Ok(new { result.Token, result.User, result.Profile });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status429TooManyRequests);
+            }
+        }).RequireRateLimiting("auth");
         app.MapPost("/api/auth/logout", (HttpContext context, AuthService auth) =>
         {
-            if (context.Items["session-token"] is string token && token != "mvp-admin-token")
+            if (context.Items["session-token"] is string token)
             {
                 auth.Logout(token);
             }

@@ -1,8 +1,9 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Licensing;
+using ForgeDeck.Contracts.SourceControl;
 using ForgeDeck.Core.Capabilities;
+using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Licensing;
 using ForgeDeck.Review;
 using ForgeDeck.Review.Domain;
@@ -52,7 +53,7 @@ public sealed class ReviewTeamTests
         var capabilities = new CapabilityService(
             [new ReviewModule(), new ReviewTeamModule()],
             new SignedLicenceEntitlementStore(entitlement));
-        var context = new ForgeDeck.Core.Context.PlatformContextStore();
+        var context = new PlatformContextStore();
         var authorizer = new CapabilityAuthorizer(capabilities, context);
         var resolver = new ApprovalPolicyResolver(
             capabilities,
@@ -75,7 +76,7 @@ public sealed class ReviewTeamTests
             TargetBranch = "main",
             HeadCommit = "abc1234",
             BaseCommit = "def5678",
-            Repository = new ForgeDeck.Contracts.SourceControl.SourceRepository("github", "org", "repo", "main"),
+            Repository = new SourceRepository("github", "org", "repo", "main"),
             ProviderMergeable = true
         };
 
@@ -99,7 +100,8 @@ public sealed class ReviewTeamTests
             [new ReviewModule(), new ReviewTeamModule()],
             new SignedLicenceEntitlementStore(entitlement));
         Assert.True(service.Has(OrganisationId, KnownCapabilities.Review.MultiApproval));
-        Assert.True(service.Has(OrganisationId, KnownCapabilities.Review.TeamApproval));
+        Assert.False(service.Has(OrganisationId, KnownCapabilities.Review.TeamApproval));
+        Assert.False(service.Has(OrganisationId, KnownCapabilities.Review.CodeOwners));
     }
 
     private static OrganisationLicenceEntitlement CreateVerifiedEntitlement(

@@ -74,7 +74,7 @@ public sealed class ModuleContractTests
     }
 
     [Fact]
-    public async Task Out_of_process_host_accepts_third_party_package_scaffold()
+    public async Task Out_of_process_host_throws_not_supported()
     {
         var host = new OutOfProcessModuleHost(NullLogger<OutOfProcessModuleHost>.Instance);
         var package = ModulePackageLoader.ParseJson("""
@@ -84,9 +84,8 @@ public sealed class ModuleContractTests
               "permissions": [ "repository.read", "build.read" ]
             }
             """);
-        await host.StartAsync(package, CreateContext());
-        Assert.True(host.IsRunning("acme.security"));
-        await host.StopAsync("acme.security");
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => host.StartAsync(package, CreateContext()));
+        Assert.Contains("not implemented", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(host.IsRunning("acme.security"));
     }
 
@@ -111,11 +110,12 @@ public sealed class ModuleContractTests
         await composite.StartAsync(ModulePackageLoader.ParseJson("""
             { "metadata": { "id": "forgedeck.git", "name": "Git", "version": "1.0.0" }, "runtime": { "type": "in-process" } }
             """), context);
-        await composite.StartAsync(ModulePackageLoader.ParseJson("""
-            { "metadata": { "id": "acme.security", "name": "Acme", "version": "1.0.0" }, "runtime": { "type": "out-of-process" } }
-            """), context);
         Assert.True(composite.IsRunning("forgedeck.git"));
-        Assert.True(composite.IsRunning("acme.security"));
+
+        await Assert.ThrowsAsync<NotSupportedException>(() => composite.StartAsync(ModulePackageLoader.ParseJson("""
+            { "metadata": { "id": "acme.security", "name": "Acme", "version": "1.0.0" }, "runtime": { "type": "out-of-process" } }
+            """), context));
+        Assert.False(composite.IsRunning("acme.security"));
     }
 
     private static IModuleContext CreateContext()

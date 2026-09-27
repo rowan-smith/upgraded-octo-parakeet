@@ -24,34 +24,25 @@ public sealed class BuildEnterpriseArchitectureTests
     }
 
     [Fact]
-    public void Enterprise_declares_enterprise_capabilities_only()
+    public void Enterprise_capabilities_not_shipped_yet()
     {
-        var caps = new BuildEnterpriseModule().Manifest.Capabilities;
-        Assert.Contains(KnownCapabilities.Build.Attestation, caps);
-        Assert.DoesNotContain(KnownCapabilities.Build.Concurrent, caps);
+        Assert.Empty(KnownCapabilities.Build.Enterprise);
+        Assert.Empty(new BuildEnterpriseModule().Manifest.Capabilities);
     }
 
     [Fact]
-    public void Enterprise_capability_requires_enterprise_package_and_licence()
+    public void Enterprise_sku_still_grants_team_soft_unlock_with_team_package()
     {
         var entitlement = CreateVerifiedEntitlement(
             OrganisationId,
             "Enterprise",
-            [
-                KnownCapabilities.Build.Concurrent,
-                KnownCapabilities.Build.Attestation
-            ]);
-
-        var withoutEnterprise = new CapabilityService(
-            [new BuildModule(), new BuildTeamModule()],
-            new SignedLicenceEntitlementStore(entitlement));
-        Assert.False(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Build.Attestation));
-        Assert.True(withoutEnterprise.Has(OrganisationId, KnownCapabilities.Build.Concurrent));
+            [KnownCapabilities.Build.Concurrent]);
 
         var withEnterprise = new CapabilityService(
             [new BuildModule(), new BuildTeamModule(), new BuildEnterpriseModule()],
             new SignedLicenceEntitlementStore(entitlement));
-        Assert.True(withEnterprise.Has(OrganisationId, KnownCapabilities.Build.Attestation));
+        Assert.True(withEnterprise.Has(OrganisationId, KnownCapabilities.Build.Concurrent));
+        Assert.False(withEnterprise.Has(OrganisationId, KnownCapabilities.Build.Attestation));
     }
 
     private static OrganisationLicenceEntitlement CreateVerifiedEntitlement(

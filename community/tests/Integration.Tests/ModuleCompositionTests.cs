@@ -233,12 +233,17 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
     {
         var database = Path.Combine(Path.GetTempPath(), $"forgedeck-tests-{Guid.NewGuid():N}.db");
         var keys = Path.Combine(Path.GetTempPath(), $"forgedeck-keys-{Guid.NewGuid():N}");
+        var cs = $"Data Source={database}";
         return _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment is "Disabled" or "ReviewOnly" or "GitOnly" or "Full"
                 ? "Development"
                 : environment ?? "Development");
-            builder.UseSetting("ConnectionStrings:Platform", $"Data Source={database}");
+            builder.UseSetting("ConnectionStrings:Platform", cs);
+            builder.UseSetting("ConnectionStrings:Deploy", cs);
+            builder.UseSetting("ConnectionStrings:Review", cs);
+            builder.UseSetting("ConnectionStrings:Build", cs);
+            builder.UseSetting("ConnectionStrings:Git", cs);
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Core:SeedDemoOnEmpty", "true");
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
@@ -275,7 +280,11 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
     private static HttpClient AuthenticatedClient(WebApplicationFactory<Program> factory)
     {
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "mvp-admin-token");
+        var response = client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" }).GetAwaiter().GetResult();
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        var token = doc.RootElement.GetProperty("token").GetString();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 

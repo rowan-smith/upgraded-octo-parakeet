@@ -24,12 +24,7 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
         }
 
         UserAccount? user = null;
-        if (token == "mvp-admin-token")
-        {
-            user = store.FindUserByEmail("maya@forgedeck.dev")
-                 ?? store.FindUserByEmail("maya@northstar.dev");
-        }
-        else if (!string.IsNullOrWhiteSpace(token))
+        if (!string.IsNullOrWhiteSpace(token))
         {
             user = auth.GetUserBySessionToken(token);
         }

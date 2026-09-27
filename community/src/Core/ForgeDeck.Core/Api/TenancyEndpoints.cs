@@ -41,7 +41,7 @@ public static class TenancyEndpoints
             }
             catch (UnauthorizedAccessException ex) { return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized); }
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
-        });
+        }).RequireRateLimiting("auth");
 
         app.MapPost("/api/setup/organisation", (OrganisationSetupRequest request, SetupService setup, HttpContext http) =>
         {
@@ -619,7 +619,7 @@ public static class TenancyEndpoints
             catch (KeyNotFoundException) { return Results.NotFound(new { error = "Invitation not found." }); }
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
-        });
+        }).RequireRateLimiting("auth");
 
         app.MapGet("/api/teams", (TeamService teams, ITenancyStore store, RoleService roles, PermissionAuthorizer authorizer, HttpContext http) =>
         {

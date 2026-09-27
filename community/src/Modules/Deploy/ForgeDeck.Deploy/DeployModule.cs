@@ -57,6 +57,8 @@ public sealed class DeployModule : IPlatformModule
         services.AddSingleton(new EventContractRegistration(DeployEventContracts.All().ToArray()));
         services.AddEventHandler<DeployReleaseEvent, DeployReleaseHandler>("forgedeck.deploy.release");
         services.AddEventHandler<DeployRollbackRequestedEvent, DeployRollbackRequestHandler>("forgedeck.deploy.rollback-requested");
+        services.AddEventHandler<BuildPipelineRunSucceededEvent, PipelineSucceededDeployHandler>("forgedeck.deploy.pipeline-succeeded");
+        services.AddEventHandler<BuildArtifactProducedEvent, BuildArtifactAvailableHandler>("forgedeck.deploy.artifact-produced");
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints) => endpoints.MapDeployEndpoints();

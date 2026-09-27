@@ -216,14 +216,14 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
 
         await Ui.OpenLicensingAsync(page);
         await page.Locator("#licensingPayload").EvaluateAsync("(el, value) => { el.value = value; }", licences.CreateCommercialJson(
-            reviewCapabilities: [KnownCapabilities.Review.MultiApproval, KnownCapabilities.Review.CodeOwners]));
+            reviewCapabilities: [KnownCapabilities.Review.MultiApproval]));
         await page.Locator("#licensingInstall").ClickAsync();
         await Ui.ExpectToastAsync(page, "Enterprise licence installed");
 
         var commercial = await GetJsonAsync(page, "/api/platform/modules");
         var caps = commercial.GetProperty("capabilities").EnumerateArray().Select(c => c.GetString()).ToHashSet();
         Assert.Contains(KnownCapabilities.Review.MultiApproval, caps);
-        Assert.Contains(KnownCapabilities.Review.CodeOwners, caps);
+        Assert.DoesNotContain(KnownCapabilities.Review.CodeOwners, caps);
         var reviewCommercial = commercial.GetProperty("modules").EnumerateArray()
             .First(m => m.GetProperty("id").GetString() == "review");
         Assert.Equal("Team", reviewCommercial.GetProperty("edition").GetString());

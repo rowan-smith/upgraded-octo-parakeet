@@ -176,6 +176,18 @@ public sealed class LicenceSkuMatrixTests
             Assert.True(document.Modules.ContainsKey(module));
         }
     }
+
+    [Theory]
+    [InlineData("GIT-TEAM", PlatformModules.Git)]
+    [InlineData("GIT-ENTERPRISE", PlatformModules.Git)]
+    [InlineData("CODE-TEAM", PlatformModules.Code)]
+    [InlineData("CODE-ENTERPRISE", PlatformModules.Code)]
+    public void Planned_git_code_skus_expand_to_empty_commercial_caps(string sku, string module)
+    {
+        var map = LicenceSkuCatalog.Expand(sku);
+        Assert.True(map[module] >= EntitlementLevel.Team);
+        Assert.Empty(ModuleEntitlementTables.CapabilitiesFor(module, map[module]));
+    }
 }
 
 public sealed class PlatformModulesNormalizeTests

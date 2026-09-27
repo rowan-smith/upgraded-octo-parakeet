@@ -22,7 +22,7 @@ public static class PlatformModules
             }
         }
 
-        // Host runtime id "pipelines" is the Build module.
+        // Host runtime id "pipelines" is the Build module (licence id remains "build").
         if (moduleId.Equals("pipelines", StringComparison.OrdinalIgnoreCase))
         {
             return Build;

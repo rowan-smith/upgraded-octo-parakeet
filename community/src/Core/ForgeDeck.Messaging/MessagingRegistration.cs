@@ -11,6 +11,8 @@ using ForgeDeck.Messaging.Registry;
 using ForgeDeck.Messaging.Serialization;
 using ForgeDeck.Messaging.Subscriptions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -61,10 +63,37 @@ public sealed class MessagingBootstrapper(
     IDbContextFactory<MessagingDbContext> dbFactory,
     IEventRegistry registry) : IMessagingBootstrapper
 {
+    private static readonly object SchemaGate = new();
+
     public void EnsureCreated()
     {
         using var db = dbFactory.CreateDbContext();
-        db.Database.EnsureCreated();
+        // PlatformDbContext.EnsureCreated may have already created the SQLite file.
+        // EnsureCreated() then no-ops; create messaging tables explicitly when missing.
+        db.Database.OpenConnection();
+        lock (SchemaGate)
+        {
+            var conn = db.Database.GetDbConnection();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_event_outbox'";
+                var exists = Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+                if (!exists)
+                {
+                    try
+                    {
+                        var creator = (IRelationalDatabaseCreator)db.Database.GetService(typeof(IRelationalDatabaseCreator))!;
+                        creator.CreateTables();
+                    }
+                    catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+                        || (ex.InnerException?.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ?? false))
+                    {
+                        // Concurrent bootstrap.
+                    }
+                }
+            }
+        }
+
         if (registry.TryGet(CheckUpdatedEventContract.Type, CheckUpdatedEventContract.Version) is null)
         {
             registry.Register(CheckUpdatedEventContract.Create());

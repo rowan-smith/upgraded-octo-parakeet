@@ -15,9 +15,7 @@ public sealed class ReviewTeamModule : IPlatformModule
         "0.1.0",
         "Team",
         [
-            KnownCapabilities.Review.MultiApproval,
-            KnownCapabilities.Review.TeamApproval,
-            KnownCapabilities.Review.CodeOwners
+            KnownCapabilities.Review.MultiApproval
         ],
         [],
         []);

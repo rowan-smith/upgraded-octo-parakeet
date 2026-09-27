@@ -303,7 +303,7 @@ public sealed class PipelineYamlApiTests(PipelineYamlHostFixture host) : IClassF
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        var triggers = body.GetProperty("definition").GetProperty("triggers").EnumerateArray().Select(t => t.GetString()).ToArray();
+        var triggers = body.GetProperty("definition").GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray();
         Assert.Equal([expected], triggers);
     }
 
@@ -315,7 +315,7 @@ public sealed class PipelineYamlApiTests(PipelineYamlHostFixture host) : IClassF
         var body = await PostJsonAsync("/api/pipelines/definitions/validate-yaml", new { yaml });
         var definition = body.GetProperty("definition");
 
-        Assert.Equal(["Manual"], definition.GetProperty("triggers").EnumerateArray().Select(t => t.GetString()).ToArray());
+        Assert.Equal(["Manual"], definition.GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
         Assert.Equal(3600, definition.GetProperty("timeoutSeconds").GetInt32());
         Assert.Equal(1800, definition.GetProperty("jobs")[0].GetProperty("timeoutSeconds").GetInt32());
         Assert.Equal(600, definition.GetProperty("jobs")[0].GetProperty("steps")[0].GetProperty("timeoutSeconds").GetInt32());
@@ -364,7 +364,7 @@ public sealed class PipelineYamlApiTests(PipelineYamlHostFixture host) : IClassF
         Assert.Equal(2400, fetched.GetProperty("timeoutSeconds").GetInt32());
         Assert.Equal(
             ["Manual", "Push"],
-            fetched.GetProperty("triggers").EnumerateArray().Select(t => t.GetString()).ToArray());
+            fetched.GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
         Assert.Equal("Build", fetched.GetProperty("jobs")[0].GetProperty("name").GetString());
         Assert.Equal(2, fetched.GetProperty("jobs")[0].GetProperty("steps").GetArrayLength());
         Assert.Equal("true", fetched.GetProperty("environment").GetProperty("DOTNET_NOLOGO").GetString());
@@ -480,7 +480,7 @@ public sealed class PipelineYamlApiTests(PipelineYamlHostFixture host) : IClassF
         Assert.Equal("Verify", fetched.GetProperty("jobs")[1].GetProperty("name").GetString());
         Assert.Equal(
             ["Push", "ChangeOpened"],
-            fetched.GetProperty("triggers").EnumerateArray().Select(t => t.GetString()).ToArray());
+            fetched.GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
         Assert.True(fetched.GetProperty("version").GetInt32() > 1);
     }
 
@@ -667,7 +667,7 @@ public sealed class PipelineYamlApiTests(PipelineYamlHostFixture host) : IClassF
 
         Assert.Equal(
             ["Manual", "Push"],
-            body.GetProperty("definition").GetProperty("triggers").EnumerateArray().Select(t => t.GetString()).ToArray());
+            body.GetProperty("definition").GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
     }
 
     [Fact]

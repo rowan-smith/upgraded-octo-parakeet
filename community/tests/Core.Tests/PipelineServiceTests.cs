@@ -145,7 +145,7 @@ public sealed class PipelineServiceTests
     }
 
     [Fact]
-    public void Manual_run_rejects_local_placeholder_sha()
+    public async Task Manual_run_rejects_local_placeholder_sha()
     {
         var harness = CreateHarness();
         try
@@ -155,12 +155,12 @@ public sealed class PipelineServiceTests
         }
         finally
         {
-            harness.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            await harness.DisposeAsync();
         }
     }
 
     [Fact]
-    public void Community_blocks_second_concurrent_pipeline_without_Build_Concurrent()
+    public async Task Community_blocks_second_concurrent_pipeline_without_Build_Concurrent()
     {
         var harness = CreateHarness();
         try
@@ -182,7 +182,7 @@ public sealed class PipelineServiceTests
         }
         finally
         {
-            harness.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            await harness.DisposeAsync();
         }
     }
 

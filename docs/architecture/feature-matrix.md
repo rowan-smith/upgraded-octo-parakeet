@@ -35,6 +35,23 @@ Modules are **independently entitled**. Entitlements are **additive** (e.g. Team
 
 Constants: `CommunityLimits` in `ForgeDeck.Contracts`.
 
+## Commercial caps — Implemented vs Planned
+
+Honest status of commercial unlocks (capability IDs may exist before full product depth ships).
+
+| Cap / feature | Tier | Implemented | Planned |
+|---------------|------|-------------|---------|
+| Community soft limits (`CommunityLimits` + capability gate) | Community | Yes — enforced in Review / Build / Deploy services | — |
+| Signed offline licence + entitlement resolver | Team+ | Yes — install / resolve / degrade to Community | — |
+| `Review.MultiApproval` (higher `minimumApprovals`) | Team | Yes — policy factory + soft-limit unlock | CODEOWNERS, merge queue, reviewer groups |
+| `Build.Concurrent` (parallel pipeline runs) | Team | Yes — unlocks concurrent soft limit | Schedules, runner pools, protected secrets UI |
+| `Deploy.MultiEnvironment` | Team | Yes — unlocks environment soft limit | Gated promotions, rolling / blue-green / canary |
+| Review Enterprise (SoD, compliance export, path policy, …) | Enterprise | No — capability IDs reserved; packages declare no grants until implemented | Full policy engine + export pipelines |
+| Build Enterprise (attestation, isolated pools, HA scheduler) | Enterprise | No — capability IDs reserved; packages declare no grants until implemented | Attestation/SBOM, mandatory scanning, HA |
+| Deploy Enterprise (multi-site, signed artifacts) | Enterprise | No — capability IDs reserved; packages declare no grants until implemented | Multi-site controller, attestations, HA |
+| OIDC / SAML / LDAP / SCIM | Team / Enterprise | No (local accounts today) | Identity providers as listed in platform tiers |
+| HA / multi-site topology | Enterprise | No (single-instance appliance) | See [deployment-topology.md](deployment-topology.md) |
+
 ## Module summaries
 
 ### Git

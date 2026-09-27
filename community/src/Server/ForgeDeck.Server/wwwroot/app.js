@@ -2,7 +2,10 @@ const state={token:null,modules:[],context:null,connections:[],changes:[],change
 const DEFAULT_LOCAL_PATH='C:\\Users\\rowan\\RiderProjects\\upgraded-octo-parakeet';
 const TOKEN_KEY='forgedeck.token';
 const el=id=>document.getElementById(id);
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function escapeHtml(value){
+  return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+const esc=value=>escapeHtml(value).replace(/'/g,'&#39;');
 
 async function api(path,options={}){
   const headers={...(state.token?{Authorization:`Bearer ${state.token}`}:{}),...(options.headers||{})};
@@ -40,15 +43,10 @@ async function boot(){
     }
     state.token=localStorage.getItem(TOKEN_KEY);
     if(!state.token){
-      try{
-        const login=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:'maya@forgedeck.dev',password:'demo'})});
-        state.token=login.token;localStorage.setItem(TOKEN_KEY,state.token);
-      }catch{
-        el('appSidebar').style.display='none';
-        document.querySelector('.app-shell')?.classList.add('setup-mode');
-        el('app').setAttribute('aria-busy','false');
-        return renderLogin();
-      }
+      el('appSidebar').style.display='none';
+      document.querySelector('.app-shell')?.classList.add('setup-mode');
+      el('app').setAttribute('aria-busy','false');
+      return renderLogin();
     }
     await loadWorkspace();
   }catch(error){
@@ -232,7 +230,7 @@ function statusClass(value){return String(value).toLowerCase().replace(/\s+/g,'-
 function showToast(message,bad=false){const toast=el('toast');toast.textContent=message;toast.classList.toggle('error',bad);toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2800)}
 function renderError(error){
   const settingsRoute=isOrgRoute(state.route)?'/organisation/settings':'/settings';
-  el('content').innerHTML=`<div class="empty"><h2>${esc(error.kind||'Workspace unavailable')}</h2><p>${esc(error.message)}</p><button class="button" data-route="${settingsRoute}">Open settings</button></div>`;
+  el('content').innerHTML=`<div class="empty"><h2>${escapeHtml(error.kind||'Workspace unavailable')}</h2><p>${escapeHtml(error.message)}</p><button class="button" data-route="${settingsRoute}">Open settings</button></div>`;
 }
 function initials(name){return String(name||'?').split(/\s+/).map(part=>part[0]).join('').slice(0,2).toUpperCase()}
 function slugify(value){
@@ -260,8 +258,8 @@ function renderLogin(){
   el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
     <h1>Sign in</h1>
     <p class="description">Access ${esc(state.setup?.organisationName||'your organisation')}.</p>
-    <label class="form-label">Email</label><input class="field" id="loginEmail" type="email" value="maya@forgedeck.dev">
-    <label class="form-label">Password</label><input class="field" id="loginPassword" type="password" value="demo">
+    <label class="form-label">Email</label><input class="field" id="loginEmail" type="email" value="" autocomplete="username">
+    <label class="form-label">Password</label><input class="field" id="loginPassword" type="password" value="" autocomplete="current-password">
     <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="loginSubmit">Sign in</button></div>
   </div></div>`;
   el('loginSubmit').onclick=async()=>{
@@ -329,8 +327,8 @@ function renderBootstrapLogin(){
     <h1>Initial Setup</h1>
     <p class="description">Sign in with the installation credentials to configure this server.</p>
     ${warn}
-    <label class="form-label">Username</label><input class="field" id="bootstrapUser" value="admin" autocomplete="username">
-    <label class="form-label">Password</label><input class="field" id="bootstrapPass" type="password" value="admin" autocomplete="current-password">
+    <label class="form-label">Username</label><input class="field" id="bootstrapUser" value="" autocomplete="username">
+    <label class="form-label">Password</label><input class="field" id="bootstrapPass" type="password" value="" autocomplete="current-password">
     <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="bootstrapSignIn">Sign In</button></div>
   </div></div>`;
   el('bootstrapSignIn').onclick=async()=>{
@@ -438,8 +436,8 @@ function renderSetupOwner(){
     <label class="form-label">Display Name</label><input class="field" id="setupDisplayName" value="Rowan Smith">
     <label class="form-label">Username</label><input class="field" id="setupUsername" value="rowan">
     <label class="form-label">Email</label><input class="field" id="setupEmail" type="email" value="rowan@example.com">
-    <label class="form-label">Password</label><input class="field" id="setupPassword" type="password" value="password123">
-    <label class="form-label">Confirm Password</label><input class="field" id="setupPassword2" type="password" value="password123">
+    <label class="form-label">Password</label><input class="field" id="setupPassword" type="password" value="" autocomplete="new-password">
+    <label class="form-label">Confirm Password</label><input class="field" id="setupPassword2" type="password" value="" autocomplete="new-password">
     <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="setupCreateOwner">Create Owner</button></div>
   `);
   el('setupCreateOwner').onclick=async()=>{
@@ -652,7 +650,7 @@ function renderSearchPanel(errorMessage){
   const hits=state.searchHits||[];
   if(errorMessage){
     panel.hidden=false;
-    panel.innerHTML=`<div class="search-empty">${esc(errorMessage)}</div>`;
+    panel.innerHTML=`<div class="search-empty">${escapeHtml(errorMessage)}</div>`;
     return;
   }
   if(!hits.length){
@@ -663,8 +661,8 @@ function renderSearchPanel(errorMessage){
   panel.hidden=false;
   panel.innerHTML=hits.map((hit,index)=>`
     <button type="button" class="search-hit ${index===state.searchIndex?'active':''}" data-search-index="${index}" role="option" aria-selected="${index===state.searchIndex?'true':'false'}">
-      <span class="search-hit-type">${esc(hit.type||'result')}</span>
-      <span class="search-hit-copy"><strong>${esc(hit.label)}</strong>${hit.subtitle?`<small>${esc(hit.subtitle)}</small>`:''}</span>
+      <span class="search-hit-type">${escapeHtml(hit.type||'result')}</span>
+      <span class="search-hit-copy"><strong>${escapeHtml(hit.label)}</strong>${hit.subtitle?`<small>${escapeHtml(hit.subtitle)}</small>`:''}</span>
     </button>`).join('');
   panel.querySelectorAll('[data-search-index]').forEach(btn=>{
     btn.onclick=async()=>{
@@ -1082,7 +1080,7 @@ async function renderOrgHome(){
   const greetingName=profile?.displayName||state.me?.user?.username||'there';
   const getStarted=!projects.length?`<div class="card get-started-card" style="margin-bottom:18px"><div class="card-header"><h2>Get started</h2></div>
     <div class="card-body">
-      <p class="description">Welcome, ${esc(greetingName)}. Your organisation is ready — create a project to start shipping.</p>
+      <p class="description">Welcome, ${escapeHtml(greetingName)}. Your organisation is ready — create a project to start shipping.</p>
       <ul class="get-started-list">
         ${canCreateProject()?'<li><button class="button primary" id="homeCreateFirstProject">Create your first Project</button></li>':''}
         <li><button class="button" data-route="/people">Invite people</button></li>
@@ -1092,7 +1090,7 @@ async function renderOrgHome(){
   el('content').innerHTML=`
   <div class="list-page-header"><div>
     <h1>${esc(org?.name||'Organisation')}</h1>
-    <p class="description">Good ${timeOfDay()}, ${esc(greetingName)} — projects, pull requests, and build health.</p>
+    <p class="description">Good ${timeOfDay()}, ${escapeHtml(greetingName)} — projects, pull requests, and build health.</p>
   </div>
   <div class="header-actions">
     <button class="button" data-route="/projects">All projects</button>

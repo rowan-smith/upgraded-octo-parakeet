@@ -36,7 +36,7 @@ public sealed class EntitlementModelTests
         var parsed = ManagedLicenceEntitlementStore.ParseVerified(json, keys)!;
 
         Assert.Contains(KnownCapabilities.Review.MultiApproval, parsed.Modules[PlatformModules.Review].Capabilities);
-        Assert.Contains(KnownCapabilities.Review.CodeOwners, parsed.Modules[PlatformModules.Review].Capabilities);
+        Assert.DoesNotContain(KnownCapabilities.Review.CodeOwners, parsed.Modules[PlatformModules.Review].Capabilities);
         Assert.DoesNotContain(KnownCapabilities.Review.SeparationOfDuties, parsed.Modules[PlatformModules.Review].Capabilities);
         Assert.Equal(EntitlementLevel.Team, parsed.Modules[PlatformModules.Build].Level);
     }

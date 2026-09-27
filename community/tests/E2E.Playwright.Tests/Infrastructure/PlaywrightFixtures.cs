@@ -91,6 +91,8 @@ public sealed class ForgeDeckHost : IAsyncDisposable
                 builder.UseSetting("Data:ProtectionKeysPath", keys);
                 builder.UseSetting("Core:SeedDemoOnEmpty", seedDemo ? "true" : "false");
                 builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
+                builder.UseSetting("Bootstrap:Username", "admin");
+                builder.UseSetting("Bootstrap:Password", "admin");
                 if (!string.IsNullOrWhiteSpace(publicKeyPem))
                 {
                     builder.ConfigureAppConfiguration((_, config) =>

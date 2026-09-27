@@ -1,4 +1,3 @@
-using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Review.Team;
 using Microsoft.AspNetCore.Routing;
@@ -8,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ForgeDeck.Review.Enterprise;
 
 /// <summary>
-/// Enterprise Review delta. Declares advanced capabilities; implementations land as contributions over time.
+/// Enterprise Review delta. Enterprise capabilities are planned; none declared yet.
 /// Multi-approval lives in Review.Team — this module does not re-register it.
 /// </summary>
 public sealed class ReviewEnterpriseModule : IPlatformModule
@@ -21,14 +20,7 @@ public sealed class ReviewEnterpriseModule : IPlatformModule
         "Review Enterprise",
         "0.1.0",
         "Enterprise",
-        [
-            KnownCapabilities.Review.PathPolicy,
-            KnownCapabilities.Review.ConditionalPolicy,
-            KnownCapabilities.Review.PolicyComposition,
-            KnownCapabilities.Review.ReviewDismissal,
-            KnownCapabilities.Review.SeparationOfDuties,
-            KnownCapabilities.Review.ComplianceExport
-        ],
+        [],
         [],
         []);
 

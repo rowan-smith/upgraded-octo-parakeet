@@ -11,9 +11,9 @@ public sealed class GitRepository
     public required string Slug { get; init; }
     public string DefaultBranch { get; init; } = "main";
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public List<GitCommit> Commits { get; } = [];
-    public List<GitBranch> Branches { get; } = [];
-    public List<GitTag> Tags { get; } = [];
+    public List<GitCommit> Commits { get; set; } = [];
+    public List<GitBranch> Branches { get; set; } = [];
+    public List<GitTag> Tags { get; set; } = [];
 
     public GitCommit ReceivePush(string branchName, string message, string author)
     {

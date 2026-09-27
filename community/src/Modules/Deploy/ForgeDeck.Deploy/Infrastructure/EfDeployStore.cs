@@ -117,6 +117,82 @@ public sealed class EfDeployStore : IDeployStore
         db.SaveChanges();
     }
 
+    public void SaveBuildRunReference(Guid runId, string pipelineName, string commitSha, Guid? changeId)
+    {
+        var reference = new DeployBuildRunReference(runId, pipelineName, commitSha, changeId, DateTimeOffset.UtcNow);
+        using var db = _dbFactory.CreateDbContext();
+        var id = runId.ToString();
+        var row = db.BuildRuns.FirstOrDefault(r => r.Id == id);
+        if (row is null)
+        {
+            row = new DeployBuildRunRow
+            {
+                Id = id,
+                CreatedAt = reference.RecordedAt.ToString("O")
+            };
+            db.BuildRuns.Add(row);
+        }
+
+        row.PipelineName = pipelineName;
+        row.CommitSha = commitSha;
+        row.ChangeId = changeId?.ToString();
+        row.Payload = JsonSerializer.Serialize(reference, Json);
+        db.SaveChanges();
+    }
+
+    public void SaveArtifactReference(Guid runId, string pipelineName, string artifactName, string? uri)
+    {
+        var reference = new DeployArtifactReference(runId, pipelineName, artifactName, uri, DateTimeOffset.UtcNow);
+        using var db = _dbFactory.CreateDbContext();
+        var id = $"{runId:N}:{artifactName}";
+        var row = db.Artifacts.FirstOrDefault(a => a.Id == id);
+        if (row is null)
+        {
+            row = new DeployArtifactRow
+            {
+                Id = id,
+                CreatedAt = reference.RecordedAt.ToString("O")
+            };
+            db.Artifacts.Add(row);
+        }
+
+        row.RunId = runId.ToString();
+        row.PipelineName = pipelineName;
+        row.ArtifactName = artifactName;
+        row.Payload = JsonSerializer.Serialize(reference, Json);
+        db.SaveChanges();
+    }
+
+    public IReadOnlyList<DeployBuildRunReference> ListBuildRunReferences(int take = 50)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        return db.BuildRuns.AsNoTracking()
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(take)
+            .Select(r => r.Payload)
+            .AsEnumerable()
+            .Select(Deserialize<DeployBuildRunReference>)
+            .ToList();
+    }
+
+    public IReadOnlyList<DeployArtifactReference> ListArtifactReferences(Guid? runId = null, int take = 50)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var query = db.Artifacts.AsNoTracking();
+        if (runId is not null)
+        {
+            var id = runId.Value.ToString();
+            query = query.Where(a => a.RunId == id);
+        }
+
+        return query.OrderByDescending(a => a.CreatedAt)
+            .Take(take)
+            .Select(a => a.Payload)
+            .AsEnumerable()
+            .Select(Deserialize<DeployArtifactReference>)
+            .ToList();
+    }
+
     private void EnsureSchema()
     {
         if (_schemaReady)

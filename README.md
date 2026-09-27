@@ -37,7 +37,7 @@ docker compose up --build
 
 Run `dotnet test ForgeDeck.slnx` for the module composition and workflow tests.
 
-Each feature module follows a consistent `Domain`, `Application`, `Infrastructure`, and `Api` structure. See [the architecture guide](docs/architecture.md) before extending the platform.
+Each feature module follows a consistent `Domain`, `Application`, `Infrastructure`, and `Api` structure. Start with the [architecture quickstart](docs/architecture/quickstart.md), then [the architecture guide](docs/architecture.md).
 
 ---
 

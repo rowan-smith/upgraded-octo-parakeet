@@ -9,9 +9,11 @@ There is no special “Team installation.” SKUs expand to per-module entitleme
 | `REVIEW-TEAM` / `REVIEW-ENTERPRISE` | Review only |
 | `BUILD-TEAM` / `BUILD-ENTERPRISE` | Build only |
 | `DEPLOY-TEAM` / `DEPLOY-ENTERPRISE` | Deploy only |
-| `GIT-TEAM` / `GIT-ENTERPRISE` | Git only |
-| `CODE-TEAM` / `CODE-ENTERPRISE` | Code only |
+| `GIT-TEAM` / `GIT-ENTERPRISE` | Git only — **reserved/planned** (no commercial package; capability sets empty) |
+| `CODE-TEAM` / `CODE-ENTERPRISE` | Code only — **reserved/planned** (no commercial package; capability sets empty) |
 | `BUILD-DEPLOY-TEAM` | Build+Deploy Team; others Community |
+
+Shipped commercial soft unlocks today: `Review.MultiApproval`, `Build.Concurrent`, `Deploy.MultiEnvironment`. Enterprise module packages currently declare no capabilities.
 
 Generate a document (then sign with `LicenceSigner`):
 

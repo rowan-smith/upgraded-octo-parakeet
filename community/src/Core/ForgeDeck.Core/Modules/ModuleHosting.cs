@@ -110,13 +110,11 @@ public sealed class InProcessModuleHost(ILogger<InProcessModuleHost> logger) : I
 }
 
 /// <summary>
-/// Scaffold for third-party isolation. Does not load remote processes yet — validates package
-/// metadata and records intent so CI/architecture tests can assert the boundary exists.
+/// Placeholder for third-party isolation. Out-of-process hosting is not implemented;
+/// starting a package throws <see cref="NotSupportedException"/>.
 /// </summary>
 public sealed class OutOfProcessModuleHost(ILogger<OutOfProcessModuleHost> logger) : IModuleHost
 {
-    private readonly ConcurrentDictionary<string, ModulePackageDocument> _running = new(StringComparer.OrdinalIgnoreCase);
-
     public ModuleRuntimeKind PreferredThirdPartyRuntime => ModuleRuntimeKind.OutOfProcess;
 
     public Task StartAsync(ModulePackageDocument package, IModuleContext context, CancellationToken cancellationToken = default)
@@ -132,23 +130,17 @@ public sealed class OutOfProcessModuleHost(ILogger<OutOfProcessModuleHost> logge
             throw new InvalidOperationException("OutOfProcessModuleHost refuses in-process packages; use InProcessModuleHost.");
         }
 
-        // Future: spawn sidecar / attach gRPC channel / import container image.
-        _running[package.Metadata.Id] = package;
-        logger.LogInformation(
-            "Out-of-process host accepted module {ModuleId} v{Version} (scaffold — no process spawned). Permissions={Permissions}",
+        logger.LogWarning(
+            "Out-of-process host rejected module {ModuleId} v{Version}: hosting is not implemented.",
             package.Metadata.Id,
-            package.Metadata.Version,
-            string.Join(',', package.Permissions));
-        return Task.CompletedTask;
+            package.Metadata.Version);
+        throw new NotSupportedException("Out-of-process module hosting is not implemented.");
     }
 
-    public Task StopAsync(string moduleId, CancellationToken cancellationToken = default)
-    {
-        _running.TryRemove(moduleId, out _);
-        return Task.CompletedTask;
-    }
+    public Task StopAsync(string moduleId, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 
-    public bool IsRunning(string moduleId) => _running.ContainsKey(moduleId);
+    public bool IsRunning(string moduleId) => false;
 }
 
 /// <summary>Routes packages to in-process or out-of-process hosts based on runtime type.</summary>
