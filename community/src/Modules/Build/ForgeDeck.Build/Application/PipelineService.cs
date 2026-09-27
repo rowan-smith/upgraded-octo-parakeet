@@ -153,14 +153,16 @@ public sealed class PipelineService(
 
     private void EnsureConcurrentCapacity()
     {
-        if (capabilities.Has(context.Organisation.Id, KnownCapabilities.Build.Concurrent))
+        var limit = SoftLimits.MaxConcurrentPipelines(
+            capabilities.Has(context.Organisation.Id, KnownCapabilities.Build.Concurrent));
+        if (limit is null)
         {
             return;
         }
 
         var active = store.ListRuns(200)
             .Count(run => run.Status is PipelineRunStatus.Queued or PipelineRunStatus.Running);
-        if (active >= CommunityLimits.BuildMaxConcurrentPipelines)
+        if (active >= limit.Value)
         {
             throw new LicenceRequiredException(KnownCapabilities.Build.Concurrent);
         }

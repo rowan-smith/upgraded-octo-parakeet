@@ -7,8 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ForgeDeck.Build.Team;
 
 /// <summary>
-/// Team Build delta. Declares Concurrent only (soft-limit unlock).
-/// Community already enforces the concurrent soft limit when Build.Concurrent is absent.
+/// Team Build delta. Declares Concurrent only (soft-limit unlock via SoftLimits).
+/// Community PipelineService enforces CommunityLimits when Build.Concurrent is absent;
+/// with the capability present SoftLimits returns null (unlimited concurrent runs).
 /// </summary>
 public sealed class BuildTeamModule : IPlatformModule
 {
@@ -28,7 +29,7 @@ public sealed class BuildTeamModule : IPlatformModule
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         _ = CommunityAnchor;
-        // Concurrent unlock is capability-gated in Community PipelineService.
+        // Concurrent unlock is capability-gated in Community PipelineService via SoftLimits.
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints)

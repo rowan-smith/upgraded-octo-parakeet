@@ -8,6 +8,7 @@ public sealed class DeployDbContext(DbContextOptions<DeployDbContext> options) :
 {
     public DbSet<DeployEnvironmentRow> Environments => Set<DeployEnvironmentRow>();
     public DbSet<DeployDeploymentRow> Deployments => Set<DeployDeploymentRow>();
+    public DbSet<DeployAgentRow> Agents => Set<DeployAgentRow>();
     public DbSet<DeployBuildRunRow> BuildRuns => Set<DeployBuildRunRow>();
     public DbSet<DeployArtifactRow> Artifacts => Set<DeployArtifactRow>();
 
@@ -70,6 +71,19 @@ public sealed class DeployDbContext(DbContextOptions<DeployDbContext> options) :
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
             entity.HasIndex(e => new { e.RunId, e.CreatedAt }).HasDatabaseName("ix_deploy_artifacts_run");
         });
+
+        modelBuilder.Entity<DeployAgentRow>(entity =>
+        {
+            entity.ToTable("deploy_agents");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Name).HasColumnName("name").IsRequired();
+            entity.Property(e => e.TokenHash).HasColumnName("token_hash").IsRequired();
+            entity.Property(e => e.Status).HasColumnName("status").IsRequired();
+            entity.Property(e => e.Payload).HasColumnName("payload").IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.HasIndex(e => e.TokenHash).HasDatabaseName("ix_deploy_agents_token");
+        });
     }
 
     public void EnsureSchema()
@@ -103,6 +117,19 @@ public sealed class DeployDbContext(DbContextOptions<DeployDbContext> options) :
             """);
         EnsureTable(conn, """
             CREATE INDEX IF NOT EXISTS "ix_deploy_artifacts_run" ON "deploy_artifacts" ("run_id", "created_at");
+            """);
+        EnsureTable(conn, """
+            CREATE TABLE IF NOT EXISTS "deploy_agents" (
+                "id" TEXT NOT NULL CONSTRAINT "PK_deploy_agents" PRIMARY KEY,
+                "name" TEXT NOT NULL,
+                "token_hash" TEXT NOT NULL,
+                "status" TEXT NOT NULL,
+                "payload" TEXT NOT NULL,
+                "created_at" TEXT NOT NULL
+            );
+            """);
+        EnsureTable(conn, """
+            CREATE INDEX IF NOT EXISTS "ix_deploy_agents_token" ON "deploy_agents" ("token_hash");
             """);
 
         SchemaBootstrap.Record(conn, "deploy", SchemaBootstrap.PlatformSchemaVersion);
@@ -151,6 +178,16 @@ public sealed class DeployArtifactRow
     public string RunId { get; set; } = "";
     public string PipelineName { get; set; } = "";
     public string ArtifactName { get; set; } = "";
+    public string Payload { get; set; } = "";
+    public string CreatedAt { get; set; } = "";
+}
+
+public sealed class DeployAgentRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string TokenHash { get; set; } = "";
+    public string Status { get; set; } = "";
     public string Payload { get; set; } = "";
     public string CreatedAt { get; set; } = "";
 }

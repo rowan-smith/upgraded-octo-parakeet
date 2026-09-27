@@ -4,14 +4,13 @@ using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Build.Infrastructure;
 using ForgeDeck.Contracts.Checks;
 using ForgeDeck.Contracts.Modules;
-using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.Search;
 using ForgeDeck.Contracts.Services;
+using ForgeDeck.Core.Persistence;
 using ForgeDeck.Git.Contracts.Events;
 using ForgeDeck.Messaging;
 using ForgeDeck.Review.Contracts.Events;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,9 +18,8 @@ namespace ForgeDeck.Build;
 
 public sealed class BuildModule : IPlatformModule
 {
-    // Runtime id is "pipelines" (nav/routes); licence/entitlement id is "build" via PlatformModules.Normalize.
     public ModuleManifest Manifest { get; } = new(
-        "pipelines", "Build", "0.2.0", "Community", ["Pipelines.BasicExecution"],
+        "build", "Build", "0.2.0", "Community", ["Pipelines.BasicExecution"],
         [
             new("pipelines", "Pipelines", "/pipelines", "Build", 310),
             new("runs", "Runs", "/runs", "Build", 320),
@@ -55,7 +53,8 @@ public sealed class BuildModule : IPlatformModule
             ExtensionPoints.BuildRunners,
             ExtensionPoints.ReviewChecks,
             ExtensionPoints.PlatformNavigation
-        ]);
+        ],
+        ApiRoutePrefixes: ["/api/pipelines"]);
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
@@ -63,7 +62,8 @@ public sealed class BuildModule : IPlatformModule
         var connectionString = configuration.GetConnectionString("Build")
             ?? configuration.GetConnectionString("Platform")
             ?? "Data Source=data/forgedeck.db";
-        services.AddDbContextFactory<BuildDbContext>(options => options.UseSqlite(connectionString));
+        services.AddDbContextFactory<BuildDbContext>(options =>
+            DatabaseProvider.Configure(options, configuration, connectionString));
         services.AddSingleton<IPipelineStore, EfPipelineStore>();
         services.AddSingleton<PipelineService>();
         services.AddSingleton<BuildDomainService>();
@@ -71,7 +71,6 @@ public sealed class BuildModule : IPlatformModule
         services.AddSingleton<RunnerService>();
         services.AddSingleton<JobExecutionService>();
         services.AddSingleton<ICheckProvider, PipelineCheckProvider>();
-        services.AddSingleton<IOnboardingContributor, PipelinesOnboardingContributor>();
         services.AddSingleton<ISearchContributor, PipelineSearchContributor>();
         services.AddSingleton(new EventContractRegistration(BuildEventContracts.All().ToArray()));
         services.AddEventHandler<ReviewRequestedEvent, ReviewRequestedPipelineTrigger>("forgedeck.build.review-requested");

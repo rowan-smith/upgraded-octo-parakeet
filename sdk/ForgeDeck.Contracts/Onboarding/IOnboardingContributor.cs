@@ -1,6 +1,11 @@
 namespace ForgeDeck.Contracts.Onboarding;
 
-/// <summary>Modules register onboarding steps evaluated after Owner + Project exist.</summary>
+/// <summary>
+/// Deprecated. First-run onboarding is Core-only (Organisation → Licence → Owner → optional Members/Project).
+/// Do not register module onboarding contributors for the setup wizard.
+/// Prefer a future post-install configuration contributor for Module setup after Settings install.
+/// </summary>
+[Obsolete("First-run onboarding is Core-only. Module configuration happens after install.")]
 public interface IOnboardingContributor
 {
     string Id { get; }

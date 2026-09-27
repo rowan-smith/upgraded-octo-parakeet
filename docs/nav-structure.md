@@ -68,8 +68,8 @@ An Organisation owns:
 Users
 Groups / Teams
 Projects
-Integrations
 Modules
+Connectors
 Licensing
 Security Policy
 Audit
@@ -151,14 +151,13 @@ FORGEDECK INSTALLATION
          │     │
          │     ├── Repositories
          │     │
-         │     ├── Code
+         │     ├── Code        (Module installed + Project configured)
          │     ├── Review
          │     ├── Build
          │     └── Deploy
          │
-         ├── Integrations
-         ├── Extensions
          ├── Modules
+         ├── Connectors
          ├── Licensing
          ├── Security
          ├── Audit
@@ -274,6 +273,19 @@ This allows customers to adopt ForgeDeck without migrating repository hosting.
 Provide source-code visibility and navigation independently of where Git is hosted.
 
 Code consumes a source provider abstraction.
+
+Code is a first-class product Module — independently installable and licensable — even when much of the implementation is frontend- and provider-oriented.
+
+Target layout:
+
+```text
+community/src/Modules/Code/
+    ForgeDeck.Code.Contracts
+    ForgeDeck.Code
+    ForgeDeck.Code.Web
+```
+
+Do not leave Code as a licence/catalogue id only without a Module project. That creates the awkward situation of being licensed, listed, and installed like a Module while architecturally not being one.
 
 ---
 
@@ -1508,8 +1520,8 @@ SECURITY
 └── Service Accounts
 
 PLATFORM
-├── Extensions
 ├── Modules
+├── Connectors
 ├── Usage
 ├── License
 └── Auditing
@@ -1975,7 +1987,14 @@ Enterprise entitlement available
 
 # 57. Module Enablement
 
-Installed, Enabled, and Licensed are separate states.
+Server-level axes:
+
+```text
+Installed
+Enabled
+Licensed
+Configured
+```
 
 Example:
 
@@ -1989,11 +2008,33 @@ Yes
 Enabled
 Yes
 
-Edition
+Licensed
 Enterprise
+
+Available to all Projects
+Yes
 ```
 
-A module may be:
+Per Project, the Module is simply:
+
+```text
+Configured
+Not configured
+```
+
+Example:
+
+```text
+Build installed globally
+
+Atlas
+    Build configured
+
+Website
+    Build not configured
+```
+
+Do **not** introduce a separate “enabled for Project” lifecycle for now. A module may still be:
 
 ```text
 installed but disabled
@@ -2817,29 +2858,35 @@ Do not require full global search in the first implementation.
 
 # 93. First-Run Onboarding
 
-Fresh installation flow:
+Fresh installation configures **Core only**. Modules and Connectors are installed afterwards from Settings.
 
 ```text
-Bootstrap Login
-      ↓
-Organisation Name
-      ↓
+Bootstrap
+   ↓
+Organisation
+   ↓
 Licence
-      ↓
-Owner Account
-      ↓
-First Project
-      ↓
-Repository Mode
-      ↓
-Repository Connection
-      ↓
-Invite Members
-      ↓
-Module Setup
-      ↓
-Ready
+   ↓
+Owner
+   ↓
+Optional Members
+   ↓
+Optional First Project
+   ↓
+Complete
 ```
+
+Do **not** include Modules, module-contributed setup, repository connection, or product-module configuration in first-run onboarding.
+
+After Complete, the Core-only application exposes:
+
+```text
+Settings
+├── Modules
+└── Connectors
+```
+
+Administrators install Git, Code, Review, Build, and Deploy only when they want them.
 
 ---
 
@@ -2939,9 +2986,25 @@ bootstrap account disabled
 
 ---
 
-# 98. First Project Setup
+# 98. Optional Member Setup
 
-Fields:
+Optional onboarding step:
+
+```text
+Invite Users
+
+Assign Role
+
+Optionally Assign Project Access
+```
+
+May be skipped.
+
+---
+
+# 99. Optional First Project Setup
+
+Optional. Fields:
 
 ```text
 Name
@@ -2961,98 +3024,53 @@ Single Repository
 Multiple Repositories
 ```
 
----
-
-# 99. Repository Setup
-
-Sources:
-
-```text
-Local Repository + GitHub
-
-GitHub
-
-Future external provider
-
-Future ForgeDeck Git
-```
-
-Local workflow may detect `.git` and configured remotes.
+May be skipped. Repository connection and module-specific setup happen later under Project / Module Settings — not during first-run.
 
 ---
 
-# 100. Member Setup
+# 100. Post-install Modules and Connectors
 
-Optional onboarding step:
+After onboarding Completes, Organisation Settings own:
 
 ```text
-Invite Users
-
-Assign Role
-
-Optionally Assign Project Access
+Settings
+├── Modules
+└── Connectors
 ```
 
-May be skipped.
+Product Modules (Git, Code, Review, Build, Deploy) are installed and enabled here. They do **not** contribute first-run onboarding steps.
+
+Post-install configuration (review policy, first pipeline, environments, etc.) may later use a **post-install configuration contributor** contract. Do not reuse first-run `IOnboardingContributor` for that purpose.
 
 ---
 
-# 101. Module Setup
+# 101. Finish Onboarding
 
-Installed modules contribute onboarding.
-
-Review:
-
-```text
-Basic Review Policy
-```
-
-Build:
-
-```text
-Create Pipeline
-Register Runner
-```
-
-Deploy:
-
-```text
-Create Development Environment
-Register Agent
-```
-
-Capabilities shown depend on licence.
-
----
-
-# 102. Finish Onboarding
-
-Summary:
+Summary reflects Core state only:
 
 ```text
 Northstar Labs
 
-ForgeDeck Enterprise
+Licence
+Community / uploaded commercial
 
 Owner
 Rowan Smith
 
+Members
+(optional)
+
 Project
-Atlas
-
-Repository Mode
-Single
-
-Repository
-northstar/atlas
-
-Modules
-Code
-Review
-Build
+Atlas (optional)
 ```
 
 Then:
+
+```text
+[ Open Organisation ]
+```
+
+or, if a first Project was created:
 
 ```text
 [ Open Atlas ]
@@ -3060,7 +3078,7 @@ Then:
 
 ---
 
-# 103. Onboarding Resume
+# 102. Onboarding Resume
 
 Setup must survive interruption.
 
@@ -3075,28 +3093,29 @@ Licence ✓
 
 Owner ✓
 
-Project incomplete
+Members skipped / incomplete
+
+First Project incomplete
 ```
 
-After login, resume at Project.
+After login, resume at the next incomplete Core step. Module installation is never part of this resume path.
 
 ---
 
-# 104. Architecture
+# 103. Architecture
 
 The control plane should initially be a modular monolith.
 
 Conceptual:
 
 ```text
-ForgeDeck Server
-
-Core
-Git
-Code
-Review
-Build
-Deploy
+ForgeDeck Core
+│
+├── Organisation / Users / Teams / Projects / RBAC / Licensing / Audit
+├── Extension Runtime
+└── Event Runtime
+     ├── Installable Modules (Git, Code, Review, Build, Deploy)
+     └── Installable Connectors (GitHub, GitLab, …)
 ```
 
 Separate execution components:
@@ -3115,9 +3134,11 @@ Git transport/storage service
 
 when justified.
 
+See [architecture.md](architecture.md).
+
 ---
 
-# 105. Module Boundaries
+# 104. Module Boundaries
 
 Modules must communicate through:
 
@@ -3145,7 +3166,7 @@ depend on another optional module implementation
 
 ---
 
-# 106. Persistence
+# 105. Persistence
 
 One database is acceptable initially.
 
@@ -3171,7 +3192,7 @@ Each module owns its migrations/schema.
 
 ---
 
-# 107. UI Extension Model
+# 106. UI Extension Model
 
 Modules may contribute:
 
@@ -3188,7 +3209,7 @@ Resource Tabs
 
 Actions
 
-Onboarding Steps
+Post-install configuration (optional; not first-run onboarding)
 ```
 
 Example:
@@ -3206,7 +3227,7 @@ Reviewers
 
 ---
 
-# 108. Module Disabled Behaviour
+# 107. Module Disabled Behaviour
 
 When a module is disabled:
 
@@ -3221,14 +3242,14 @@ background handlers disappear
 
 settings disappear
 
-onboarding contributions disappear
+post-install configuration contributions disappear
 ```
 
-Other modules continue operating.
+Other modules continue operating. First-run Core onboarding is unaffected because Modules do not participate in it.
 
 ---
 
-# 109. Core Roles
+# 108. Core Roles
 
 Initial Organisation roles:
 
@@ -3256,7 +3277,7 @@ Fine-grained permission implementation may evolve behind these defaults.
 
 ---
 
-# 110. Owner Protection
+# 109. Owner Protection
 
 Organisation must always have at least one active Owner.
 
@@ -3274,7 +3295,7 @@ expiring final Owner access
 
 ---
 
-# 111. Audit Requirements
+# 110. Audit Requirements
 
 Audit:
 
@@ -3304,7 +3325,7 @@ Audit must be append-oriented.
 
 ---
 
-# 112. Security
+# 111. Security
 
 Server-side authorization is mandatory.
 
@@ -3330,24 +3351,30 @@ Frontend visibility does not replace authorization.
 
 ---
 
-# 113. Core Completion Criteria
+# 112. Core Completion Criteria
 
 The platform foundation is complete when:
 
 ```text
-A fresh server can be onboarded.
+A fresh server can be onboarded (Core only).
 
 One Organisation is created.
 
-Community or Enterprise licensing can be selected.
+Community or commercial licensing can be selected.
 
 Enterprise licence works offline.
 
 The first permanent User becomes Owner.
 
+Optional Members and First Project may be skipped.
+
+Modules and Connectors are installed afterwards from Settings.
+
 Projects can be created.
 
 Projects support Single and Multi Repository modes.
+
+Installed + enabled Modules are available to all Projects (configured / not configured per Project).
 
 Users and Groups can be managed.
 
@@ -3368,7 +3395,7 @@ Community and Enterprise capabilities are enforced server-side.
 
 ---
 
-# 114. Product Module Completion Criteria
+# 113. Product Module Completion Criteria
 
 The architecture must support these valid installations:
 
@@ -3390,7 +3417,7 @@ No optional module may assume every other module exists.
 
 ---
 
-# 115. Product Navigation Summary
+# 114. Product Navigation Summary
 
 ## Organisation
 
@@ -3486,7 +3513,7 @@ Sections are dynamic based on installed modules.
 
 ---
 
-# 116. Product Vocabulary
+# 115. Product Vocabulary
 
 The main customer-facing lifecycle is:
 
@@ -3535,7 +3562,7 @@ Settings
 
 ---
 
-# 117. Final Product Principle
+# 116. Final Product Principle
 
 ForgeDeck should feel like one DevOps platform rather than a collection of tools.
 

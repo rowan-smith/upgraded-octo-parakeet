@@ -1,6 +1,6 @@
 # Module contract
 
-> **Principle:** first-party Git / Code / Review / Build / Deploy are consumers of the same extension architecture as third parties — not exceptions to it.
+> **Principle:** first-party Git / Code / Review / Build / Deploy are consumers of the same extension architecture as third parties — not exceptions to it. Code is a real Module (Contracts + implementation + Web), not a licence/catalogue id alone — see [modules.md](modules.md).
 
 ## Layers
 

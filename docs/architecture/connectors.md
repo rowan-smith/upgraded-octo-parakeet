@@ -3,9 +3,11 @@
 Connectors integrate external services. Modules provide product functionality.
 
 ```text
-src/ce/connectors/   Community
-src/ee/connectors/   Enterprise
+community/src/Connectors/     Community
+commercial/*/Connectors/      Team / Enterprise (when present)
 ```
+
+Connectors are installed from Settings alongside Modules. They are **not** product Modules and do **not** participate in first-run Core onboarding.
 
 ## Rule
 

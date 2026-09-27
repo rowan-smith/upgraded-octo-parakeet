@@ -57,6 +57,9 @@ public static class OrganisationPermissions
         "source.repository.read", "source.repository.connect",
         "review.read", "review.comment", "review.request", "review.approve", "review.merge", "review.manage",
         "git.repository.create", "git.repository.push", "git.repository.read",
+        "build.manage", "build.run", "build.read", "build.cancel",
+        "build.runner.read", "build.runner.manage",
+        // Legacy aliases — keep grants working until callers migrate fully to build.*.
         "pipelines.manage", "pipelines.run", "pipelines.read", "pipelines.cancel",
         "pipelines.runner.read", "pipelines.runner.manage",
         "deploy.read", "deploy.execute", "deploy.manage", "deploy.approve"

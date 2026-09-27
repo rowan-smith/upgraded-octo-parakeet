@@ -71,7 +71,7 @@ public sealed class ModuleLifecyclePlaywrightTests(PlaywrightBrowserFixture brow
     }
 
     [Fact]
-    public async Task Project_disable_hides_module_only_for_that_project()
+    public async Task Project_module_put_does_not_hide_organisation_enabled_modules()
     {
         await using var host = ForgeDeckHost.StartEmpty();
         await using var session = await host.NewPageAsync(browser.Browser);
@@ -98,15 +98,15 @@ public sealed class ModuleLifecyclePlaywrightTests(PlaywrightBrowserFixture brow
             }
             """, projectId);
 
+        // Per-project enablement is retired; org-enabled modules remain available.
         await Ui.EnsureProjectNavAsync(page);
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/files']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/pipelines']")).ToBeVisibleAsync();
-        await Assertions.Expect(page.Locator("#primaryNav [data-route='/changes']")).ToHaveCountAsync(0);
+        await Assertions.Expect(page.Locator("#primaryNav [data-route='/changes']")).ToBeVisibleAsync();
 
         await Ui.GoToHashAsync(page, "/settings/modules");
-        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Project modules");
-        await Assertions.Expect(page.Locator("[data-project-module-toggle='forgedeck.review']")).Not.ToBeCheckedAsync();
-        await Assertions.Expect(page.Locator("[data-project-module-toggle='forgedeck.code']")).ToBeCheckedAsync();
+        await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Project settings");
+        await Assertions.Expect(page.Locator("[data-project-module-toggle]")).ToHaveCountAsync(0);
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public sealed class CodeReviewNavigationPlaywrightTests(PlaywrightBrowserFixture
     }
 
     [Fact]
-    public async Task Disabling_code_at_project_level_blocks_files_route()
+    public async Task Disabling_code_at_organisation_level_blocks_files_route()
     {
         await using var host = ForgeDeckHost.StartEmpty();
         await using var session = await host.NewPageAsync(browser.Browser);
@@ -201,18 +201,14 @@ public sealed class CodeReviewNavigationPlaywrightTests(PlaywrightBrowserFixture
         await Ui.CompleteSetupAsync(page, org: "Code Off Org", email: "codeoff@example.com", username: "codeoff", installDefaultModules: false);
         await Ui.InstallBundledModulesAsync(page, "forgedeck.code", "forgedeck.review");
 
-        var projectId = await page.EvaluateAsync<string>("() => state.context?.project?.id");
         await page.EvaluateAsync("""
-            async (projectId) => {
+            async () => {
               const token = localStorage.getItem('forgedeck.token');
               const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
-              await fetch(`/api/projects/${projectId}/modules`, {
-                method: 'PUT', headers,
-                body: JSON.stringify({ enabledExtensionIds: ['forgedeck.review'] })
-              });
+              await fetch('/api/platform/extensions/forgedeck.code/disable', { method: 'POST', headers, body: '{}' });
               if (typeof reloadComposition === 'function') await reloadComposition();
             }
-            """, projectId);
+            """);
 
         await Ui.EnsureProjectNavAsync(page);
         await Assertions.Expect(page.Locator("#primaryNav [data-route='/files']")).ToHaveCountAsync(0);

@@ -37,21 +37,22 @@ Module publishes another Event
 Other interested Modules react
 ```
 
-The central rule is:
+The central rules are:
+
+> **Everything reacts to Events.**
 
 > **Core owns event infrastructure. Modules own event semantics.**
 
-ForgeDeck does not introduce separate architectural primitives for:
+There is no separate:
 
 ```text
-Commands
-User Events
-System Events
-External Events
-Integration Events
+Command bus
+User event bus
+System event bus
+External event bus
 ```
 
-They all use the same Event infrastructure.
+They all use the same Event infrastructure. Canonical architecture notes (including the `<Module><ActionOrFact>Event` naming convention) live in [architecture/events.md](architecture/events.md).
 
 Semantic differences are expressed by:
 

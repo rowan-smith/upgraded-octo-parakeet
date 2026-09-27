@@ -38,7 +38,7 @@ public static class SystemAccessRoles
         "source.repository.read",
         "review.read",
         "git.repository.read",
-        "pipelines.read",
+        "build.read",
         "deploy.read"
     ]);
 
@@ -46,7 +46,7 @@ public static class SystemAccessRoles
     [
         ..ViewerPermissions,
         "review.comment", "review.request",
-        "pipelines.run",
+        "build.run",
         "git.repository.push"
     ]);
 
@@ -54,7 +54,7 @@ public static class SystemAccessRoles
         [..ViewerPermissions, "review.comment", "review.request", "review.approve"]);
 
     private static readonly HashSet<string> BuilderPermissions = Set(
-        [..ViewerPermissions, "pipelines.run", "pipelines.manage", "pipelines.cancel", "pipelines.runner.read"]);
+        [..ViewerPermissions, "build.run", "build.manage", "build.cancel", "build.runner.read"]);
 
     private static readonly HashSet<string> DeployerPermissions = Set(
         [..ViewerPermissions, "deploy.execute", "deploy.manage", "deploy.approve"]);
@@ -68,7 +68,7 @@ public static class SystemAccessRoles
         "source.repository.connect",
         "review.approve", "review.merge", "review.manage",
         "git.repository.create",
-        "pipelines.manage", "pipelines.cancel", "pipelines.runner.manage",
+        "build.manage", "build.cancel", "build.runner.manage",
         "deploy.execute", "deploy.manage", "deploy.approve"
     ]);
 

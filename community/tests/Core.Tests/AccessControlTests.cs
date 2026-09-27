@@ -15,8 +15,8 @@ internal static class AccessMatrix
         "source.repository.read", "source.repository.connect",
         "review.read", "review.comment", "review.request", "review.approve", "review.merge", "review.manage",
         "git.repository.create", "git.repository.push", "git.repository.read",
-        "pipelines.manage", "pipelines.run", "pipelines.read", "pipelines.cancel",
-        "pipelines.runner.read", "pipelines.runner.manage",
+        "build.manage", "build.run", "build.read", "build.cancel",
+        "build.runner.read", "build.runner.manage",
         "deploy.read", "deploy.execute", "deploy.manage", "deploy.approve"
     ];
 
@@ -50,7 +50,7 @@ internal static class AccessMatrix
     public static readonly string[] Viewer =
     [
         "project.read", "organisation.read", "source.repository.read", "review.read",
-        "git.repository.read", "pipelines.read", "deploy.read"
+        "git.repository.read", "build.read", "deploy.read"
     ];
 
     public static readonly string[] Reader = Viewer;
@@ -59,7 +59,7 @@ internal static class AccessMatrix
     [
         ..Viewer,
         "review.comment", "review.request",
-        "pipelines.run",
+        "build.run",
         "git.repository.push"
     ];
 
@@ -68,7 +68,7 @@ internal static class AccessMatrix
     public static readonly string[] Builder =
     [
         ..Viewer,
-        "pipelines.run", "pipelines.manage", "pipelines.cancel", "pipelines.runner.read"
+        "build.run", "build.manage", "build.cancel", "build.runner.read"
     ];
 
     public static readonly string[] Deployer = [..Viewer, "deploy.execute", "deploy.manage", "deploy.approve"];
@@ -82,7 +82,7 @@ internal static class AccessMatrix
         "source.repository.connect",
         "review.approve", "review.merge", "review.manage",
         "git.repository.create",
-        "pipelines.manage", "pipelines.cancel", "pipelines.runner.manage",
+        "build.manage", "build.cancel", "build.runner.manage",
         "deploy.execute", "deploy.manage", "deploy.approve"
     ];
 
@@ -222,26 +222,26 @@ public sealed class SystemAccessRoleMatrixTests
     [Theory]
     [InlineData(SystemAccessRoles.Reader, "deploy.execute")]
     [InlineData(SystemAccessRoles.Reader, "review.merge")]
-    [InlineData(SystemAccessRoles.Reader, "pipelines.run")]
+    [InlineData(SystemAccessRoles.Reader, "build.run")]
     [InlineData(SystemAccessRoles.Developer, "deploy.execute")]
     [InlineData(SystemAccessRoles.Developer, "deploy.manage")]
     [InlineData(SystemAccessRoles.Reviewer, "review.merge")]
     [InlineData(SystemAccessRoles.Reviewer, "review.manage")]
     [InlineData(SystemAccessRoles.Builder, "deploy.execute")]
-    [InlineData(SystemAccessRoles.Builder, "pipelines.runner.manage")]
-    [InlineData(SystemAccessRoles.Deployer, "pipelines.run")]
+    [InlineData(SystemAccessRoles.Builder, "build.runner.manage")]
+    [InlineData(SystemAccessRoles.Deployer, "build.run")]
     public void Documented_exclusions_hold(string slug, string permission) =>
         Assert.False(SystemAccessRoles.PermissionsFor(slug).Contains(permission));
 
     [Theory]
     [InlineData(SystemAccessRoles.Developer, "git.repository.push")]
-    [InlineData(SystemAccessRoles.Developer, "pipelines.run")]
+    [InlineData(SystemAccessRoles.Developer, "build.run")]
     [InlineData(SystemAccessRoles.Reviewer, "review.approve")]
     [InlineData(SystemAccessRoles.Reviewer, "review.request")]
     [InlineData(SystemAccessRoles.Reviewer, "review.comment")]
-    [InlineData(SystemAccessRoles.Builder, "pipelines.manage")]
-    [InlineData(SystemAccessRoles.Builder, "pipelines.cancel")]
-    [InlineData(SystemAccessRoles.Builder, "pipelines.runner.read")]
+    [InlineData(SystemAccessRoles.Builder, "build.manage")]
+    [InlineData(SystemAccessRoles.Builder, "build.cancel")]
+    [InlineData(SystemAccessRoles.Builder, "build.runner.read")]
     [InlineData(SystemAccessRoles.Deployer, "deploy.manage")]
     [InlineData(SystemAccessRoles.Deployer, "deploy.execute")]
     [InlineData(SystemAccessRoles.TeamLead, "team.projects.create")]

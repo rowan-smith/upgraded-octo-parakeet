@@ -45,4 +45,11 @@ public sealed class BuildTeamTests
         Assert.True(service.Has(OrganisationId, KnownCapabilities.Build.Concurrent));
         Assert.False(service.Has(OrganisationId, KnownCapabilities.Build.Schedules));
     }
+
+    [Fact]
+    public void SoftLimits_unlock_when_concurrent_capability_present()
+    {
+        Assert.Equal(CommunityLimits.BuildMaxConcurrentPipelines, SoftLimits.MaxConcurrentPipelines(false));
+        Assert.Null(SoftLimits.MaxConcurrentPipelines(true));
+    }
 }

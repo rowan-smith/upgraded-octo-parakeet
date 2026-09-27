@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\Modules\Build\ForgeDeck.Build\ForgeDeck.Build.csproj" />
     <ProjectReference Include="..\..\src\Modules\Deploy\ForgeDeck.Deploy\ForgeDeck.Deploy.csproj" />
     <ProjectReference Include="..\..\src\Modules\Git\ForgeDeck.Git\ForgeDeck.Git.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Code\ForgeDeck.Code\ForgeDeck.Code.csproj" />
     <ProjectReference Include="..\..\src\Runner\ForgeDeck.Runner\ForgeDeck.Runner.csproj" />
   </ItemGroup>
 

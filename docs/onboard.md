@@ -37,13 +37,14 @@ Platform Installation
         │
         ├── Projects
         │     ├── Repositories
+        │     ├── Code
         │     ├── Review
-        │     ├── Pipelines
+        │     ├── Build
         │     └── Deploy
         │
-        ├── Integrations
-        │
         ├── Modules
+        │
+        ├── Connectors
         │
         ├── Audit
         │
@@ -72,11 +73,12 @@ The foundation must follow these principles:
 5. Projects contain Repositories.
 6. Projects are the primary working context.
 7. Repositories remain provider-independent.
-8. Modules attach capabilities to Projects.
+8. Modules installed and enabled on the server are available to all Projects; Projects are configured or not configured for each Module.
 9. Teams group Users for access and policy.
 10. Historical engineering records survive membership changes.
 11. Core owns identity and organisational structure.
 12. Optional modules must not leak business logic into Core.
+13. First-run onboarding configures Core only; Modules and Connectors are installed afterwards from Settings.
 
 ---
 
@@ -117,10 +119,11 @@ InstanceConfiguration
 Optional modules own their own domains:
 
 ```text
-Review
-Pipelines
-Deploy
 Git
+Code
+Review
+Build
+Deploy
 ```
 
 ---
@@ -793,15 +796,52 @@ Do not permit Project configuration to permanently lock the final Owner out.
 
 # 26. Project module ownership
 
-Modules attach capabilities to Projects.
+Modules installed and enabled on the server are available to all Projects.
 
-Conceptually:
+Initial rule:
+
+```text
+Module installed + enabled on server
+        ↓
+Module available to all Projects
+```
+
+Each Project is then simply:
+
+```text
+Configured
+Not configured
+```
+
+for that Module. Example:
+
+```text
+Build installed globally
+
+Atlas
+    Build configured
+
+Website
+    Build not configured
+```
+
+Do not introduce a separate per-project enablement lifecycle for now. The sufficient axes are:
+
+```text
+Installed
+Enabled
+Licensed
+Configured
+```
+
+Conceptually, when configured, a Project may surface Module-owned resources:
 
 ```text
 Project
 ├── Repositories
+├── Code
 ├── Review
-├── Pipelines
+├── Build
 └── Deploy
 ```
 
@@ -813,7 +853,7 @@ Reviews
 Comments
 ```
 
-Pipelines owns:
+Build owns:
 
 ```text
 Pipeline definitions
@@ -1586,25 +1626,33 @@ The database must guarantee only one successful bootstrap.
 
 # 54. First-run onboarding flow
 
-Recommended:
+First-run configures **Core only**. Modules and Connectors are installed afterwards from Settings.
 
 ```text
-Welcome
+Bootstrap
    ↓
 Organisation
    ↓
-Owner Account
+Licence
    ↓
-First Project
+Owner
    ↓
-Connect Repository
+Optional Members
    ↓
-Configure Enabled Modules
+Optional First Project
    ↓
-Ready
+Complete
 ```
 
-Organisation and Owner may be presented on the same screen if UX is cleaner.
+After Complete:
+
+```text
+Settings
+├── Modules
+└── Connectors
+```
+
+Do **not** include Modules, module-contributed setup, or repository connection in the setup wizard.
 
 ---
 
@@ -1755,7 +1803,7 @@ A hosted/SaaS control plane may introduce operator roles later outside this inst
 
 ---
 
-# 60. Step 4 — First Project
+# 60. Optional First Project
 
 Form:
 
@@ -1783,15 +1831,29 @@ Allow:
 Skip for now
 ```
 
-if required.
-
-The guided dogfood path should encourage creation.
+Repository connection and Module-specific setup happen later under Project / Module Settings — not during first-run.
 
 ---
 
-# 61. Step 5 — Connect Repository
+# 61. Optional Members
 
-If source/review capability is available:
+Optional onboarding step (before or after First Project):
+
+```text
+Invite Users
+
+Assign Role
+
+Optionally Assign Project Access
+```
+
+May be skipped.
+
+---
+
+# 62. Repository connection (post-onboarding)
+
+Repository connection is **not** part of first-run Core onboarding. After Modules / Connectors are installed, Project Settings may offer:
 
 ```text
 Connect your code
@@ -1811,7 +1873,7 @@ Local repository + GitHub
 
 ---
 
-# 62. Detect local repository
+# 63. Detect local repository
 
 Input:
 
@@ -1852,7 +1914,7 @@ example/platform
 
 ---
 
-# 63. GitHub connection
+# 64. GitHub connection
 
 If GitHub integration does not exist:
 
@@ -1879,7 +1941,7 @@ Never log the token.
 
 ---
 
-# 64. Repository creation during onboarding
+# 65. Repository creation
 
 Create:
 
@@ -1922,13 +1984,13 @@ C:\Development\Platform
 
 ---
 
-# 65. Module-aware onboarding
+# 66. Post-install Module configuration
 
-Core owns only generic onboarding.
+Core owns first-run onboarding only.
 
-Modules may contribute setup steps.
+Modules do **not** contribute first-run setup steps. After an administrator installs Modules from Settings, Module-specific configuration happens in Organisation / Project Settings.
 
-Examples:
+Examples (post-install, not onboarding):
 
 ## Review
 
@@ -1940,7 +2002,7 @@ Require one approval
 Allow self-review
 ```
 
-## Pipelines
+## Build
 
 ```text
 Create validation pipeline
@@ -1958,15 +2020,11 @@ Register deployment agent
 
 ---
 
-# 66. Onboarding extension contract
+# 67. Post-install configuration contract
 
-Conceptually support:
+If Modules need a shared contribution model for guided setup after install, prefer a **post-install configuration contributor** (name TBD) rather than first-run `IOnboardingContributor`.
 
-```text
-IOnboardingStepContributor
-```
-
-Contribution metadata:
+Metadata may include:
 
 ```text
 Id
@@ -1982,13 +2040,15 @@ Completion check
 Route/component
 ```
 
-Core coordinates onboarding.
+Core coordinates Settings / project configuration surfaces.
 
-Core must not hard-code detailed Review/Pipelines/Deploy configuration.
+Core must not hard-code detailed Review/Build/Deploy configuration into the first-run wizard.
+
+Legacy `IOnboardingContributor` registrations on product Modules should be removed or repurposed away from first-run onboarding.
 
 ---
 
-# 67. Review onboarding
+# 68. Review configuration (post-install)
 
 If Review is enabled:
 
@@ -2012,9 +2072,9 @@ Clearly indicate this is useful for local development.
 
 ---
 
-# 68. Pipelines onboarding
+# 69. Build configuration (post-install)
 
-When Phase 2 exists, Pipelines may contribute:
+When Build exists, Project Settings may offer:
 
 ```text
 Set up local validation
@@ -2024,13 +2084,13 @@ Set up local validation
 [ Create Pipeline ]
 ```
 
-This must not appear when Pipelines module is disabled.
+This must not appear when the Build module is disabled.
 
 ---
 
-# 69. Deploy onboarding
+# 70. Deploy configuration (post-install)
 
-When Phase 3 exists, Deploy may contribute:
+When Deploy exists, Project Settings may offer:
 
 ```text
 Set up Development deployment
@@ -2044,9 +2104,9 @@ This must not appear when Deploy is disabled.
 
 ---
 
-# 70. Finish onboarding
+# 71. Finish onboarding
 
-Final page:
+Final page reflects Core state:
 
 ```text
 You're ready.
@@ -2058,14 +2118,14 @@ Owner
 Rowan Smith
 
 Project
-Platform
+Platform (optional)
 
-Repository
-example/platform
+[ Open Organisation ]
+```
 
-Review
-Configured
+or, if a first Project was created:
 
+```text
 [ Open Project ]
 ```
 
@@ -2075,9 +2135,11 @@ Route:
 /projects/platform
 ```
 
+Module installation and repository connection are subsequent Settings actions, not finish-screen requirements.
+
 ---
 
-# 71. Onboarding persistence
+# 72. Onboarding persistence
 
 Do not model onboarding purely as:
 
@@ -2087,34 +2149,38 @@ step = 4
 
 in frontend state.
 
-Where possible, derive completion from real data:
+Where possible, derive completion from real Core data:
 
 ```text
 Organisation exists?
 
+Licence chosen / uploaded?
+
 Owner exists?
 
-Project exists?
+Members invited? (optional)
 
-Repository connected?
-
-Review configured?
+Project exists? (optional)
 ```
+
+Repository connection and Module configuration are **not** first-run completion checks.
 
 Persist only additional User-specific dismissal/completion state where necessary.
 
 ---
 
-# 72. Interrupted onboarding
+# 73. Interrupted onboarding
 
 Example:
 
 ```text
 Organisation created
 
+Licence chosen
+
 Owner created
 
-Project not created
+First Project not created
 ```
 
 On next login:
@@ -2123,15 +2189,15 @@ On next login:
 Resume setup
 ```
 
-starting at Project.
+starting at the next incomplete Core step.
 
 Do not recreate Organisation or Owner.
 
 ---
 
-# 73. Skip onboarding
+# 74. Skip onboarding
 
-After Organisation and Owner are safely created, optional setup steps may be skipped.
+After Organisation, Licence, and Owner are safely created, optional Members and First Project may be skipped.
 
 User may navigate normally and return through:
 
@@ -2139,35 +2205,49 @@ User may navigate normally and return through:
 Setup Checklist
 ```
 
+Module installation remains a Settings concern after Complete.
+
 ---
 
-# 74. Setup checklist
+# 75. Setup checklist
 
-Organisation or Project may display:
+Organisation may display Core progress during/after setup:
 
 ```text
 Setup
 
+✓ Organisation
+
+✓ Licence
+
 ✓ Owner account
 
-✓ Project created
+○ Members invited
 
-✓ Repository connected
+○ First Project created
+```
 
-✓ Review configured
+A separate post-install checklist (not first-run) may later cover:
 
-○ Pipelines configured
+```text
+○ Modules installed
+
+○ Repository connected
+
+○ Review configured
+
+○ Build configured
 
 ○ Deploy configured
 ```
 
-Only installed modules contribute checklist items.
+Only installed modules contribute post-install checklist items.
 
 The checklist is not a hard blocker.
 
 ---
 
-# 75. Global navigation
+# 76. Global navigation
 
 Since only one Organisation exists, no Organisation switcher is required.
 
@@ -2189,7 +2269,7 @@ Settings
 
 ---
 
-# 76. Project navigation
+# 77. Project navigation
 
 Inside Project:
 
@@ -2213,7 +2293,7 @@ Disabled modules are absent.
 
 ---
 
-# 77. Project switcher
+# 78. Project switcher
 
 Provide:
 
@@ -2231,7 +2311,7 @@ No Organisation selector is needed.
 
 ---
 
-# 78. User menu
+# 79. User menu
 
 Example:
 
@@ -2252,7 +2332,7 @@ Owner may additionally see administrative settings through the normal Settings s
 
 ---
 
-# 79. People section
+# 80. People section
 
 Top-level:
 
@@ -2265,7 +2345,7 @@ People
 
 ---
 
-# 80. Members page
+# 81. Members page
 
 Display:
 
@@ -2299,7 +2379,7 @@ Remove
 
 ---
 
-# 81. Teams page
+# 82. Teams page
 
 Display:
 
@@ -2325,7 +2405,7 @@ Remove Member
 
 ---
 
-# 82. Settings
+# 83. Settings
 
 Top-level Organisation/instance settings:
 
@@ -2336,9 +2416,9 @@ Members
 
 Teams
 
-Integrations
-
 Modules
+
+Connectors
 
 Audit
 
@@ -2359,7 +2439,7 @@ these are effectively server-wide settings.
 
 ---
 
-# 83. General settings
+# 84. General settings
 
 Configure:
 
@@ -2385,25 +2465,29 @@ Proxy configuration
 
 ---
 
-# 84. Module settings
+# 85. Module settings
 
 List installed modules:
 
 ```text
+Git           Enabled
+
+Code          Enabled
+
 Review        Enabled
 
-Pipelines     Enabled
+Build         Enabled
 
 Deploy        Disabled
-
-Git           Disabled
 ```
+
+Modules are installed and enabled **server-wide**. When enabled, they are available to all Projects. Each Project is then configured or not configured for that Module.
 
 Community/commercial capability information may also appear.
 
 ---
 
-# 85. Licensing
+# 86. Licensing
 
 Because one installation represents one Organisation, licensing naturally applies to the installation.
 
@@ -2424,7 +2508,7 @@ No Organisation selector is necessary in licence checks.
 
 ---
 
-# 86. Permission architecture
+# 87. Permission architecture
 
 Authorization still uses granular permissions.
 
@@ -2476,7 +2560,7 @@ deploy.*
 
 ---
 
-# 87. Role mapping
+# 88. Role mapping
 
 ## Owner
 
@@ -2500,7 +2584,7 @@ Roles map to permissions.
 
 ---
 
-# 88. Access evaluation
+# 89. Access evaluation
 
 Typical Project request:
 
@@ -2520,7 +2604,7 @@ All checks occur server-side.
 
 ---
 
-# 89. Organisation scope simplification
+# 90. Organisation scope simplification
 
 Because all data in the installation belongs to one Organisation, child tables generally do not require:
 
@@ -2555,7 +2639,7 @@ Do not add redundant tenant IDs solely in anticipation of a hypothetical SaaS ve
 
 ---
 
-# 90. Data boundary
+# 91. Data boundary
 
 The database itself is an Organisation boundary.
 
@@ -2577,7 +2661,7 @@ This substantially reduces risk of cross-tenant leakage.
 
 ---
 
-# 91. Persistence
+# 92. Persistence
 
 Core logical tables may include:
 
@@ -2629,7 +2713,7 @@ row.
 
 ---
 
-# 92. Stable IDs
+# 93. Stable IDs
 
 Use stable internal IDs.
 
@@ -2663,7 +2747,7 @@ as primary domain identity.
 
 ---
 
-# 93. Slug uniqueness
+# 94. Slug uniqueness
 
 Enforce:
 
@@ -2681,7 +2765,7 @@ Organisation slug is unnecessary initially.
 
 ---
 
-# 94. Slug changes
+# 95. Slug changes
 
 Relationships use IDs.
 
@@ -2697,7 +2781,7 @@ Old URL redirects may be added later.
 
 ---
 
-# 95. Project creation
+# 96. Project creation
 
 Normal non-onboarding flow:
 
@@ -2727,7 +2811,7 @@ Project Overview
 
 ---
 
-# 96. Empty Project
+# 97. Empty Project
 
 Show:
 
@@ -2741,7 +2825,7 @@ Connect a repository to start reviewing, testing, and deploying code.
 
 ---
 
-# 97. Repository creation
+# 98. Repository creation
 
 From Project:
 
@@ -2772,7 +2856,7 @@ where supported.
 
 ---
 
-# 98. Multiple Projects
+# 99. Multiple Projects
 
 Example:
 
@@ -2798,7 +2882,7 @@ Deploy Applications
 
 ---
 
-# 99. Multiple Repositories
+# 100. Multiple Repositories
 
 Example:
 
@@ -2817,7 +2901,7 @@ Project-level modules may aggregate across all repositories.
 
 ---
 
-# 100. User profile page
+# 101. User profile page
 
 Example:
 
@@ -2840,7 +2924,7 @@ Only activity the viewer has permission to see should appear.
 
 ---
 
-# 101. Profile settings
+# 102. Profile settings
 
 Sections:
 
@@ -2888,7 +2972,7 @@ API Tokens
 
 ---
 
-# 102. User removal
+# 103. User removal
 
 Removing User from Organisation:
 
@@ -2918,7 +3002,7 @@ Historical attribution remains.
 
 ---
 
-# 103. User suspension
+# 104. User suspension
 
 Suspended User:
 
@@ -2934,7 +3018,7 @@ Historical identity remains intact.
 
 ---
 
-# 104. Owner removal
+# 105. Owner removal
 
 An Owner may be removed/demoted only if another Owner remains.
 
@@ -2942,7 +3026,7 @@ This must be enforced transactionally.
 
 ---
 
-# 105. Organisation reset/delete
+# 106. Organisation reset/delete
 
 Since Organisation equals the installation, deletion is unusually destructive.
 
@@ -2980,7 +3064,7 @@ Do not prioritise this for the first MVP unless necessary.
 
 ---
 
-# 106. Project deletion
+# 107. Project deletion
 
 Project deletion/archive should notify modules through lifecycle events.
 
@@ -3004,7 +3088,7 @@ before permanent deletion.
 
 ---
 
-# 107. Repository deletion
+# 108. Repository deletion
 
 Prefer:
 
@@ -3024,7 +3108,7 @@ Preserve engineering history.
 
 ---
 
-# 108. Audit
+# 109. Audit
 
 Core audit events include:
 
@@ -3086,7 +3170,7 @@ secret values
 
 ---
 
-# 109. Activity vs audit
+# 110. Activity vs audit
 
 Audit:
 
@@ -3114,7 +3198,7 @@ Do not expose every audit event as user-facing activity.
 
 ---
 
-# 110. Core events
+# 111. Core events
 
 Core may publish:
 
@@ -3146,7 +3230,7 @@ Avoid direct Core → module service calls.
 
 ---
 
-# 111. Lifecycle events
+# 112. Lifecycle events
 
 Before destructive transitions:
 
@@ -3164,7 +3248,7 @@ Do not build an excessively complicated distributed transaction model.
 
 ---
 
-# 112. Bootstrap API
+# 113. Bootstrap API
 
 Conceptually:
 
@@ -3194,7 +3278,7 @@ After setup:
 
 ---
 
-# 113. Core APIs
+# 114. Core APIs
 
 Indicative:
 
@@ -3242,7 +3326,7 @@ Exact REST design may differ.
 
 ---
 
-# 114. Security requirements
+# 115. Security requirements
 
 All authorization occurs server-side.
 
@@ -3266,7 +3350,7 @@ Owner-only destructive actions require explicit role/capability verification.
 
 ---
 
-# 115. Integration secrets
+# 116. Integration secrets
 
 Provider credentials:
 
@@ -3292,7 +3376,7 @@ be revocable
 
 ---
 
-# 116. First-run acceptance test
+# 117. First-run acceptance test
 
 Start from:
 
@@ -3352,7 +3436,7 @@ Rejected
 
 ---
 
-# 117. First Project acceptance
+# 118. First Project acceptance
 
 During onboarding create:
 
@@ -3374,7 +3458,7 @@ route works:
 
 ---
 
-# 118. Repository onboarding acceptance
+# 119. Repository connection acceptance
 
 Select:
 
@@ -3412,18 +3496,18 @@ Repository data resolves successfully
 
 ---
 
-# 119. Review onboarding acceptance
+# 120. Review configuration acceptance
 
-If Review is installed:
+After Review is installed and enabled (post-onboarding):
 
 ```text
-Review configuration step appears
+Review settings appear under Project / Organisation Settings
 ```
 
 If Review is absent:
 
 ```text
-Review step absent
+Review settings absent
 ```
 
 Configure:
@@ -3431,14 +3515,14 @@ Configure:
 ```text
 Require one approval
 
-Allow self review
+Allow self-review = true
 ```
 
-Complete onboarding.
+Verify settings persist and apply to new Changes. This is not part of first-run Core onboarding.
 
 ---
 
-# 120. Second User acceptance
+# 121. Second User acceptance
 
 Owner creates invitation:
 
@@ -3467,7 +3551,7 @@ Alice is not Owner
 
 ---
 
-# 121. Admin acceptance
+# 122. Admin acceptance
 
 Promote Alice:
 
@@ -3489,7 +3573,7 @@ but cannot perform Owner-only destructive actions.
 
 ---
 
-# 122. Multiple Owner acceptance
+# 123. Multiple Owner acceptance
 
 Promote Alice:
 
@@ -3515,7 +3599,7 @@ if permissions allow.
 
 ---
 
-# 123. Last Owner acceptance
+# 124. Last Owner acceptance
 
 If Rowan is sole Owner:
 
@@ -3539,7 +3623,7 @@ must fail if doing so would leave no active Owner.
 
 ---
 
-# 124. Project access acceptance
+# 125. Project access acceptance
 
 Create:
 
@@ -3570,7 +3654,7 @@ Bob can now access Project.
 
 ---
 
-# 125. Multiple Project acceptance
+# 126. Multiple Project acceptance
 
 Create:
 
@@ -3594,7 +3678,7 @@ Deploy Applications isolated
 
 ---
 
-# 126. Multiple Repository acceptance
+# 127. Multiple Repository acceptance
 
 Stockyards:
 
@@ -3616,7 +3700,7 @@ Project Review can aggregate both
 
 ---
 
-# 127. User workspace acceptance
+# 128. User workspace acceptance
 
 Rowan associates:
 
@@ -3636,7 +3720,7 @@ Verify local workspace path is User-specific and does not alter Repository ident
 
 ---
 
-# 128. Module-aware navigation acceptance
+# 129. Module-aware navigation acceptance
 
 With:
 
@@ -3669,25 +3753,35 @@ Deploy remains absent.
 
 ---
 
-# 129. Setup checklist acceptance
+# 130. Setup checklist acceptance
 
-After Review setup but before Pipelines setup:
+Core first-run checklist may show:
 
 ```text
 Setup
 
-✓ Repository connected
-✓ Review configured
-○ Pipelines configured
+✓ Organisation
+✓ Licence
+✓ Owner account
+○ Members invited
+○ First Project created
 ```
 
-Only if Pipelines is installed.
+A separate post-install checklist (after Modules are installed) may show:
+
+```text
+✓ Repository connected
+✓ Review configured
+○ Build configured
+```
+
+Only installed modules contribute post-install checklist items.
 
 Dismissal should not block normal project use.
 
 ---
 
-# 130. Database constraints
+# 131. Database constraints
 
 Enforce:
 
@@ -3715,7 +3809,7 @@ Owner-count protection may require transactional domain logic.
 
 ---
 
-# 131. Testing
+# 132. Testing
 
 ## Unit
 
@@ -3774,14 +3868,16 @@ Team Project grant
 
 multiple repositories
 
-module-aware onboarding
+Core-only first-run onboarding
+
+post-install Module installation from Settings
 
 module-aware navigation
 ```
 
 ---
 
-# 132. Security tests
+# 133. Security tests
 
 Explicitly verify:
 
@@ -3807,7 +3903,7 @@ User without private Project access receives Forbidden
 
 ---
 
-# 133. Completion criteria
+# 134. Completion criteria
 
 This Core foundation is complete when:
 
@@ -3852,20 +3948,24 @@ Users may associate local repository workspaces.
 
 Multiple local workspace paths are possible across Users.
 
-Enabled modules extend onboarding.
+First-run onboarding configures Core only (Organisation, Licence, Owner, optional Members, optional First Project).
 
-Enabled modules extend navigation.
+Modules and Connectors are installed afterwards from Settings.
+
+Enabled modules extend navigation and project configuration.
 
 Disabled modules remain absent.
 
+Installed + enabled Modules are available to all Projects; Projects are configured or not configured per Module.
+
 Audit captures meaningful administrative actions.
 
-The platform can onboard its own Organisation, Owner, Project, and Repository from a completely fresh installation.
+The platform can onboard its own Organisation and Owner from a completely fresh installation, then grow by installing Modules.
 ```
 
 ---
 
-# 134. Guiding hierarchy
+# 135. Guiding hierarchy
 
 The product model is:
 
@@ -3883,15 +3983,14 @@ INSTALLATION
       │     │
       │     ├── Repositories
       │     │
+      │     ├── Code        (when Module installed + Project configured)
       │     ├── Review
-      │     │
-      │     ├── Pipelines
-      │     │
+      │     ├── Build
       │     └── Deploy
       │
-      ├── Integrations
-      │
       ├── Modules
+      │
+      ├── Connectors
       │
       ├── Audit
       │

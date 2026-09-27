@@ -20,14 +20,10 @@ public sealed class ModuleEventLifecycle(
     public void DeactivateModule(string runtimeId)
     {
         var prefix = $"forgedeck.{Normalize(runtimeId)}.";
-        // Build uses runtime id "pipelines" but consumer ids use "forgedeck.build."
-        var aliases = runtimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase)
-            ? new[] { "forgedeck.build.", prefix }
-            : new[] { prefix };
 
         foreach (var sub in subscriber.ListSubscriptions())
         {
-            if (aliases.Any(a => sub.ConsumerId.StartsWith(a, StringComparison.OrdinalIgnoreCase)))
+            if (sub.ConsumerId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
                 subscriber.Unsubscribe(sub.ConsumerId);
                 inbox.CancelConsumerAsync(sub.ConsumerId).GetAwaiter().GetResult();
@@ -39,14 +35,11 @@ public sealed class ModuleEventLifecycle(
     {
         // Re-activate all registered handlers whose consumer id belongs to this module.
         var prefix = $"forgedeck.{Normalize(runtimeId)}.";
-        var aliases = runtimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase)
-            ? new[] { "forgedeck.build.", prefix }
-            : new[] { prefix };
 
         var registrations = services.GetServices<EventHandlerRegistration>();
         foreach (var registration in registrations)
         {
-            if (!aliases.Any(a => registration.ConsumerId.StartsWith(a, StringComparison.OrdinalIgnoreCase)))
+            if (!registration.ConsumerId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

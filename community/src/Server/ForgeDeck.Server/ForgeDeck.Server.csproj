@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\Modules\ChecksDemo\ForgeDeck.ChecksDemo\ForgeDeck.ChecksDemo.csproj" />
     <ProjectReference Include="..\..\Connectors\GitHub\ForgeDeck.Connector.GitHub\ForgeDeck.Connector.GitHub.csproj" />
     <ProjectReference Include="..\..\Modules\Build\ForgeDeck.Build\ForgeDeck.Build.csproj" />
+    <ProjectReference Include="..\..\Modules\Code\ForgeDeck.Code\ForgeDeck.Code.csproj" />
     <ProjectReference Include="..\..\Modules\Deploy\ForgeDeck.Deploy\ForgeDeck.Deploy.csproj" />
     <ProjectReference Include="..\..\Modules\Git\ForgeDeck.Git\ForgeDeck.Git.csproj" />
   </ItemGroup>

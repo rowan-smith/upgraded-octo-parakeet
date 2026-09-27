@@ -189,7 +189,7 @@ public sealed class RunnerE2ETests : IClassFixture<WebApplicationFactory<Program
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Pipelines:ExecutionMode", "Runner");
             builder.UseSetting("Core:SeedDemoOnEmpty", "true");
-            builder.UseSetting("Modules:pipelines:Enabled", "true");
+            builder.UseSetting("Modules:build:Enabled", "true");
         });
         var client = factory.CreateClient();
         var response = client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" }).GetAwaiter().GetResult();

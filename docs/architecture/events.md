@@ -2,28 +2,64 @@
 
 Cross-module integration uses domain events. Modules stay independently optional: publishers and subscribers never share implementation assemblies.
 
-## Ownership
+## Platform rule
+
+```text
+Everything reacts to Events.
+```
+
+There is **no** separate:
+
+```text
+Command bus
+User event bus
+System event bus
+External event bus
+```
+
+All asynchronous work and cross-module reactions use the same Event infrastructure. Semantic differences are expressed by event type, payload, actor metadata, correlation/causation, and which Module owns the event — not by parallel buses.
 
 | Layer | Owns |
 |-------|------|
-| **Core** (`ForgeDeck.Messaging`) | Envelope, registry, publisher/bus, outbox/inbox, retry, diagnostics |
-| **Modules** | Event *semantics* — CLR payloads, contract type strings, handlers, `module.json` publishes/subscribes |
+| **Core** (`ForgeDeck.Messaging`) | Event envelope, transport, outbox, inbox, retries, correlation, causation, registry, diagnostics |
+| **Modules** | Event *semantics* — payloads, contract type strings, handlers, `module.json` publishes/subscribes |
 
 Core never interprets module-specific fields. Modules never implement their own bus.
 
+> This is a known engineering convention enforced through documentation and code review, not a compiler/runtime rule.
+
 ## Naming convention
 
-Prefer CLR names of the form **`ModuleSemanticEvent`**:
+CLR event type names follow:
+
+```text
+<Module><ActionOrFact>Event
+```
+
+Examples:
 
 ```text
 GitRepositoryPushEvent
+
 ReviewRequestedEvent
+ReviewApprovedEvent
+ReviewMergedEvent
+
+BuildPipelineRunRequestedEvent
+BuildPipelineRunQueuedEvent
 BuildPipelineRunStartedEvent
+BuildPipelineRunSucceededEvent
+
+DeployReleaseEvent
+DeployStartedEvent
 DeploySucceededEvent
+
 CheckUpdatedEvent
 ```
 
-Wire type strings are reverse-DNS (`forgedeck.git.repository-push`, `forgedeck.review.requested`, …). This naming is **convention only** — it is not enforced by the compiler or registry.
+Wire type strings are reverse-DNS (`forgedeck.git.repository-push`, `forgedeck.review.requested`, …).
+
+> The `<Module><ActionOrFact>Event` naming form is a known engineering convention enforced through documentation and code review, not a compiler/runtime rule.
 
 ## Envelope and actor
 
@@ -65,7 +101,7 @@ Delivery is **at-least-once**. Handlers must be idempotent (use event id / consu
 
 | | Events | Queries / providers |
 |--|--------|---------------------|
-| Purpose | Notify that something happened | Read current state |
+| Purpose | Notify that something happened / request asynchronous work | Read current state |
 | Coupling | Fire-and-forget; optional consumers | Caller depends on a provider interface |
 | Example | `GitRepositoryPushEvent` | `IGitService`, `ICheckProvider` |
 | Absence | Publisher unaffected if Build is off | Caller must handle missing provider |
@@ -84,6 +120,7 @@ community/src/Core/ForgeDeck.Messaging/
                    # Infrastructure only — no module semantics
 
 community/src/Modules/Git/ForgeDeck.Git.Contracts/Events/
+community/src/Modules/Code/ForgeDeck.Code.Contracts/Events/   # target layout
 community/src/Modules/Review/ForgeDeck.Review.Contracts/Events/
 community/src/Modules/Build/ForgeDeck.Build.Contracts/Events/
 community/src/Modules/Deploy/ForgeDeck.Deploy.Contracts/Events/
@@ -114,9 +151,12 @@ Implementation assemblies (`ForgeDeck.Review`, `ForgeDeck.Build`, …) may refer
 | `GET /api/platform/events/failures` | Failed deliveries |
 | `GET /api/platform/events/subscriptions` | Active consumers |
 | `GET /api/platform/events/trace/{correlationId}` | Correlation graph |
+| `GET /api/platform/events/contracts` | Registered `IEventRegistry` contracts |
 | `POST .../deliveries/{eventId}/{consumerId}/retry` | Re-queue |
 | `POST .../deliveries/{eventId}/{consumerId}/acknowledge` | Manual ack |
 
 Requires `modules.manage` or `audit.read`.
 
-See also [module-contract.md](module-contract.md), [dependency-rules.md](dependency-rules.md).
+Canonical Module event documentation: [event-catalogue.md](event-catalogue.md).
+
+See also [module-contract.md](module-contract.md), [dependency-rules.md](dependency-rules.md), and the fuller feature specification in [../events.md](../events.md).

@@ -40,7 +40,7 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
     {
         using var client = AuthenticatedClient(CreateHost("Full"));
         var modules = await client.GetStringAsync("/api/platform/modules");
-        Assert.Contains("\"id\":\"pipelines\"", modules);
+        Assert.Contains("\"id\":\"build\"", modules);
 
         var externalId = Random.Shared.Next(1000, 9999).ToString();
         var imported = await client.PostAsJsonAsync("/api/review/changes/import", new
@@ -81,7 +81,7 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
         var pipelineRuns = await client.GetAsync("/api/pipelines/runs");
 
         Assert.Contains("\"id\":\"review\"", modules);
-        Assert.DoesNotContain("\"id\":\"pipelines\"", modules);
+        Assert.DoesNotContain("\"id\":\"build\"", modules);
         Assert.DoesNotContain("\"id\":\"checks\"", modules);
         Assert.Equal(HttpStatusCode.OK, changes.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, pipelineRuns.StatusCode);
@@ -254,20 +254,20 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
             {
                 case "Disabled":
                     builder.UseSetting("Modules:review:Enabled", "false");
-                    builder.UseSetting("Modules:pipelines:Enabled", "false");
+                    builder.UseSetting("Modules:build:Enabled", "false");
                     builder.UseSetting("Modules:deploy:Enabled", "false");
                     builder.UseSetting("Modules:git:Enabled", "false");
                     break;
                 case "ReviewOnly":
                     builder.UseSetting("Modules:review:Enabled", "true");
-                    builder.UseSetting("Modules:pipelines:Enabled", "false");
+                    builder.UseSetting("Modules:build:Enabled", "false");
                     builder.UseSetting("Modules:deploy:Enabled", "false");
                     builder.UseSetting("Modules:git:Enabled", "false");
                     break;
                 case "GitOnly":
                     builder.UseSetting("Modules:git:Enabled", "true");
                     builder.UseSetting("Modules:review:Enabled", "false");
-                    builder.UseSetting("Modules:pipelines:Enabled", "false");
+                    builder.UseSetting("Modules:build:Enabled", "false");
                     builder.UseSetting("Modules:deploy:Enabled", "false");
                     break;
                 default:

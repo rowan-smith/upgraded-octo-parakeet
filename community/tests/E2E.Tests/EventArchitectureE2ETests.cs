@@ -53,7 +53,8 @@ public sealed class EventArchitectureE2ETests : IClassFixture<WebApplicationFact
             "/api/platform/events",
             "/api/platform/events/outbox",
             "/api/platform/events/failures",
-            "/api/platform/events/subscriptions"
+            "/api/platform/events/subscriptions",
+            "/api/platform/diagnostics"
         ];
 
         foreach (var route in routes)
@@ -68,7 +69,7 @@ public sealed class EventArchitectureE2ETests : IClassFixture<WebApplicationFact
     {
         await using var host = CreateHost(configure: builder =>
         {
-            builder.UseSetting("Modules:pipelines:Enabled", "false");
+            builder.UseSetting("Modules:build:Enabled", "false");
         });
 
         var publisher = host.Services.GetRequiredService<IEventPublisher>();

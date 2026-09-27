@@ -1,3 +1,4 @@
+using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Extensions;
@@ -59,6 +60,9 @@ public sealed class DevelopmentSeedService(
         instance.LicenceMode = LicenceMode.Community;
         instance.BootstrapEnabled = false;
         instance.ModulesAcknowledgedAt = now;
+        instance.MembersAcknowledgedAt = now;
+        instance.ProjectAcknowledgedAt = now;
+        instance.SetupCompletedAt = now;
         store.SaveInstance(instance);
         store.ReplaceActiveLicence(new LicenceRecord
         {
@@ -88,7 +92,7 @@ public sealed class DevelopmentSeedService(
         // Enable installed modules for the dogfood project explicitly.
         if (extensions is not null)
         {
-            var enabled = extensions.List(Contracts.Extensions.ExtensionType.Module)
+            var enabled = extensions.List(ExtensionType.Module)
                 .Where(m => m.Installed && m.Enabled)
                 .Select(m => m.ExtensionId)
                 .ToArray();

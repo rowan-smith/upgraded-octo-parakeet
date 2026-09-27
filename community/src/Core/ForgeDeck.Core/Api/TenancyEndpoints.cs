@@ -113,6 +113,7 @@ public static class TenancyEndpoints
 
             try
             {
+                // Deprecated: Modules are no longer part of first-run setup. Still installs if asked for compat.
                 if (request.Skip != true && request.ExtensionIds is { Count: > 0 })
                 {
                     var actor = http.Items["bootstrap"] is true
@@ -126,6 +127,46 @@ public static class TenancyEndpoints
                     }
                 }
                 setup.AcknowledgeModules();
+                return Results.Ok(setup.GetStatus());
+            }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/members", (SetupService setup, HttpContext http) =>
+        {
+            if (http.Items["bootstrap"] is true)
+            {
+                return Results.BadRequest(new { error = "Complete the Members step as the Owner account." });
+            }
+
+            if (!SetupAuth.IsBootstrapOrUser(http))
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                setup.AcknowledgeMembers();
+                return Results.Ok(setup.GetStatus());
+            }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/setup/project", (SetupService setup, HttpContext http) =>
+        {
+            if (http.Items["bootstrap"] is true)
+            {
+                return Results.BadRequest(new { error = "Complete the Project step as the Owner account." });
+            }
+
+            if (!SetupAuth.IsBootstrapOrUser(http))
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                setup.AcknowledgeProject();
                 return Results.Ok(setup.GetStatus());
             }
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
@@ -853,6 +894,7 @@ public static class TenancyEndpoints
                 return PermissionAuthorizer.Forbidden();
             }
 
+            // Deprecated: per-project module enablement removed. Accept and no-op for compatibility.
             try
             {
                 projects.SetEnabledModules(projectId, request.EnabledExtensionIds ?? []);

@@ -79,6 +79,23 @@ public static class EventDiagnosticsEndpoints
             return trace is null ? Results.NotFound() : Results.Ok(trace);
         });
 
+        group.MapGet("/contracts", (IEventRegistry registry, PermissionAuthorizer authorizer, HttpContext http) =>
+        {
+            if (!authorizer.Has(http, OrganisationPermissions.ModulesManage)
+                && !authorizer.Has(http, OrganisationPermissions.AuditRead))
+            {
+                return PermissionAuthorizer.Forbidden();
+            }
+
+            var contracts = registry.List().Select(c => new
+            {
+                c.Type,
+                c.Version,
+                ClrType = c.ClrType.FullName
+            });
+            return Results.Ok(contracts);
+        });
+
         group.MapPost("/deliveries/{eventId:guid}/{consumerId}/retry", async (
             Guid eventId,
             string consumerId,

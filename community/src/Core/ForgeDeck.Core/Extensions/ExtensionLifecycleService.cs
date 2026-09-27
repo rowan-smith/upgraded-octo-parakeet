@@ -4,7 +4,6 @@ using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Modules;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Identity;
-using ForgeDeck.Core.Persistence;
 using ForgeDeck.Messaging;
 using Microsoft.Extensions.Configuration;
 
@@ -16,10 +15,10 @@ public sealed class ExtensionLifecycleService(
     ICapabilityService capabilities,
     PlatformContextStore context,
     IAuditWriter audit,
-    ITenancyStore? store = null,
     IPermissionDefinitionRegistry? permissions = null,
     IModuleEventLifecycle? eventLifecycle = null,
-    IServiceProvider? services = null)
+    IServiceProvider? services = null,
+    ExtensionPackageInstaller? packages = null)
 {
     private static readonly HashSet<string> LoadedRuntimeIds = new(StringComparer.OrdinalIgnoreCase);
 
@@ -36,8 +35,6 @@ public sealed class ExtensionLifecycleService(
         var orgId = context.Organisation.Id;
         var installed = registry.List().ToDictionary(x => x.ExtensionId, StringComparer.OrdinalIgnoreCase);
         var packageRuntimeIds = modules.Select(m => m.Manifest.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        // Code is SPA-hosted; treat as always present when bundled.
-        packageRuntimeIds.Add("code");
         packageRuntimeIds.Add("github");
 
         return BuiltinExtensionCatalogue.All
@@ -53,7 +50,6 @@ public sealed class ExtensionLifecycleService(
         var entry = BuiltinExtensionCatalogue.Find(extensionId)
             ?? throw new KeyNotFoundException($"Unknown extension '{extensionId}'.");
         var packageRuntimeIds = modules.Select(m => m.Manifest.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        packageRuntimeIds.Add("code");
         packageRuntimeIds.Add("github");
         return ToStatus(entry, registry.Find(extensionId), packageRuntimeIds, context.Organisation.Id);
     }
@@ -102,6 +98,165 @@ public sealed class ExtensionLifecycleService(
         return CompleteInstall(entry, actor, enable);
     }
 
+    /// <summary>
+    /// Stages an offline .fdext/.zip package, optionally verifies checksum, promotes to installed,
+    /// then registers the catalogue entry without enabling on failure.
+    /// </summary>
+    public ExtensionStatusView InstallFromPackageFile(
+        Stream packageStream,
+        string actor,
+        string? extensionIdHint = null,
+        string? versionHint = null,
+        string? expectedSha256 = null,
+        bool enable = true)
+    {
+        if (packages is null)
+        {
+            throw new InvalidOperationException("Extension package installer is not configured.");
+        }
+
+        string? resolvedId = extensionIdHint;
+        try
+        {
+            var tempPath = Path.Combine(Path.GetTempPath(), $"forgedeck-upload-{Guid.NewGuid():N}.zip");
+            try
+            {
+                using (var file = File.Create(tempPath))
+                {
+                    packageStream.CopyTo(file);
+                }
+
+                ExtensionPackageInstaller.VerifyChecksum(tempPath, expectedSha256);
+                var digest = ExtensionPackageInstaller.ComputeSha256(tempPath);
+                var staged = packages.StagePackage(tempPath, extensionIdHint, versionHint);
+                resolvedId = staged.ExtensionId;
+                packages.ValidatePreflight(staged);
+                var promoted = packages.PromoteStaged(staged);
+                return CompleteInstallFromPackage(promoted.ExtensionId, promoted.Version, actor, enable, digest);
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { /* ignore */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            RecordInstallationFailed(resolvedId, actor, ex.Message);
+            throw;
+        }
+    }
+
+    public ExtensionStatusView InstallFromPackageFile(
+        string packagePath,
+        string actor,
+        string? extensionIdHint = null,
+        string? versionHint = null,
+        string? expectedSha256 = null,
+        bool enable = true)
+    {
+        using var stream = File.OpenRead(packagePath);
+        return InstallFromPackageFile(stream, actor, extensionIdHint, versionHint, expectedSha256, enable);
+    }
+
+    private ExtensionStatusView CompleteInstallFromPackage(
+        string extensionId,
+        string version,
+        string actor,
+        bool enable,
+        string? packageDigest = null)
+    {
+        var entry = BuiltinExtensionCatalogue.Find(extensionId);
+        if (entry is null)
+        {
+            // Unknown catalogue id: record as installed connector/module shell so status APIs work after restart.
+            entry = new ExtensionCatalogueEntry(
+                extensionId,
+                extensionId,
+                ExtensionType.Module,
+                version,
+                "Uploaded",
+                "Uploaded extension package.",
+                [],
+                RuntimeId: null,
+                Provides: [],
+                Requires: [],
+                Optional: [],
+                Bundled: false);
+        }
+
+        var existing = registry.Find(entry.ExtensionId);
+        if (existing is { Enabled: true, State: ExtensionLifecycleState.Enabled })
+        {
+            return GetOrSynthesize(entry);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var installation = existing ?? new ExtensionInstallation
+        {
+            ExtensionId = entry.ExtensionId,
+            Type = entry.Type,
+            RuntimeId = entry.RuntimeId
+        };
+        installation.Type = entry.Type;
+        installation.RuntimeId = entry.RuntimeId;
+        installation.InstalledVersion = version;
+        installation.InstalledAt ??= now;
+        installation.InstalledBy = actor;
+        installation.UpdatedAt = now;
+        installation.LastError = null;
+        installation.State = ExtensionLifecycleState.Installed;
+        installation.Enabled = false;
+        installation.RestartRequired = NeedsRestart(entry) || !entry.Bundled;
+        installation.InstalledFrom = ExtensionInstalledFrom.Upload;
+        installation.PackageDigest = string.IsNullOrWhiteSpace(packageDigest) ? installation.PackageDigest : packageDigest;
+        registry.Save(installation);
+        audit.Write("core", "module.installed", entry.ExtensionId, new { version, entry.Type, source = "package", packageDigest });
+
+        if (enable && BuiltinExtensionCatalogue.Find(entry.ExtensionId) is not null)
+        {
+            return Enable(entry.ExtensionId, actor);
+        }
+
+        return GetOrSynthesize(entry);
+    }
+
+    private void RecordInstallationFailed(string? extensionId, string actor, string error)
+    {
+        if (string.IsNullOrWhiteSpace(extensionId))
+        {
+            return;
+        }
+
+        var entry = BuiltinExtensionCatalogue.Find(extensionId);
+        var existing = registry.Find(extensionId);
+        var installation = existing ?? new ExtensionInstallation
+        {
+            ExtensionId = extensionId,
+            Type = entry?.Type ?? ExtensionType.Module,
+            RuntimeId = entry?.RuntimeId
+        };
+        installation.Enabled = false;
+        installation.State = ExtensionLifecycleState.Failed;
+        installation.LastError = error;
+        installation.UpdatedAt = DateTimeOffset.UtcNow;
+        installation.InstalledBy ??= actor;
+        registry.Save(installation);
+        audit.Write("core", "module.install_failed", extensionId, new { actor, error });
+    }
+
+    private ExtensionStatusView GetOrSynthesize(ExtensionCatalogueEntry entry)
+    {
+        try
+        {
+            return Get(entry.ExtensionId);
+        }
+        catch (KeyNotFoundException)
+        {
+            var installation = registry.Find(entry.ExtensionId);
+            return ToStatus(entry, installation, [], context.Organisation.Id);
+        }
+    }
+
     private ExtensionStatusView CompleteInstall(ExtensionCatalogueEntry entry, string actor, bool enable)
     {
         if (entry.ExtensionId.Contains("enterprise", StringComparison.OrdinalIgnoreCase) &&
@@ -134,6 +289,7 @@ public sealed class ExtensionLifecycleService(
         installation.State = ExtensionLifecycleState.Installed;
         installation.Enabled = false;
         installation.RestartRequired = NeedsRestart(entry);
+        installation.InstalledFrom = entry.Bundled ? ExtensionInstalledFrom.Bundled : ExtensionInstalledFrom.Unknown;
         registry.Save(installation);
         audit.Write("core", "module.installed", entry.ExtensionId, new { entry.Version, entry.Type });
 
@@ -230,14 +386,6 @@ public sealed class ExtensionLifecycleService(
         var enabledRuntime = enabled.Select(x => x.RuntimeId).Where(x => x is not null).Cast<string>().ToArray();
         var nav = new List<NavigationContribution>();
 
-        if (enabledRuntime.Contains("code", StringComparer.OrdinalIgnoreCase))
-        {
-            nav.Add(new("forgedeck.code", "files", "Files", "/files", "Code", 10));
-            nav.Add(new("forgedeck.code", "branches", "Branches", "/source-branches", "Code", 20));
-            nav.Add(new("forgedeck.code", "commits", "Commits", "/commits", "Code", 30));
-            nav.Add(new("forgedeck.code", "tags", "Tags", "/tags", "Code", 40));
-        }
-
         foreach (var module in modules)
         {
             var extId = BuiltinExtensionCatalogue.ExtensionIdForModule(module.Manifest);
@@ -261,17 +409,11 @@ public sealed class ExtensionLifecycleService(
     public IReadOnlyList<object> ActiveModulesForSpa()
     {
         var orgId = context.Organisation.Id;
-        var projectId = context.Project?.Id;
         var list = new List<object>();
         foreach (var module in modules)
         {
             var extId = BuiltinExtensionCatalogue.ExtensionIdForModule(module.Manifest);
             if (extId is null || !registry.IsEnabled(extId))
-            {
-                continue;
-            }
-
-            if (projectId is Guid pid && store is not null && !store.IsProjectModuleEnabled(pid, extId))
             {
                 continue;
             }
@@ -291,29 +433,6 @@ public sealed class ExtensionLifecycleService(
                 module.Manifest.ResourceTabs,
                 enabled = true,
                 extensionId = extId
-            });
-        }
-
-        if (registry.IsEnabled("forgedeck.code")
-            && (projectId is not Guid codeProject || store is null || store.IsProjectModuleEnabled(codeProject, "forgedeck.code")))
-        {
-            list.Add(new
-            {
-                id = "code",
-                name = "Code",
-                version = "1.0.0",
-                edition = "Community",
-                capabilities = Array.Empty<string>(),
-                navigation = new[]
-                {
-                    new { id = "files", label = "Files", route = "/files", group = "Code", order = 110 },
-                    new { id = "branches", label = "Branches", route = "/source-branches", group = "Code", order = 120 },
-                    new { id = "commits", label = "Commits", route = "/commits", group = "Code", order = 130 },
-                    new { id = "tags", label = "Tags", route = "/tags", group = "Code", order = 140 }
-                },
-                resourceTabs = Array.Empty<object>(),
-                enabled = true,
-                extensionId = "forgedeck.code"
             });
         }
 
@@ -414,7 +533,7 @@ public sealed class ExtensionLifecycleService(
                     .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
                 if (!entry.RuntimeId.Equals("review", StringComparison.OrdinalIgnoreCase)
-                    && !entry.RuntimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase)
+                    && !entry.RuntimeId.Equals("build", StringComparison.OrdinalIgnoreCase)
                     && !entry.RuntimeId.Equals("deploy", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -431,7 +550,7 @@ public sealed class ExtensionLifecycleService(
                         edition = "Team";
                     }
                 }
-                else if (entry.RuntimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase))
+                else if (entry.RuntimeId.Equals("build", StringComparison.OrdinalIgnoreCase))
                 {
                     if (capabilities.Has(orgId, KnownCapabilities.Build.Attestation))
                     {
@@ -481,7 +600,10 @@ public sealed class ExtensionLifecycleService(
             edition,
             CommunityFeaturesAvailable: true,
             EnterpriseFeaturesLicensed: capabilities.Has(orgId, KnownCapabilities.Review.MultiApproval),
-            granted);
+            granted,
+            installation?.InstalledFrom
+                ?? (entry.Bundled && installed ? ExtensionInstalledFrom.Bundled : ExtensionInstalledFrom.Unknown),
+            installation?.PackageDigest);
     }
 
     private static object ToCompositionModule(ExtensionStatusView status) => new
@@ -536,9 +658,9 @@ public sealed class ExtensionLifecycleService(
 
     private static bool IsRuntimeLoaded(ExtensionCatalogueEntry entry) =>
         entry.RuntimeId is null
-        || entry.RuntimeId is "code" or "github"
+        || entry.RuntimeId is "github"
         || LoadedRuntimeIds.Contains(entry.RuntimeId)
-        || entry.RuntimeId is "review" or "pipelines" or "deploy"; // always project-referenced in CE host
+        || entry.RuntimeId is "code" or "review" or "build" or "deploy"; // always project-referenced in CE host
 
     private static bool IsProprietaryEdition(string edition) =>
         edition.Equals("Commercial", StringComparison.OrdinalIgnoreCase)

@@ -1,0 +1,12 @@
+{
+  "id": "forgedeck.code",
+  "name": "Code",
+  "type": "module",
+  "version": "1.0.0",
+  "edition": "community",
+  "minimumCoreVersion": "0.1.0",
+  "provides": [
+    "code",
+    "source-browser"
+  ]
+}

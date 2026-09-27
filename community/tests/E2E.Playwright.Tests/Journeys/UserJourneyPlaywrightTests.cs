@@ -46,7 +46,6 @@ public sealed class UserJourneyPlaywrightTests(PlaywrightBrowserFixture browser,
     [Theory]
     [InlineData("/settings/general", "Project settings")]
     [InlineData("/settings/members", "Project settings")]
-    [InlineData("/settings/modules", "Project settings")]
     [InlineData("/settings/repositories", "Project settings")]
     [InlineData("/settings/review", "Project settings")]
     [InlineData("/settings", "Project settings")]
@@ -140,7 +139,7 @@ public sealed class UserJourneyPlaywrightTests(PlaywrightBrowserFixture browser,
     [InlineData("/pipelines", "/people")]
     [InlineData("/settings/general", "/organisation/settings")]
     [InlineData("/settings/members", "/modules")]
-    [InlineData("/settings/modules", "/audit")]
+    [InlineData("/settings/repositories", "/audit")]
     public async Task Project_shell_excludes_org_only_primary_routes(string projectRoute, string forbidden)
     {
         await using var session = await NewSessionAsync();
@@ -202,7 +201,6 @@ public sealed class UserJourneyPlaywrightTests(PlaywrightBrowserFixture browser,
     [Theory]
     [InlineData("/settings/general", "/settings/general")]
     [InlineData("/settings/members", "/settings/members")]
-    [InlineData("/settings/modules", "/settings/modules")]
     [InlineData("/settings/repositories", "/settings/repositories")]
     [InlineData("/settings/review", "/settings/review")]
     public async Task Project_settings_nav_or_redirect_behaves(string route, string expectedActiveOrLanding)

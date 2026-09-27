@@ -78,18 +78,17 @@ public sealed class SetupOnboardingPlaywrightTests(PlaywrightBrowserFixture brow
     }
 
     [Fact]
-    public async Task Modules_step_follows_licence_and_can_be_skipped()
+    public async Task Owner_step_follows_licence_without_modules()
     {
         await using var host = ForgeDeckHost.StartEmpty();
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
-        await Ui.CompleteSetupThroughLicenceAsync(page, "Modules Org");
+        await Ui.CompleteSetupThroughLicenceAsync(page, "Core Flow Org");
         await page.Locator("#setupUseCommunity").ClickAsync();
-        await Ui.ExpectVisible(page, "h1", "Choose capabilities");
-        await Assertions.Expect(page.Locator("#setupSkipModules")).ToBeVisibleAsync();
-        await page.Locator("#setupSkipModules").ClickAsync();
         await Ui.ExpectVisible(page, "h1", "Create Owner Account");
+        await Assertions.Expect(page.Locator("#setupSkipModules")).ToHaveCountAsync(0);
+        await Assertions.Expect(page.Locator("#content")).Not.ToContainTextAsync("Choose capabilities");
     }
 
     [Fact]
@@ -102,7 +101,6 @@ public sealed class SetupOnboardingPlaywrightTests(PlaywrightBrowserFixture brow
         await page.Locator("#bootstrapSignIn").ClickAsync();
         await page.Locator("#setupOrgContinue").ClickAsync();
         await page.Locator("#setupUseCommunity").ClickAsync();
-        await page.Locator("#setupSkipModules").ClickAsync();
         await Ui.ExpectVisible(page, "h1", "Create Owner Account");
         await page.Locator("#setupPassword").FillAsync("password123");
         await page.Locator("#setupPassword2").FillAsync("different");
@@ -122,19 +120,54 @@ public sealed class SetupOnboardingPlaywrightTests(PlaywrightBrowserFixture brow
         await page.Locator("#setupOrgName").FillAsync("Skip Org");
         await page.Locator("#setupOrgContinue").ClickAsync();
         await page.Locator("#setupUseCommunity").ClickAsync();
-        await page.Locator("#setupSkipModules").ClickAsync();
         await page.Locator("#setupDisplayName").FillAsync("Skip Owner");
         await page.Locator("#setupUsername").FillAsync("skipowner");
         await page.Locator("#setupEmail").FillAsync("skip@example.com");
         await page.Locator("#setupPassword").FillAsync("password123");
         await page.Locator("#setupPassword2").FillAsync("password123");
         await page.Locator("#setupCreateOwner").ClickAsync();
+        await Ui.ExpectVisible(page, "h1", "Invite members");
+        await page.Locator("#setupSkipMembers").ClickAsync();
+        await Ui.ExpectVisible(page, "h1", "Create your first project");
+        await page.Locator("#setupSkipProject").ClickAsync();
         await Ui.ExpectVisible(page, "h1", "Skip Org is ready");
         await page.Locator("#setupOpenWorkspace").ClickAsync();
         await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
         await Assertions.Expect(page.Locator("#orgLabel")).ToHaveTextAsync("Skip Org");
         await Assertions.Expect(page.Locator("#content")).ToContainTextAsync("Get started");
         await Assertions.Expect(page.Locator("#homeCreateFirstProject")).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task Optional_members_and_project_can_be_completed_during_setup()
+    {
+        await using var host = ForgeDeckHost.StartEmpty();
+        await using var session = await host.NewPageAsync(browser.Browser);
+        var page = session.Page;
+
+        await page.Locator("#bootstrapSignIn").ClickAsync();
+        await page.Locator("#setupOrgName").FillAsync("Optional Steps Org");
+        await page.Locator("#setupOrgContinue").ClickAsync();
+        await page.Locator("#setupUseCommunity").ClickAsync();
+        await page.Locator("#setupUsername").FillAsync("optowner");
+        await page.Locator("#setupEmail").FillAsync("opt@example.com");
+        await page.Locator("#setupPassword").FillAsync("password123");
+        await page.Locator("#setupPassword2").FillAsync("password123");
+        await page.Locator("#setupCreateOwner").ClickAsync();
+
+        await Ui.ExpectVisible(page, "h1", "Invite members");
+        await page.Locator("#setupMemberEmail").FillAsync("teammate@example.com");
+        await page.Locator("#setupInviteMember").ClickAsync();
+
+        await Ui.ExpectVisible(page, "h1", "Create your first project");
+        await page.Locator("#setupProjectName").FillAsync("Atlas");
+        await page.Locator("#setupProjectSlug").FillAsync("atlas");
+        await page.Locator("#setupCreateProject").ClickAsync();
+
+        await Ui.ExpectVisible(page, "h1", "Optional Steps Org is ready");
+        await page.Locator("#setupOpenWorkspace").ClickAsync();
+        await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
+        await Assertions.Expect(page.Locator("#projectLabel")).ToHaveTextAsync("Atlas");
     }
 
     [Fact]
@@ -147,11 +180,12 @@ public sealed class SetupOnboardingPlaywrightTests(PlaywrightBrowserFixture brow
         await page.Locator("#bootstrapSignIn").ClickAsync();
         await page.Locator("#setupOrgContinue").ClickAsync();
         await page.Locator("#setupUseCommunity").ClickAsync();
-        await page.Locator("#setupSkipModules").ClickAsync();
         await page.Locator("#setupUsername").FillAsync("ownerone");
         await page.Locator("#setupEmail").FillAsync("ownerone@example.com");
+        await page.Locator("#setupPassword").FillAsync("password123");
+        await page.Locator("#setupPassword2").FillAsync("password123");
         await page.Locator("#setupCreateOwner").ClickAsync();
-        await Ui.ExpectVisible(page, "h1", "is ready");
+        await Ui.ExpectVisible(page, "h1", "Invite members");
 
         var response = await page.APIRequest.PostAsync($"{host.BaseAddress}api/setup/bootstrap-login", new()
         {

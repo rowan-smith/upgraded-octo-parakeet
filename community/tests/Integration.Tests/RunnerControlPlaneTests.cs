@@ -246,7 +246,7 @@ public sealed class RunnerControlPlaneTests : IClassFixture<WebApplicationFactor
             builder.UseSetting("Data:ProtectionKeysPath", keys);
             builder.UseSetting("Pipelines:ExecutionMode", "Runner");
             builder.UseSetting("Core:SeedDemoOnEmpty", "true");
-            builder.UseSetting("Modules:pipelines:Enabled", "true");
+            builder.UseSetting("Modules:build:Enabled", "true");
         });
     }
 

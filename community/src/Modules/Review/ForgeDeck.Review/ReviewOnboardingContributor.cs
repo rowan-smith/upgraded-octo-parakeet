@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ForgeDeck.Review;
 
+[Obsolete("First-run onboarding is Core-only. Prefer post-install Module configuration.")]
 public sealed class ReviewOnboardingContributor : IOnboardingContributor
 {
     public string Id => "review-policy";

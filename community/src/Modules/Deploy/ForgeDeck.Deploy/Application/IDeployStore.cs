@@ -10,8 +10,14 @@ public interface IDeployStore
     void DeleteEnvironment(Guid id);
 
     IReadOnlyList<Deployment> ListDeployments(Guid? projectId = null, Guid? environmentId = null, int take = 100);
+    IReadOnlyList<Deployment> ListPendingDeployments(int take = 50);
     Deployment? FindDeployment(Guid id);
     void SaveDeployment(Deployment deployment);
+
+    IReadOnlyList<DeploymentAgent> ListAgents();
+    DeploymentAgent? FindAgent(Guid id);
+    void SaveAgent(DeploymentAgent agent);
+    void RevokeAgent(Guid id);
 
     void SaveBuildRunReference(Guid runId, string pipelineName, string commitSha, Guid? changeId);
     void SaveArtifactReference(Guid runId, string pipelineName, string artifactName, string? uri);

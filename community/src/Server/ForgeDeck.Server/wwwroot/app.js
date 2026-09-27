@@ -23,7 +23,8 @@ async function boot(){
       el('app').setAttribute('aria-busy','false');
       return renderInviteAccept(decodeURIComponent(hashRoute.slice('/invite/'.length)));
     }
-    if(!state.setup.initialised){
+    // Stay in the setup wizard until SetupCompletedAt is set (optional Members/Project after Owner).
+    if(!state.setup.setupCompleted){
       el('appSidebar').style.display='none';
       document.querySelector('.app-shell')?.classList.add('setup-mode');
       el('app').setAttribute('aria-busy','false');
@@ -301,10 +302,11 @@ async function refreshSetup(){
 
 function currentSetupStepId(){
   const s=state.setup;
-  if(!s?.initialised && !s?.hasOrganisation) return state.token?'organisation':'bootstrap';
+  if(!s?.hasOrganisation) return state.token?'organisation':'bootstrap';
   if(!s?.hasLicence) return 'licence';
-  if(!s?.hasModules) return 'modules';
   if(!s?.hasOwner) return 'owner';
+  if(!s?.hasMembers) return 'members';
+  if(!s?.hasFirstProject) return 'project';
   return 'finish';
 }
 
@@ -313,8 +315,9 @@ function renderSetup(){
   if(step==='bootstrap') return renderBootstrapLogin();
   if(step==='organisation') return renderSetupOrganisation();
   if(step==='licence') return renderSetupLicence();
-  if(step==='modules') return renderSetupModules();
   if(step==='owner') return renderSetupOwner();
+  if(step==='members') return renderSetupMembers();
+  if(step==='project') return renderSetupProject();
   return renderSetupFinish();
 }
 
@@ -457,45 +460,89 @@ function renderSetupOwner(){
   };
 }
 
-async function renderSetupModules(){
-  let catalogue=[];
-  try{catalogue=await api('/api/setup/modules')}catch{catalogue=[]}
-  const defaults=new Set(['forgedeck.code','forgedeck.review']);
-  el('content').innerHTML=setupShell(`<h1>Choose capabilities</h1>
-    <p class="description">Install bundled modules now, or skip and add them later from Organisation Settings. Module configuration happens inside each project.</p>`, `
-    <div class="module-choice-grid" id="setupModuleGrid">
-      ${catalogue.map(m=>`
-        <article class="module-choice-card">
-          <h2>${esc(m.name)}</h2>
-          <p>${esc(m.summary||'')}</p>
-          <label class="choice-row"><input type="checkbox" data-extension-id="${esc(m.extensionId)}" ${defaults.has(m.extensionId)?'checked':''}> Install</label>
-        </article>`).join('')||'<p class="description">No bundled modules are available in this build.</p>'}
-    </div>
+function renderSetupMembers(){
+  el('content').innerHTML=setupShell(`<h1>Invite members</h1>
+    <p class="description">Optionally invite teammates now. You can always add people later from Organisation Settings.</p>`, `
+    <label class="form-label">Email</label><input class="field" id="setupMemberEmail" type="email" placeholder="teammate@example.com">
+    <label class="form-label">Role</label>
+    <select class="field" id="setupMemberRole">
+      <option value="Member">Member</option>
+      <option value="Admin">Admin</option>
+    </select>
     <div class="modal-actions" style="margin-top:22px">
-      <button class="button" id="setupSkipModules">Skip for now</button>
-      <button class="button primary" id="setupInstallModules">Continue</button>
+      <button class="button" id="setupSkipMembers">Skip for now</button>
+      <button class="button" id="setupInviteMember">Invite &amp; continue</button>
+      <button class="button primary" id="setupContinueMembers">Continue</button>
     </div>
   `);
-  const submit=async(skip)=>{
+  const finishMembers=async()=>{
+    await api('/api/setup/members',{method:'POST',body:'{}'});
+    await refreshSetup();
+    renderSetup();
+  };
+  el('setupSkipMembers').onclick=async()=>{
+    try{await finishMembers()}catch(error){showToast(error.message,true)}
+  };
+  el('setupContinueMembers').onclick=async()=>{
+    try{await finishMembers()}catch(error){showToast(error.message,true)}
+  };
+  el('setupInviteMember').onclick=async()=>{
+    const email=el('setupMemberEmail').value?.trim();
+    if(!email)return showToast('Enter an email to invite',true);
     try{
-      const ids=skip?[]:[...document.querySelectorAll('#setupModuleGrid input[data-extension-id]:checked')].map(i=>i.dataset.extensionId);
-      await api('/api/setup/modules',{method:'POST',body:JSON.stringify({extensionIds:ids,skip})});
+      await api('/api/organisation/invitations',{method:'POST',body:JSON.stringify({
+        email,role:el('setupMemberRole').value||'Member'
+      })});
+      showToast('Invitation sent');
+      await finishMembers();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+function renderSetupProject(){
+  el('content').innerHTML=setupShell(`<h1>Create your first project</h1>
+    <p class="description">Projects organise your work. Repository connection and modules come later.</p>`, `
+    <label class="form-label">Name</label><input class="field" id="setupProjectName" value="Platform">
+    <label class="form-label">Slug</label><input class="field" id="setupProjectSlug" value="platform">
+    <label class="form-label">Description</label><input class="field" id="setupProjectDesc" placeholder="Optional">
+    <div class="modal-actions" style="margin-top:22px">
+      <button class="button" id="setupSkipProject">Skip for now</button>
+      <button class="button primary" id="setupCreateProject">Create Project</button>
+    </div>
+  `);
+  el('setupSkipProject').onclick=async()=>{
+    try{
+      await api('/api/setup/project',{method:'POST',body:'{}'});
       await refreshSetup();
       renderSetup();
     }catch(error){showToast(error.message,true)}
   };
-  el('setupSkipModules').onclick=()=>submit(true);
-  el('setupInstallModules').onclick=()=>submit(false);
+  el('setupCreateProject').onclick=async()=>{
+    try{
+      await api('/api/projects',{method:'POST',body:JSON.stringify({
+        name:el('setupProjectName').value,
+        slug:el('setupProjectSlug').value||null,
+        description:el('setupProjectDesc').value||null,
+        visibility:'Private',
+        repositoryMode:'SingleRepository'
+      })});
+      await api('/api/setup/project',{method:'POST',body:'{}'}).catch(()=>{});
+      await refreshSetup();
+      renderSetup();
+    }catch(error){showToast(error.message,true)}
+  };
 }
 
 function renderSetupFinish(){
   const s=state.setup||{};
   el('content').innerHTML=setupShell(`<h1>${esc(s.organisationName||'ForgeDeck')} is ready</h1>
-    <p class="description">Installation onboarding is complete. Create a project when you are ready — module settings live in each project.</p>`, `
+    <p class="description">Your organisation is configured. Add Modules and Connectors from Settings when you need them.</p>`, `
     <div class="setup-summary">
       <div><span>Organisation</span><strong>${esc(s.organisationName||'—')}</strong></div>
       <div><span>Edition</span><strong>${esc(licenceModeLabel(s.licenceMode)||'Community')}</strong></div>
       <div><span>Owner</span><strong>Created</strong></div>
+      <div><span>Members</span><strong>${s.hasMembers?'Ready':'—'}</strong></div>
+      <div><span>Project</span><strong>${s.hasProjects?'Created':'Skipped'}</strong></div>
     </div>
     <div class="modal-actions" style="margin-top:22px">
       <button class="button primary" id="setupOpenWorkspace">Open ForgeDeck</button>
@@ -525,6 +572,7 @@ function normalizeRoute(route){
   if(!value.startsWith('/'))value=`/${value}`;
   if(value==='/organisation/licensing'||value==='/licensing')return '/organisation/settings/license';
   if(value==='/modules')return '/organisation/settings/modules';
+  if(value==='/settings/modules')return '/settings/general';
   if(value==='/connectors')return '/organisation/settings/connectors';
   if(value==='/audit')return '/organisation/settings/audit';
   if(value==='/organisation/settings')return '/organisation/settings/general';
@@ -1070,7 +1118,7 @@ async function renderOrgHome(){
   let members=[],runs=[];
   const jobs=[];
   jobs.push(api('/api/organisation/members').then(r=>members=r||[]).catch(()=>[]));
-  if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
+  if(hasModule('build'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
   await Promise.all(jobs);
   const open=openStatuses();
   const myPrs=open.filter(c=>c.author===actor()||c.reviewers?.some(r=>r.name===actor()));
@@ -1097,13 +1145,13 @@ async function renderOrgHome(){
     ${canCreateProject()?'<button class="button primary" id="homeNewProject">＋ New project</button>':''}
   </div></div>
   ${getStarted}
-  ${!hasModule('code')&&!hasModule('review')&&!hasModule('pipelines')&&!hasModule('deploy')?`<div class="card" style="margin-bottom:18px"><div class="card-header"><h2>Extend ForgeDeck</h2><button class="button primary" data-route="/organisation/settings/modules">Browse Modules</button></div>
+  ${!hasModule('code')&&!hasModule('review')&&!hasModule('build')&&!hasModule('deploy')?`<div class="card" style="margin-bottom:18px"><div class="card-header"><h2>Extend ForgeDeck</h2><button class="button primary" data-route="/organisation/settings/modules">Browse Modules</button></div>
     <div class="card-body"><p class="description">Add source browsing, code review, build automation, and more when you are ready.</p></div></div>`:''}
   <div class="home-metrics">
     <article class="metric-card"><p class="metric-label">Projects</p><p class="metric-value">${projects.length}</p></article>
     <article class="metric-card"><p class="metric-label">People</p><p class="metric-value">${members.length||'—'}</p></article>
     ${hasModule('review')?`<article class="metric-card"><p class="metric-label">Open pull requests</p><p class="metric-value">${open.length}</p></article>`:''}
-    ${hasModule('pipelines')?`<article class="metric-card"><p class="metric-label">Recent builds</p><p class="metric-value">${recentRuns.length}</p></article>`:''}
+    ${hasModule('build')?`<article class="metric-card"><p class="metric-label">Recent builds</p><p class="metric-value">${recentRuns.length}</p></article>`:''}
   </div>
   <div class="home-grid">
     <section class="card">
@@ -1123,7 +1171,7 @@ async function renderOrgHome(){
         ${myPrs.slice(0,6).map(c=>`<button type="button" class="work-row" data-route="/changes/${esc(c.id)}"><span>#${esc(c.externalNumber||c.externalId)} ${esc(c.title)}</span><span class="status ${statusClass(c.status)}">${esc(c.status)}</span></button>`).join('')||'<div class="empty small">No open pull requests assigned to you.</div>'}
       </div>
     </section>`:''}
-    ${hasModule('pipelines')?`<section class="card">
+    ${hasModule('build')?`<section class="card">
       <div class="card-header"><h2>Build health</h2><button class="button text" data-route="/runs">Runs</button></div>
       <div class="card-body">
         ${failedRuns.length?`<p class="description">${failedRuns.length} recent failure${failedRuns.length===1?'':'s'}.</p>`:'<p class="description">No recent build failures.</p>'}
@@ -1151,7 +1199,7 @@ async function renderProjectsPage(){
   const starredIds=new Set((state.starredProjects||[]).map(p=>p.id));
   let openCount=hasModule('review')?openStatuses().length:0;
   let latestBuild=null;
-  if(hasModule('pipelines')){
+  if(hasModule('build')){
     try{const runs=await api('/api/pipelines/runs').catch(()=>[]);latestBuild=runs?.[0]||null}catch{}
   }
   el('content').innerHTML=`
@@ -1178,7 +1226,7 @@ async function renderProjectsPage(){
         </button>
         <div class="project-card-meta">
           ${hasModule('review')&&isCurrent?`<span>Open reviews <strong>${openCount}</strong></span>`:hasModule('review')?'<span>Open reviews <strong>—</strong></span>':''}
-          ${hasModule('pipelines')&&isCurrent?`<span>Build <strong class="${latestBuild?statusClass(latestBuild.status):''}">${latestBuild?esc(latestBuild.status):'—'}</strong></span>`:hasModule('pipelines')?'<span>Build <strong>—</strong></span>':''}
+          ${hasModule('build')&&isCurrent?`<span>Build <strong class="${latestBuild?statusClass(latestBuild.status):''}">${latestBuild?esc(latestBuild.status):'—'}</strong></span>`:hasModule('build')?'<span>Build <strong>—</strong></span>':''}
           <button type="button" class="button compact" data-star-project="${esc(p.id)}" data-starred="${starred?'1':'0'}">${starred?'★ Unstar':'☆ Star'}</button>
         </div>
       </article>`;
@@ -1222,7 +1270,7 @@ function flattenRunJobs(runs){
 }
 
 async function renderJobsList(){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   crumbs(projectCrumb('Build <span>/</span> Jobs'));
   const runs=await api('/api/pipelines/runs');
   const rows=flattenRunJobs(runs).slice(0,100);
@@ -1238,7 +1286,7 @@ async function renderJobsList(){
 }
 
 async function renderTestsList(){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   crumbs(projectCrumb('Build <span>/</span> Tests'));
   const runs=await api('/api/pipelines/runs');
   const rows=[];
@@ -1256,7 +1304,7 @@ async function renderTestsList(){
 }
 
 async function renderArtifactsList(){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   crumbs(projectCrumb('Build <span>/</span> Artifacts'));
   const runs=await api('/api/pipelines/runs');
   const rows=[];
@@ -1301,7 +1349,7 @@ async function renderOverview(){
   let runs=[],commits=[],owningTeam=null;
   try{
     const jobs=[];
-    if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
+    if(hasModule('build'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
     if(hasModule('code')&&source()){
       jobs.push(api(`/api/source/repositories/${source().id}/commits?branch=${encodeURIComponent(source().defaultBranch||'main')}`)
         .then(r=>commits=r||[]).catch(()=>[]));
@@ -1349,7 +1397,7 @@ async function renderOverview(){
       <div class="header-actions">
         ${hasModule('code')?'<button class="button" data-route="/files">Browse files</button>':''}
         ${hasModule('review')?'<button class="button" data-route="/changes">Open PRs</button>':''}
-        ${hasModule('pipelines')&&can('pipelines.run')?'<button class="button primary" data-route="/pipelines">Run pipeline</button>':hasModule('pipelines')?'<button class="button" data-route="/pipelines">Pipelines</button>':''}
+        ${hasModule('build')&&can('build.run')?'<button class="button primary" data-route="/pipelines">Run pipeline</button>':hasModule('build')?'<button class="button" data-route="/pipelines">Pipelines</button>':''}
       </div>
     </header>
 
@@ -1398,7 +1446,7 @@ async function renderOverview(){
               <div><strong>${esc(c.message||c.subject||'Commit')}</strong><small>${esc(c.author?.name||c.author||'')}</small></div>
             </button>`).join(''):'<div class="empty small">No recent commits.</div>'}
           </div></div>`:''}
-        ${hasModule('pipelines')?`<div class="card"><div class="card-header"><h2>Latest runs</h2><button class="button text" data-route="/runs">View all</button></div>
+        ${hasModule('build')?`<div class="card"><div class="card-header"><h2>Latest runs</h2><button class="button text" data-route="/runs">View all</button></div>
           <div class="card-body">${recentRuns.length?recentRuns.map(run=>`<div class="run-mini" data-route="/runs/${esc(run.id)}">
             <span class="run-status ${statusClass(run.status)}">${checkIcon(run.status)}</span>
             <div style="flex:1;min-width:0"><strong>${esc(run.definitionName||'Pipeline')}</strong><div><code>#${esc(shortId(run.id))}</code></div></div>
@@ -2391,7 +2439,7 @@ async function renderFiles(route){
     api(`/api/source/repositories/${source().id}/tree?reference=${encodeURIComponent(reference)}&path=${encodeURIComponent(path)}`),
     api(`/api/source/repositories/${source().id}/branches`).catch(()=>[]),
     api(`/api/source/repositories/${source().id}/commits?branch=${encodeURIComponent(reference)}`).catch(()=>[]),
-    hasModule('pipelines')?api('/api/pipelines/runs').catch(()=>[]):Promise.resolve([])
+    hasModule('build')?api('/api/pipelines/runs').catch(()=>[]):Promise.resolve([])
   ]);
 
   const head=commits[0]||null;
@@ -2402,7 +2450,7 @@ async function renderFiles(route){
     return a.name.localeCompare(b.name);
   });
   const parentPath=path?path.split('/').slice(0,-1).join('/'):'';
-  const tags=[repo.provider,'source',reference,hasModule('pipelines')?'ci':''].filter(Boolean);
+  const tags=[repo.provider,'source',reference,hasModule('build')?'ci':''].filter(Boolean);
   const about=project?.description||`Source repository ${repo.owner}/${repo.name}.`;
 
   let readmeHtml='';
@@ -2435,7 +2483,7 @@ async function renderFiles(route){
       </div>
       <div class="header-actions">
         <button class="button" id="cloneButton">&lt;&gt; Code</button>
-        ${hasModule('pipelines')?'<button class="button" data-route="/pipelines">Pipelines</button>':''}
+        ${hasModule('build')?'<button class="button" data-route="/pipelines">Pipelines</button>':''}
         ${hasModule('review')?permissionButton('＋ Create pull request','data-route="/changes"','review.request',{primary:true,hide:true}):''}
       </div>
     </div>
@@ -2501,7 +2549,7 @@ async function renderFiles(route){
         ${latestRun?`<button type="button" class="ci-row" data-route="/runs/${esc(latestRun.id)}">
           <span class="run-status ${statusClass(latestRun.status)}">${checkIcon(latestRun.status)}</span>
           <div><strong>${esc(latestRun.definitionName||'Pipeline')}</strong><small>#${esc(shortId(latestRun.id))} · ${esc(relativeTime(latestRun.completedAt||latestRun.startedAt))}</small></div>
-        </button>`:`<div class="empty small">${hasModule('pipelines')?'No pipeline runs yet.':'Pipelines not enabled.'}</div>`}
+        </button>`:`<div class="empty small">${hasModule('build')?'No pipeline runs yet.':'Pipelines not enabled.'}</div>`}
       </div></div>
       <div class="card"><div class="card-header"><h2>Languages</h2></div><div class="card-body">
         ${langs.length?`<div class="lang-bar">${langs.map(l=>`<span style="width:${Math.max(l.pct,2)}%;background:${l.color}" title="${esc(l.name)} ${l.pct}%"></span>`).join('')}</div>
@@ -2623,9 +2671,12 @@ function orgSettingsSections(){
       {id:'modules',route:'/organisation/settings/modules',label:'Modules'},
       {id:'connectors',route:'/organisation/settings/connectors',label:'Connectors'},
       {id:'audit',route:'/organisation/settings/audit',label:'Auditing'}
+    ]},
+    {group:'System',items:[
+      {id:'events',route:'/organisation/settings/events',label:'Diagnostics'}
     ]}
   ];
-  if(hasModule('pipelines')){
+  if(hasModule('build')){
     sections.push({group:'Build',items:[
       {id:'build',route:'/organisation/settings/build',label:'Agent pools / runners'}
     ]});
@@ -2645,9 +2696,6 @@ function projectSettingsSections(){
     ]},
     {group:'Repositories',items:[
       {id:'repositories',route:'/settings/repositories',label:'Repositories'}
-    ]},
-    {group:'Modules',items:[
-      {id:'modules',route:'/settings/modules',label:'Modules'}
     ]}
   ];
   if(hasModule('review')){
@@ -2698,6 +2746,7 @@ async function renderOrgSettings(route){
   if(section==='modules')return await renderModules();
   if(section==='connectors')return await renderConnectors();
   if(section==='audit')return await renderAudit();
+  if(section==='events')return await renderOrgEventDiagnostics();
   if(section==='build')return await renderOrgBuildSettings();
   return await renderOrgGeneralSettings();
 }
@@ -2709,7 +2758,6 @@ async function renderProjectSettings(route){
   if(section==='members')return await renderProjectMembersSettings();
   if(section==='roles')return await renderProjectRolesSettings();
   if(section==='permissions')return await renderProjectPermissionsSettings();
-  if(section==='modules')return await renderProjectModulesSettings();
   if(section==='repositories')return await renderProjectRepositoriesSettings();
   if(section==='review')return await renderProjectReviewSettings();
   if(section==='build')return await renderProjectBuildSettings();
@@ -3006,7 +3054,23 @@ function openAccessRoleEditor(role,catalogue){
 
 async function renderOrgBuildSettings(){
   let runners=[];
+  let deployAgents=[];
   try{runners=await api('/api/pipelines/runners')}catch{runners=[]}
+  if(hasModule('deploy')){
+    try{deployAgents=await api('/api/deploy/agents')}catch{deployAgents=[]}
+  }
+  const agentSection=hasModule('deploy')?`
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Deploy agents</h2>
+      <div class="header-actions"><button class="button" id="refreshDeployAgents">Refresh</button></div>
+    </div>
+    <div class="card-body">${(deployAgents||[]).map(a=>`<article class="pipeline-row">
+      <div><strong>${esc(a.name||a.id)}</strong><p class="description" style="margin:4px 0 0">${esc((a.labels||[]).join(', ')||'no labels')} · ${esc(a.health||a.status||'—')}</p></div>
+      <div class="header-actions"><span class="status ${statusClass(a.health||a.status)}">${esc(a.health||a.status||'—')}</span>
+        ${a.id?`<button class="button danger" data-revoke-deploy-agent="${esc(a.id)}">Revoke</button>`:''}
+      </div>
+    </article>`).join('')||'<div class="empty small">No deploy agents registered. Agents claim Pending deployments when Deploy:ExecutionMode=Agent.</div>'}
+    </div></div>`:'';
+
   renderSettingsShell('org','/organisation/settings/build','Runners','Organisation-wide build agents. Register runners once; every project can use them.',`
     <div class="card"><div class="card-header"><h2>Runners</h2>
       <div class="header-actions"><button class="button" id="refreshRunners">Refresh</button><button class="button primary" id="addRunner">＋ Add Runner</button></div>
@@ -3016,12 +3080,113 @@ async function renderOrgBuildSettings(){
       <div class="header-actions"><span class="status ${statusClass(r.status)}">${esc(r.status||'—')}</span><button class="button danger" data-revoke-runner="${esc(r.id)}">Revoke</button></div>
     </article>`).join('')||'<div class="empty small">No runners registered yet. Add a runner to issue a registration token for this organisation.</div>'}
     </div></div>
+    ${agentSection}
     <div class="policy-box" style="margin-top:18px">Runners belong to the organisation, not a single project. Pipeline jobs from any project can schedule onto these agents.</div>`);
   el('refreshRunners').onclick=()=>renderOrgBuildSettings();
   el('addRunner').onclick=openAddRunner;
+  const refreshAgents=el('refreshDeployAgents');
+  if(refreshAgents)refreshAgents.onclick=()=>renderOrgBuildSettings();
   document.querySelectorAll('[data-revoke-runner]').forEach(button=>button.onclick=async()=>{
     if(!confirm('Revoke this runner? It will need a new registration token.'))return;
     try{await api(`/api/pipelines/runners/${button.dataset.revokeRunner}`,{method:'DELETE'});showToast('Runner revoked');renderOrgBuildSettings()}catch(error){showToast(error.message,true)}
+  });
+  document.querySelectorAll('[data-revoke-deploy-agent]').forEach(button=>button.onclick=async()=>{
+    if(!confirm('Revoke this deploy agent?'))return;
+    try{await api(`/api/deploy/agents/${button.dataset.revokeDeployAgent}`,{method:'DELETE'});showToast('Deploy agent revoked');renderOrgBuildSettings()}catch(error){showToast(error.message,true)}
+  });
+}
+
+async function renderOrgEventDiagnostics(){
+  let diag=null;
+  let failures=[];
+  try{
+    diag=await api('/api/platform/diagnostics');
+    failures=diag?.events?.failures||[];
+  }catch(error){
+    try{
+      const data=await api('/api/platform/events/failures');
+      failures=Array.isArray(data)?data:(data?.failures||data?.items||[]);
+    }catch(inner){
+      renderSettingsShell('org','/organisation/settings/events','Diagnostics','Operational health across events, extensions, and agents.',`
+        <div class="empty"><h2>Diagnostics unavailable</h2><p>${esc(inner.message||error.message||'Unable to load diagnostics.')}</p></div>`);
+      return;
+    }
+  }
+
+  const instance=diag?.instance||{};
+  const upgrade=instance.upgradeState||{};
+  const extensions=diag?.extensions||[];
+  const runners=diag?.runners||[];
+  const deployAgents=diag?.deployAgents||[];
+  const provenance=extensions.filter(x=>x.installedFrom&&x.installedFrom!=='Unknown').slice(0,12);
+
+  const failureRows=(failures||[]).map(f=>{
+    const eventId=f.eventId||f.EventId||f.id||'';
+    const consumerId=f.consumerId||f.ConsumerId||f.consumer||'';
+    const error=f.error||f.lastError||f.message||f.reason||'Delivery failed';
+    const type=f.eventType||f.type||f.EventType||'—';
+    return `<article class="pipeline-row">
+      <div><strong>${esc(type)}</strong>
+        <p class="description" style="margin:4px 0 0">Event ${esc(eventId)} · Consumer ${esc(consumerId)}</p>
+        <p class="description" style="margin:4px 0 0">${esc(error)}</p>
+      </div>
+      <div class="header-actions">
+        <button class="button" data-retry-event="${esc(eventId)}" data-retry-consumer="${esc(consumerId)}">Retry</button>
+      </div>
+    </article>`;
+  }).join('')||'<div class="empty small">No failed deliveries.</div>';
+
+  const extensionRows=(extensions||[]).slice(0,20).map(x=>`<tr>
+    <td>${esc(x.name||x.id)}</td>
+    <td>${esc(x.state||'—')}</td>
+    <td>${esc(x.health||'—')}</td>
+    <td>${esc(x.installedFrom||'—')}${x.packageDigest?` · <code>${esc(String(x.packageDigest).slice(0,12))}…</code>`:''}</td>
+  </tr>`).join('')||'<tr><td colspan="4">No extensions.</td></tr>';
+
+  const runnerRows=(runners||[]).map(r=>`<tr>
+    <td>${esc(r.name||r.Name||r.id)}</td>
+    <td>${esc(r.status||r.Status||'—')}</td>
+    <td>${esc(r.operatingSystem||r.OperatingSystem||'—')}</td>
+  </tr>`).join('')||'<tr><td colspan="3">No build runners.</td></tr>';
+
+  const agentRows=(deployAgents||[]).map(a=>`<tr>
+    <td>${esc(a.name||a.Name||a.id)}</td>
+    <td>${esc(a.health||a.status||a.Status||'—')}</td>
+    <td>${esc((a.labels||a.Labels||[]).join?.(', ')||'—')}</td>
+  </tr>`).join('')||'<tr><td colspan="3">No deploy agents.</td></tr>';
+
+  renderSettingsShell('org','/organisation/settings/events','Diagnostics','Event failures, extension health, runner/agent health, upgrade state, and package provenance.',`
+    <div class="card"><div class="card-header"><h2>Instance</h2>
+      <div class="header-actions"><button class="button" id="refreshDiagnostics">Refresh</button></div>
+    </div>
+    <div class="card-body">
+      <p class="description">Setup ${instance.setupCompleted?'complete':'in progress'} · DB ${esc(instance.databaseProvider||'—')} · Licence ${esc(instance.licenceMode||'—')}</p>
+      <p class="description">Upgrade ready: ${upgrade.ready?'yes':'no'} · Restart required: ${esc(String(upgrade.restartRequiredCount??0))} · Failed extensions: ${esc(String(upgrade.failedExtensionCount??0))}</p>
+      <p class="description">Community soft limits · pipelines ${esc(String(instance.softLimits?.communityMaxConcurrentPipelines??'—'))} · environments ${esc(String(instance.softLimits?.communityMaxEnvironments??'—'))}</p>
+    </div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Event failures</h2>
+      <div class="header-actions"><span class="pill">${esc(String(diag?.events?.failureCount??failures.length||0))} failures · ${esc(String(diag?.events?.backlogCount??0))} backlog</span></div>
+    </div>
+    <div class="card-body">${failureRows}</div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Extension health & provenance</h2></div>
+    <div class="card-body"><table class="table"><thead><tr><th>Extension</th><th>State</th><th>Health</th><th>Provenance</th></tr></thead><tbody>${extensionRows}</tbody></table>
+      ${provenance.length?`<p class="description" style="margin-top:10px">Tracked provenance on ${provenance.length} package(s).</p>`:''}
+    </div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Build runners</h2></div>
+    <div class="card-body"><table class="table"><thead><tr><th>Name</th><th>Status</th><th>OS</th></tr></thead><tbody>${runnerRows}</tbody></table></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h2>Deploy agents</h2></div>
+    <div class="card-body"><table class="table"><thead><tr><th>Name</th><th>Health</th><th>Labels</th></tr></thead><tbody>${agentRows}</tbody></table></div></div>`);
+
+  el('refreshDiagnostics').onclick=()=>renderOrgEventDiagnostics();
+  document.querySelectorAll('[data-retry-event]').forEach(button=>button.onclick=async()=>{
+    const eventId=button.dataset.retryEvent;
+    const consumerId=encodeURIComponent(button.dataset.retryConsumer||'');
+    if(!eventId||!consumerId)return;
+    try{
+      await api(`/api/platform/events/deliveries/${eventId}/${consumerId}/retry`,{method:'POST'});
+      showToast('Retry queued');
+      await renderOrgEventDiagnostics();
+    }catch(error){showToast(error.message,true)}
   });
 }
 
@@ -3038,7 +3203,7 @@ async function renderProjectGeneralSettings(){
   let runs=[],members=[],audit=[];
   try{
     const jobs=[];
-    if(hasModule('pipelines'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
+    if(hasModule('build'))jobs.push(api('/api/pipelines/runs').then(r=>runs=r||[]).catch(()=>[]));
     jobs.push(api('/api/organisation/members').then(r=>members=r||[]).catch(()=>[]));
     jobs.push(api('/api/core/audit').then(r=>audit=r||[]).catch(()=>[]));
     await Promise.all(jobs);
@@ -3103,35 +3268,6 @@ async function renderProjectGeneralSettings(){
       el('projectLabel').textContent=updated.name;
       showToast('Project updated');
       await renderProjectGeneralSettings();
-    }catch(error){showToast(error.message,true)}
-  };
-}
-
-async function renderProjectModulesSettings(){
-  const projectId=state.context?.project?.id;
-  if(!projectId)return renderError(new Error('No project selected.'));
-  let modules=[];
-  try{modules=await api(`/api/projects/${projectId}/modules`)}catch{modules=[]}
-  renderSettingsShell('project','/settings/modules','Modules','Enable organisation-installed modules for this project.',`
-    <div class="card"><div class="card-header"><h2>Project modules</h2></div>
-    <div class="card-body">
-      <p class="description">Disabling a module hides it from this project only. Data is retained and the module remains available to other projects.</p>
-      ${modules.map(m=>`
-        <label class="choice-row module-toggle-row">
-          <input type="checkbox" data-project-module-toggle="${esc(m.extensionId)}" ${m.enabled?'checked':''} ${m.organisationEnabled===false?'disabled':''}>
-          <span><strong>${esc(m.name)}</strong><small>${m.organisationEnabled===false?'Disabled organisation-wide':'Installed at organisation level'}</small></span>
-        </label>`).join('')||'<div class="empty small">No organisation modules are installed yet. Install modules from Organisation Settings.</div>'}
-      <div class="modal-actions" style="margin-top:16px">
-        <button class="button primary" id="projectModulesSave" ${modules.length?'':'disabled'}>Save</button>
-      </div>
-    </div></div>`);
-  el('projectModulesSave').onclick=async()=>{
-    try{
-      const enabledExtensionIds=[...document.querySelectorAll('[data-project-module-toggle]:checked')].map(i=>i.dataset.projectModuleToggle);
-      await api(`/api/projects/${projectId}/modules`,{method:'PUT',body:JSON.stringify({enabledExtensionIds})});
-      await reloadComposition();
-      showToast('Project modules updated');
-      await renderProjectModulesSettings();
     }catch(error){showToast(error.message,true)}
   };
 }
@@ -3304,7 +3440,7 @@ async function renderProjectPermissionsSettings(){
   const grant=el('grantProjectPerm');
   if(grant)grant.onclick=async()=>{
     const catalogue=await api('/api/access/permissions').catch(()=>[]);
-    const projectPerms=(catalogue||[]).filter(p=>(p.allowedScopes||[]).includes('Project')||String(p.key).startsWith('review.')||String(p.key).startsWith('deploy.')||String(p.key).startsWith('pipelines.')||String(p.key).startsWith('git.')||p.key==='project.read');
+    const projectPerms=(catalogue||[]).filter(p=>(p.allowedScopes||[]).includes('Project')||String(p.key).startsWith('review.')||String(p.key).startsWith('deploy.')||String(p.key).startsWith('build.')||String(p.key).startsWith('git.')||p.key==='project.read');
     openModal(`<div class="modal-content"><h2>Grant direct permission</h2>
       <label class="form-label">Member</label><select class="field" id="grantUserId">${(members||[]).map(m=>`<option value="${esc(m.user?.id)}">${esc(m.profile?.displayName||m.user?.username)}</option>`).join('')}</select>
       <label class="form-label">Permission</label><select class="field" id="grantPermissionId">${projectPerms.map(p=>`<option value="${esc(p.key)}">${esc(p.key)}</option>`).join('')}</select>
@@ -3399,7 +3535,7 @@ async function renderAudit(){
 
 async function renderModules(){
   const catalogue=await api('/api/platform/extensions/modules');
-  const moduleOrder={code:1,git:2,review:3,pipelines:4,build:4,deploy:5};
+  const moduleOrder={code:1,git:2,review:3,build:4,deploy:5};
   const isTierClone=id=>/\.(team|enterprise|commercial)$/i.test(id||'');
   const rank=item=>{
     const id=(item.runtimeId||item.extensionId||'').toLowerCase();
@@ -3421,6 +3557,7 @@ async function renderModules(){
         <p>${esc(item.summary)}</p>
         <p class="description">${(item.highlights||[]).map(esc).join(' · ')}</p>
         <p class="description" data-capabilities>${(item.capabilities||[]).map(esc).join(' · ')||(item.installed?(item.enabled?'Enabled':'Installed · Disabled'):(item.bundled?'Available bundled package':'Not bundled'))}</p>
+        ${item.installed?`<p class="description">Provenance · ${esc(item.installedFrom||'Unknown')}${item.packageDigest?` · ${esc(String(item.packageDigest).slice(0,16))}…`:''}</p>`:''}
       </div>
       <div class="settings-row-actions">
         ${!item.installed&&item.bundled?`<button class="button primary" data-ext-install="${esc(item.extensionId)}">Install</button>`:''}
@@ -3611,7 +3748,7 @@ function durationLabel(started,completed){
 function triggerLabels(triggers){return (triggers||[]).map(t=>typeof t==='number'?['Manual','Push','ChangeOpened','ChangeUpdated'][t]||t:t).join(', ')}
 
 async function renderPipelines(route){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   const project=state.context?.project;
   const [definitions,runs]=await Promise.all([
     api('/api/pipelines/definitions'),
@@ -3705,9 +3842,9 @@ async function renderPipelines(route){
       </div>
       <div class="header-actions">
         <button class="button" data-route="/files">&lt;&gt; Code</button>
-        ${permissionButton('Run pipeline','id="runPipelineQuick"'+(definitions[0]?.enabled===false?' disabled':''),'pipelines.run',{hide:true})}
+        ${permissionButton('Run pipeline','id="runPipelineQuick"'+(definitions[0]?.enabled===false?' disabled':''),'build.run',{hide:true})}
         <button class="button" id="refreshPipelines">Refresh</button>
-        ${permissionButton('＋ New pipeline','id="newPipelineHint"','pipelines.manage',{primary:true,hide:true})}
+        ${permissionButton('＋ New pipeline','id="newPipelineHint"','build.manage',{primary:true,hide:true})}
       </div>
     </div>
   </section>
@@ -3867,16 +4004,16 @@ function pipelineDashboardRow(def,latest){
     <div class="pipe-updated-cell">${esc(updated)}</div>
     <div class="pipe-actions-cell header-actions">
       <button class="button compact" data-view-pipeline="${esc(def.id)}">View</button>
-      ${can('pipelines.manage')?`<button class="button compact" data-edit-pipeline="${esc(def.id)}">Edit</button>
+      ${can('build.manage')?`<button class="button compact" data-edit-pipeline="${esc(def.id)}">Edit</button>
       <button class="button compact" data-toggle-pipeline="${esc(def.id)}" data-enabled="${def.enabled?'1':'0'}">${def.enabled?'Disable':'Enable'}</button>
       <button class="button compact danger" data-delete-pipeline="${esc(def.id)}">Delete</button>`:''}
-      ${can('pipelines.run')?`<button class="button compact primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>`:''}
+      ${can('build.run')?`<button class="button compact primary" data-run-pipeline="${esc(def.id)}" ${def.enabled?'':'disabled'}>Run</button>`:''}
     </div>
   </article>`;
 }
 
 async function renderPipelineBuilder(route){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   const parts=route.split('/').filter(Boolean);
   const editId=parts[0]==='pipelines'&&parts[2]==='edit'?parts[1]:null;
   let definition=null,yamlText='';
@@ -4200,7 +4337,7 @@ function openRunPipeline(definitionId){
 }
 
 async function renderRuns(){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   const runs=await api('/api/pipelines/runs');
   crumbs(projectCrumb('Build <span>/</span> Runs'));
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Runs</h1><p>Recent build pipeline executions.</p></div>
@@ -4215,7 +4352,7 @@ async function renderRuns(){
 }
 
 async function renderRunDetail(runId){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   clearInterval(state.runPoll);
   const run=await api(`/api/pipelines/runs/${runId}`);
   const running=isActiveStatus(run.status)||(run.jobs||[]).some(j=>isActiveStatus(j.status));
@@ -4293,7 +4430,7 @@ function stepShouldOpen(step, logs){
 }
 
 async function renderJobPage(runId, jobId){
-  if(!hasModule('pipelines'))return renderError(new Error('Build module is not enabled.'));
+  if(!hasModule('build'))return renderError(new Error('Build module is not enabled.'));
   clearInterval(state.runPoll);
   const run=await api(`/api/pipelines/runs/${runId}`);
   const job=run.jobs?.find(j=>j.id===jobId);

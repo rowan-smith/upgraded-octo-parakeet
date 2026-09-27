@@ -15,9 +15,13 @@ public sealed class GitRepository
     public List<GitBranch> Branches { get; set; } = [];
     public List<GitTag> Tags { get; set; } = [];
 
-    public GitCommit ReceivePush(string branchName, string message, string author)
+    /// <summary>
+    /// Records a push against in-memory branch/commit metadata.
+    /// Prefer supplying <paramref name="sha"/> from <c>IGitObjectStore.CreateCommit</c>.
+    /// </summary>
+    public GitCommit ReceivePush(string branchName, string message, string author, string? sha = null)
     {
-        var sha = Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant()[..7];
+        sha ??= Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant()[..7];
         var commit = new GitCommit(sha, message, author, DateTimeOffset.UtcNow);
         Commits.Insert(0, commit);
         var branch = Branches.FirstOrDefault(item => item.Name == branchName);

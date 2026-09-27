@@ -12,6 +12,8 @@ public sealed class InstanceRow
     public bool BootstrapEnabled { get; set; } = true;
     public DateTimeOffset? SetupCompletedAt { get; set; }
     public DateTimeOffset? ModulesAcknowledgedAt { get; set; }
+    public DateTimeOffset? MembersAcknowledgedAt { get; set; }
+    public DateTimeOffset? ProjectAcknowledgedAt { get; set; }
 }
 
 public sealed class UserProjectStar

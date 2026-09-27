@@ -30,10 +30,18 @@ public sealed class InstanceConfiguration
     public bool BootstrapEnabled { get; set; } = true;
     public DateTimeOffset? InitialisedAt { get; set; }
     public DateTimeOffset? SetupCompletedAt { get; set; }
-    /// <summary>Set when the Modules setup step is completed or skipped.</summary>
+    /// <summary>Legacy: Modules are no longer part of first-run setup. Retained for existing rows.</summary>
     public DateTimeOffset? ModulesAcknowledgedAt { get; set; }
+    /// <summary>Set when optional Members setup step is completed or skipped.</summary>
+    public DateTimeOffset? MembersAcknowledgedAt { get; set; }
+    /// <summary>Set when optional First Project setup step is completed or skipped.</summary>
+    public DateTimeOffset? ProjectAcknowledgedAt { get; set; }
 }
 
+/// <summary>
+/// Legacy per-project module rows. Projects no longer enable/disable modules;
+/// server-level Installed/Enabled/Licensed controls availability. Retained for migration compatibility.
+/// </summary>
 public sealed class ProjectModuleSetting
 {
     public Guid ProjectId { get; init; }

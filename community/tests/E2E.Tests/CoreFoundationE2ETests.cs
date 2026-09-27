@@ -99,7 +99,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
     }
 
     [Fact]
-    public async Task Staged_setup_organisation_licence_modules_owner_without_project()
+    public async Task Staged_setup_organisation_licence_owner_without_modules_or_project()
     {
         await using var host = CreateEmptyHost();
         using var client = host.CreateClient();
@@ -114,14 +114,11 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
             .EnsureSuccessStatusCode();
         (await client.PostAsJsonAsync("/api/setup/licence/community", new { })).EnsureSuccessStatusCode();
 
-        var modules = await client.GetFromJsonAsync<JsonElement>("/api/setup/modules");
-        Assert.True(modules.GetArrayLength() > 0);
-
-        (await client.PostAsJsonAsync("/api/setup/modules", new
-        {
-            extensionIds = new[] { "forgedeck.code", "forgedeck.review" },
-            skip = false
-        })).EnsureSuccessStatusCode();
+        var beforeOwner = await client.GetFromJsonAsync<JsonElement>("/api/setup/status");
+        Assert.DoesNotContain(beforeOwner.GetProperty("steps").EnumerateArray(),
+            s => s.GetProperty("id").GetString() == "modules");
+        Assert.Contains(beforeOwner.GetProperty("steps").EnumerateArray(),
+            s => s.GetProperty("id").GetString() == "owner" && s.GetProperty("current").GetBoolean());
 
         var owner = await client.PostAsJsonAsync("/api/setup/owner", new
         {
@@ -137,36 +134,53 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
 
         var status = await client.GetFromJsonAsync<JsonElement>("/api/setup/status");
         Assert.True(status.GetProperty("initialised").GetBoolean());
-        Assert.True(status.GetProperty("hasModules").GetBoolean());
+        Assert.False(status.GetProperty("setupCompleted").GetBoolean());
         Assert.True(status.GetProperty("hasOwner").GetBoolean());
+        Assert.False(status.GetProperty("hasMembers").GetBoolean());
+        Assert.False(status.GetProperty("hasFirstProject").GetBoolean());
         Assert.False(status.GetProperty("hasProjects").GetBoolean());
-        Assert.DoesNotContain(status.GetProperty("steps").EnumerateArray(),
+        Assert.Contains(status.GetProperty("steps").EnumerateArray(),
+            s => s.GetProperty("id").GetString() == "members");
+        Assert.Contains(status.GetProperty("steps").EnumerateArray(),
             s => s.GetProperty("id").GetString() == "project");
+
+        (await client.PostAsJsonAsync("/api/setup/members", new { })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/setup/project", new { })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/setup/complete", new { })).EnsureSuccessStatusCode();
+
+        var completed = await client.GetFromJsonAsync<JsonElement>("/api/setup/status");
+        Assert.True(completed.GetProperty("setupCompleted").GetBoolean());
+        Assert.False(completed.GetProperty("hasProjects").GetBoolean());
 
         var project = await client.PostAsJsonAsync("/api/projects", new
         {
             name = "Atlas",
             slug = "atlas",
-            visibility = "Private",
-            enabledModuleIds = new[] { "forgedeck.code" }
+            visibility = "Private"
         });
         project.EnsureSuccessStatusCode();
         using var projectDoc = JsonDocument.Parse(await project.Content.ReadAsStringAsync());
         var projectId = projectDoc.RootElement.GetProperty("id").GetGuid();
 
+        (await client.PostAsJsonAsync("/api/platform/extensions/forgedeck.code/install", new { enable = true }))
+            .EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/platform/extensions/forgedeck.review/install", new { enable = true }))
+            .EnsureSuccessStatusCode();
+
         var projectModules = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/modules");
         Assert.Contains(projectModules.EnumerateArray(),
             m => m.GetProperty("extensionId").GetString() == "forgedeck.code" && m.GetProperty("enabled").GetBoolean());
+        Assert.Contains(projectModules.EnumerateArray(),
+            m => m.GetProperty("extensionId").GetString() == "forgedeck.review" && m.GetProperty("enabled").GetBoolean());
 
-        (await client.PostAsJsonAsync("/api/platform/extensions/forgedeck.review/install", new { enable = true }))
-            .EnsureSuccessStatusCode();
+        // PUT remains accepted for compatibility but does not change availability.
         (await client.PutAsJsonAsync($"/api/projects/{projectId}/modules", new
         {
-            enabledExtensionIds = new[] { "forgedeck.code", "forgedeck.review" }
+            enabledExtensionIds = new[] { "forgedeck.code" }
         })).EnsureSuccessStatusCode();
 
-        var afterEnable = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/modules");
-        Assert.Contains(afterEnable.EnumerateArray(),
+        var afterPut = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/modules");
+        Assert.Contains(afterPut.EnumerateArray(),
             m => m.GetProperty("extensionId").GetString() == "forgedeck.review" && m.GetProperty("enabled").GetBoolean());
 
         (await client.PostAsJsonAsync("/api/platform/extensions/forgedeck.review/disable", new { })).EnsureSuccessStatusCode();
@@ -174,6 +188,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
         var reviewAfter = afterOrgDisable.EnumerateArray()
             .First(m => m.GetProperty("extensionId").GetString() == "forgedeck.review");
         Assert.False(reviewAfter.GetProperty("organisationEnabled").GetBoolean());
+        Assert.False(reviewAfter.GetProperty("enabled").GetBoolean());
     }
 
     [Fact]

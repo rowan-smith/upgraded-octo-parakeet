@@ -2,10 +2,10 @@ using ForgeDeck.Build.Contracts.Events;
 using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Checks;
 using ForgeDeck.Contracts.Modules;
-using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.Search;
 using ForgeDeck.Contracts.Services;
 using ForgeDeck.Core.Context;
+using ForgeDeck.Core.Persistence;
 using ForgeDeck.Git.Contracts.Events;
 using ForgeDeck.Messaging;
 using ForgeDeck.Review.Api;
@@ -14,7 +14,6 @@ using ForgeDeck.Review.Contracts.Events;
 using ForgeDeck.Review.Domain;
 using ForgeDeck.Review.Infrastructure;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -54,7 +53,8 @@ public sealed class ReviewModule : IPlatformModule
             ExtensionPoints.ReviewChecks,
             ExtensionPoints.ReviewMergeGates,
             ExtensionPoints.PlatformNavigation
-        ]);
+        ],
+        ApiRoutePrefixes: ["/api/review"]);
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
@@ -76,13 +76,13 @@ public sealed class ReviewModule : IPlatformModule
         var connectionString = configuration.GetConnectionString("Review")
             ?? configuration.GetConnectionString("Platform")
             ?? "Data Source=data/forgedeck.db";
-        services.AddDbContextFactory<ReviewDbContext>(options => options.UseSqlite(connectionString));
+        services.AddDbContextFactory<ReviewDbContext>(options =>
+            DatabaseProvider.Configure(options, configuration, connectionString));
         services.AddSingleton<IChangeRepository, EfChangeRepository>();
         services.AddSingleton<ReviewService>();
         services.AddSingleton<ReviewDomainService>();
         services.AddSingleton<IReviewService>(sp => sp.GetRequiredService<ReviewDomainService>());
         services.AddSingleton<CheckQueryService>();
-        services.AddSingleton<IOnboardingContributor, ReviewOnboardingContributor>();
         services.AddSingleton<ISearchContributor, ReviewSearchContributor>();
         services.AddSingleton(new EventContractRegistration(ReviewEventContracts.All().ToArray()));
         services.AddEventHandler<BuildPipelineRunStartedEvent, PipelineActivityHandler>("forgedeck.review.pipeline-started");

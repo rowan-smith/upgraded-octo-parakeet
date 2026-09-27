@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ForgeDeck.Build;
 
+[Obsolete("First-run onboarding is Core-only. Prefer post-install Module configuration.")]
 public sealed class PipelinesOnboardingContributor : IOnboardingContributor
 {
     public string Id => "pipelines-setup";

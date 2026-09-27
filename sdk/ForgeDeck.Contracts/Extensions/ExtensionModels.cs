@@ -30,6 +30,13 @@ public enum ExtensionHealth
     Unknown
 }
 
+public enum ExtensionInstalledFrom
+{
+    Unknown,
+    Bundled,
+    Upload
+}
+
 /// <summary>Catalogue metadata for a Module or Connector package.</summary>
 public sealed record ExtensionCatalogueEntry(
     string ExtensionId,
@@ -60,6 +67,8 @@ public sealed class ExtensionInstallation
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string? LastError { get; set; }
     public bool RestartRequired { get; set; }
+    public ExtensionInstalledFrom InstalledFrom { get; set; } = ExtensionInstalledFrom.Unknown;
+    public string? PackageDigest { get; set; }
 }
 
 public sealed record ExtensionStatusView(
@@ -85,7 +94,9 @@ public sealed record ExtensionStatusView(
     string Edition,
     bool CommunityFeaturesAvailable,
     bool EnterpriseFeaturesLicensed,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    ExtensionInstalledFrom InstalledFrom = ExtensionInstalledFrom.Unknown,
+    string? PackageDigest = null);
 
 public sealed record ExtensionCompositionSnapshot(
     IReadOnlyList<object> Modules,

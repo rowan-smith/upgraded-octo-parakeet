@@ -102,6 +102,7 @@ app.MapTenancyEndpoints();
 app.MapPlatformEndpoints(modules);
 app.MapExtensionEndpoints();
 app.MapEventDiagnosticsEndpoints();
+app.MapPlatformDiagnosticsEndpoints();
 if (!safeMode)
 {
     app.MapGitHubWebhookEndpoints();

@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace ForgeDeck.Contracts.Modules;
 
 /// <summary>
@@ -87,6 +85,7 @@ public static class ModulePackageMapper
             document.Provides,
             document.Requires,
             document.ExtensionPoints,
-            runtime);
+            runtime,
+            ApiRoutePrefixes: null);
     }
 }

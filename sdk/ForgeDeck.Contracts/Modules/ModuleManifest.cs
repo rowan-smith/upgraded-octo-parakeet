@@ -14,7 +14,9 @@ public sealed record ModuleManifest(
     IReadOnlyList<string>? Provides = null,
     IReadOnlyList<string>? Requires = null,
     IReadOnlyList<string>? ExtensionPointContributions = null,
-    ModuleRuntimeKind Runtime = ModuleRuntimeKind.InProcess);
+    ModuleRuntimeKind Runtime = ModuleRuntimeKind.InProcess,
+    /// <summary>HTTP route prefixes owned by this module for generic API gating (e.g. /api/pipelines).</summary>
+    IReadOnlyList<string>? ApiRoutePrefixes = null);
 
 public sealed record NavigationItem(string Id, string Label, string Route, string Group, int Order = 0);
 public sealed record ResourceTab(string Resource, string Id, string Label, string DataEndpoint, int Order = 0);

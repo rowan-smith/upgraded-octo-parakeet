@@ -9,7 +9,7 @@ namespace ForgeDeck.Core.Persistence;
 
 public static class SchemaBootstrap
 {
-    public const int PlatformSchemaVersion = 1;
+    public const int PlatformSchemaVersion = 2;
 
     private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.Ordinal);
 

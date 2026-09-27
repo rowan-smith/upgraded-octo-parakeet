@@ -21,7 +21,7 @@ internal static class Ui
         await CompleteSetupThroughLicenceAsync(page, org);
         await page.Locator("#setupLicencePayload").EvaluateAsync("(el, value) => { el.value = value; }", licenceJson);
         await page.Locator("#setupValidateLicence").ClickAsync();
-        await ExpectVisible(page, "h1", "Choose capabilities");
+        await ExpectVisible(page, "h1", "Create Owner Account");
         await CompleteSetupAfterLicenceAsync(page, email, username, org);
     }
 
@@ -42,16 +42,6 @@ internal static class Ui
         string org,
         bool installDefaultModules = true)
     {
-        await ExpectVisible(page, "h1", "Choose capabilities");
-        if (installDefaultModules)
-        {
-            await page.Locator("#setupInstallModules").ClickAsync();
-        }
-        else
-        {
-            await page.Locator("#setupSkipModules").ClickAsync();
-        }
-
         await ExpectVisible(page, "h1", "Create Owner Account");
         await page.Locator("#setupDisplayName").FillAsync("Rowan Smith");
         await page.Locator("#setupUsername").FillAsync(username);
@@ -60,12 +50,23 @@ internal static class Ui
         await page.Locator("#setupPassword2").FillAsync("password123");
         await page.Locator("#setupCreateOwner").ClickAsync();
 
+        await ExpectVisible(page, "h1", "Invite members");
+        await page.Locator("#setupSkipMembers").ClickAsync();
+
+        await ExpectVisible(page, "h1", "Create your first project");
+        await page.Locator("#setupSkipProject").ClickAsync();
+
         await ExpectVisible(page, "h1", $"{org} is ready");
         await page.Locator("#setupOpenWorkspace").ClickAsync();
 
         await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
         await ExpectVisible(page, "#orgLabel", org);
         await Assertions.Expect(page.Locator("#userHandle")).ToHaveTextAsync($"@{username}");
+
+        if (installDefaultModules)
+        {
+            await InstallBundledModulesAsync(page, "forgedeck.code", "forgedeck.review", "forgedeck.build");
+        }
 
         // Most feature tests need a project context; create the default Platform project via API.
         await EnsureDefaultProjectAsync(page, "Platform", "platform");

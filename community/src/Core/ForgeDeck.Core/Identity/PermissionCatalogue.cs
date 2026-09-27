@@ -81,6 +81,13 @@ public static class PermissionCatalogue
         new("git.repository.create", "Git", "Create Git repositories", "Create hosted Git repositories.", Project, "forgedeck.git"),
         new("git.repository.push", "Git", "Push to Git repositories", "Push commits and branches to hosted Git repositories.", Project, "forgedeck.git"),
 
+        new("build.read", "Build", "Read pipelines", "View pipelines, runs, and job logs.", Project, "forgedeck.build"),
+        new("build.run", "Build", "Run pipelines", "Queue pipeline runs.", Project, "forgedeck.build"),
+        new("build.cancel", "Build", "Cancel pipeline runs", "Cancel queued or running pipeline runs.", Project, "forgedeck.build"),
+        new("build.manage", "Build", "Manage pipelines", "Create, edit, and delete pipeline definitions.", Project, "forgedeck.build"),
+        new("build.runner.read", "Build", "Read runners", "View registered build runners and their status.", OrgOrProject, "forgedeck.build"),
+        new("build.runner.manage", "Build", "Manage runners", "Register and revoke build runners.", OrgOrProject, "forgedeck.build"),
+        // Legacy aliases kept Known during build.* transition.
         new("pipelines.read", "Build", "Read pipelines", "View pipelines, runs, and job logs.", Project, "forgedeck.build"),
         new("pipelines.run", "Build", "Run pipelines", "Queue pipeline runs.", Project, "forgedeck.build"),
         new("pipelines.cancel", "Build", "Cancel pipeline runs", "Cancel queued or running pipeline runs.", Project, "forgedeck.build"),

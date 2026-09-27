@@ -43,17 +43,17 @@ public static class BuiltinExtensionCatalogue
             "forgedeck.build", "Build", ExtensionType.Module, "0.2.0", "ForgeDeck",
             "CI pipelines, runs, jobs, tests, artifacts, and runners.",
             ["Pipelines", "Runs", "Jobs", "Tests", "Artifacts", "Runners"],
-            "pipelines", ["check-provider", "pipelines"], [], [], Bundled: true),
+            "build", ["check-provider", "build", "pipelines"], [], [], Bundled: true),
         new(
             "forgedeck.build.team", "Build Team", ExtensionType.Module, "0.1.0", "ForgeDeck",
             "Team build: concurrent pipelines, schedules, shared runners, protected secrets.",
             ["Concurrent Pipelines", "Schedules", "Shared Runners", "Protected Secrets"],
-            "build-team", ["build-team"], ["pipelines"], [], Bundled: false),
+            "build-team", ["build-team"], ["build"], [], Bundled: false),
         new(
             "forgedeck.build.enterprise", "Build Enterprise", ExtensionType.Module, "0.1.0", "ForgeDeck",
             "Enterprise build governance: runner groups, attestation, compliance.",
             ["Runner Groups", "Attestation", "Build Approvals", "Compliance"],
-            "build-enterprise", ["build-enterprise"], ["pipelines", "build-team"], [], Bundled: false),
+            "build-enterprise", ["build-enterprise"], ["build", "build-team"], [], Bundled: false),
         new(
             "forgedeck.deploy", "Deploy", ExtensionType.Module, "0.1.0", "ForgeDeck",
             "Release and deployment orchestration.",
@@ -109,13 +109,32 @@ public static class BuiltinExtensionCatalogue
     public static ExtensionCatalogueEntry? Find(string extensionId) =>
         All.FirstOrDefault(e => e.ExtensionId.Equals(extensionId, StringComparison.OrdinalIgnoreCase));
 
-    public static ExtensionCatalogueEntry? FindByRuntimeId(string runtimeId) =>
-        All.FirstOrDefault(e => e.RuntimeId is not null &&
-            e.RuntimeId.Equals(runtimeId, StringComparison.OrdinalIgnoreCase));
-
-    public static string? ExtensionIdForRuntime(string runtimeId) => FindByRuntimeId(runtimeId)?.ExtensionId;
-
     /// <summary>Map IPlatformModule.Manifest.Id to catalogue extension id.</summary>
     public static string? ExtensionIdForModule(ModuleManifest manifest) =>
-        FindByRuntimeId(manifest.Id)?.ExtensionId;
+        FindByRuntimeId(manifest.Id)?.ExtensionId
+        ?? FindByRuntimeId(LegacyRuntimeAlias.Normalize(manifest.Id))?.ExtensionId;
+
+    /// <summary>Default API prefixes owned by a catalogue extension (used when modules list is empty or for virtual modules).</summary>
+    public static IReadOnlyList<string> ApiPrefixesFor(string extensionId) =>
+        extensionId.ToLowerInvariant() switch
+        {
+            "forgedeck.review" => ["/api/review"],
+            "forgedeck.build" => ["/api/pipelines"],
+            "forgedeck.git" => ["/api/git"],
+            "forgedeck.deploy" => ["/api/deploy"],
+            "forgedeck.code" => ["/api/code", "/api/source"],
+            _ => []
+        };
+
+    public static ExtensionCatalogueEntry? FindByRuntimeId(string runtimeId)
+    {
+        var normalized = LegacyRuntimeAlias.Normalize(runtimeId);
+        return All.FirstOrDefault(e => e.RuntimeId is not null &&
+            (e.RuntimeId.Equals(runtimeId, StringComparison.OrdinalIgnoreCase) ||
+             e.RuntimeId.Equals(normalized, StringComparison.OrdinalIgnoreCase) ||
+             (normalized.Equals("build", StringComparison.OrdinalIgnoreCase) &&
+              e.RuntimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase))));
+    }
+
+    public static string? ExtensionIdForRuntime(string runtimeId) => FindByRuntimeId(runtimeId)?.ExtensionId;
 }

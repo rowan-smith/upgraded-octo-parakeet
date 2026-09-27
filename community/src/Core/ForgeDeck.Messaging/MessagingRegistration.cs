@@ -23,12 +23,23 @@ public static class MessagingRegistration
     public static IServiceCollection AddForgeDeckMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
-        string connectionString)
+        string connectionString,
+        Action<DbContextOptionsBuilder>? configureDb = null)
     {
         services.Configure<EventRetryOptions>(configuration.GetSection(EventRetryOptions.SectionName));
         services.Configure<OutboxDispatcherOptions>(configuration.GetSection(OutboxDispatcherOptions.SectionName));
 
-        services.AddDbContextFactory<MessagingDbContext>(o => o.UseSqlite(connectionString));
+        services.AddDbContextFactory<MessagingDbContext>(o =>
+        {
+            if (configureDb is not null)
+            {
+                configureDb(o);
+            }
+            else
+            {
+                o.UseSqlite(connectionString);
+            }
+        });
         services.AddSingleton<IUnitOfWork, EfUnitOfWork>();
         services.AddSingleton<IEventSerializer, JsonEventSerializer>();
         services.AddSingleton<EventRegistry>();
@@ -68,28 +79,22 @@ public sealed class MessagingBootstrapper(
     public void EnsureCreated()
     {
         using var db = dbFactory.CreateDbContext();
-        // PlatformDbContext.EnsureCreated may have already created the SQLite file.
+        // PlatformDbContext.EnsureCreated may have already created the shared database.
         // EnsureCreated() then no-ops; create messaging tables explicitly when missing.
         db.Database.OpenConnection();
         lock (SchemaGate)
         {
-            var conn = db.Database.GetDbConnection();
-            using (var cmd = conn.CreateCommand())
+            if (!MessagingTablesExist(db))
             {
-                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_event_outbox'";
-                var exists = Convert.ToInt64(cmd.ExecuteScalar()) > 0;
-                if (!exists)
+                try
                 {
-                    try
-                    {
-                        var creator = (IRelationalDatabaseCreator)db.Database.GetService(typeof(IRelationalDatabaseCreator))!;
-                        creator.CreateTables();
-                    }
-                    catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase)
-                        || (ex.InnerException?.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ?? false))
-                    {
-                        // Concurrent bootstrap.
-                    }
+                    var creator = (IRelationalDatabaseCreator)db.Database.GetService(typeof(IRelationalDatabaseCreator))!;
+                    creator.CreateTables();
+                }
+                catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+                    || (ex.InnerException?.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ?? false))
+                {
+                    // Concurrent bootstrap.
                 }
             }
         }
@@ -98,5 +103,29 @@ public sealed class MessagingBootstrapper(
         {
             registry.Register(CheckUpdatedEventContract.Create());
         }
+    }
+
+    private static bool MessagingTablesExist(MessagingDbContext db)
+    {
+        var provider = db.Database.ProviderName ?? "";
+        using var cmd = db.Database.GetDbConnection().CreateCommand();
+        if (provider.Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_event_outbox'";
+        }
+        else if (provider.Contains("Npgsql", StringComparison.OrdinalIgnoreCase)
+                 || provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
+        {
+            cmd.CommandText =
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'core_event_outbox'";
+        }
+        else
+        {
+            // Unknown provider: attempt CreateTables via caller when this returns false.
+            return false;
+        }
+
+        var result = cmd.ExecuteScalar();
+        return Convert.ToInt64(result) > 0;
     }
 }

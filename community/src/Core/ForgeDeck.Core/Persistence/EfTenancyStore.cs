@@ -32,7 +32,9 @@ public sealed class EfTenancyStore : ITenancyStore
             LicenceMode = row.LicenceMode,
             BootstrapEnabled = row.BootstrapEnabled,
             SetupCompletedAt = row.SetupCompletedAt,
-            ModulesAcknowledgedAt = row.ModulesAcknowledgedAt
+            ModulesAcknowledgedAt = row.ModulesAcknowledgedAt,
+            MembersAcknowledgedAt = row.MembersAcknowledgedAt,
+            ProjectAcknowledgedAt = row.ProjectAcknowledgedAt
         };
     }
 
@@ -65,6 +67,8 @@ public sealed class EfTenancyStore : ITenancyStore
         row.BootstrapEnabled = configuration.BootstrapEnabled;
         row.SetupCompletedAt = configuration.SetupCompletedAt;
         row.ModulesAcknowledgedAt = configuration.ModulesAcknowledgedAt;
+        row.MembersAcknowledgedAt = configuration.MembersAcknowledgedAt;
+        row.ProjectAcknowledgedAt = configuration.ProjectAcknowledgedAt;
         db.SaveChanges();
     }
 
@@ -788,17 +792,11 @@ public sealed class EfTenancyStore : ITenancyStore
         transaction.Commit();
     }
 
-    public bool IsProjectModuleEnabled(Guid projectId, string extensionId)
-    {
-        var rows = ListProjectModules(projectId);
-        if (rows.Count == 0)
-        {
-            return true;
-        }
-
-        return rows.Any(r =>
-            string.Equals(r.ExtensionId, extensionId, StringComparison.OrdinalIgnoreCase) && r.Enabled);
-    }
+    /// <summary>
+    /// Projects no longer gate modules. Availability is organisation/server Installed+Enabled+Licensed only.
+    /// Legacy rows in core_project_modules are ignored.
+    /// </summary>
+    public bool IsProjectModuleEnabled(Guid projectId, string extensionId) => true;
 
     public void SaveRepository(Repository value)
     {

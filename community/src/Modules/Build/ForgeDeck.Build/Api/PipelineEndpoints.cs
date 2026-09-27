@@ -68,7 +68,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.manage"))
+        if (!authorizer.Has(context, "build.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -94,7 +94,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.manage"))
+        if (!authorizer.Has(context, "build.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -149,7 +149,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.manage"))
+        if (!authorizer.Has(context, "build.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -189,7 +189,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.manage"))
+        if (!authorizer.Has(context, "build.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -278,7 +278,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.manage"))
+        if (!authorizer.Has(context, "build.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -302,7 +302,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.manage"))
+        if (!authorizer.Has(context, "build.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -328,7 +328,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.run"))
+        if (!authorizer.Has(context, "build.run"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -365,7 +365,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.cancel") && !authorizer.Has(context, "pipelines.run"))
+        if (!authorizer.Has(context, "build.cancel") && !authorizer.Has(context, "build.run"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -389,7 +389,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.run"))
+        if (!authorizer.Has(context, "build.run"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -408,7 +408,7 @@ public static class PipelineEndpoints
 
     private static IResult ListRunners(HttpContext context, RunnerService runners, PermissionAuthorizer authorizer)
     {
-        if (!authorizer.Has(context, "pipelines.runner.read") && !authorizer.Has(context, "pipelines.read"))
+        if (!authorizer.Has(context, "build.runner.read") && !authorizer.Has(context, "build.read"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -435,7 +435,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.runner.manage"))
+        if (!authorizer.Has(context, "build.runner.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }
@@ -452,7 +452,7 @@ public static class PipelineEndpoints
         PermissionAuthorizer authorizer,
         IAuditWriter audit)
     {
-        if (!authorizer.Has(context, "pipelines.runner.manage"))
+        if (!authorizer.Has(context, "build.runner.manage"))
         {
             return PermissionAuthorizer.Forbidden();
         }

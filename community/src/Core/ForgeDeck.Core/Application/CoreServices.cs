@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.SourceControl;
@@ -22,6 +21,7 @@ public sealed record OwnerSetupRequest(string DisplayName, string Username, stri
 public sealed record SetupStepStatus(string Id, string Title, bool Complete, bool Current, bool Locked);
 public sealed record SetupStatus(
     bool Initialised,
+    bool SetupCompleted,
     string? OrganisationName,
     string? OrganisationDescription,
     bool HasOrganisation,
@@ -29,6 +29,8 @@ public sealed record SetupStatus(
     string LicenceMode,
     bool HasModules,
     bool HasOwner,
+    bool HasMembers,
+    bool HasFirstProject,
     bool HasProjects,
     bool HasRepositories,
     bool BootstrapEnabled,
@@ -46,7 +48,9 @@ public sealed record CreateProjectRequest(
     RepositoryMode RepositoryMode = RepositoryMode.SingleRepository,
     IReadOnlyList<string>? EnabledModuleIds = null,
     Guid? OwningTeamId = null);
+/// <summary>Deprecated: Modules are no longer part of first-run setup.</summary>
 public sealed record SetupModulesRequest(IReadOnlyList<string>? ExtensionIds, bool Skip = false);
+/// <summary>Deprecated: Projects no longer enable/disable modules.</summary>
 public sealed record ProjectModulesUpdateRequest(IReadOnlyList<string> EnabledExtensionIds);
 public sealed record CreateRepositoryRequest(string Name, string? Slug, string? DefaultBranch, string ProviderType, string? ExternalRepositoryId,
     string ExternalOwner, string ExternalName, string CloneUrl, string? WebUrl);
@@ -62,9 +66,7 @@ public sealed class SetupService(
     IPasswordHasher<UserAccount> passwords,
     IOptions<BootstrapOptions> bootstrapOptions,
     IHostEnvironment? hostEnvironment = null,
-    LicenceService? licences = null,
-    IEnumerable<IOnboardingContributor>? contributors = null,
-    IServiceProvider? services = null)
+    LicenceService? licences = null)
 {
     public SetupStatus GetStatus()
     {
@@ -74,14 +76,27 @@ public sealed class SetupService(
         var projects = store.ListProjects();
         var hasOwner = store.ListMemberships().Any(m => m.Role == OrganisationRole.Owner && m.Status == MembershipStatus.Active);
         var hasLicence = instance.LicenceMode is LicenceMode.Community or LicenceMode.Commercial;
-        var hasModules = instance.ModulesAcknowledgedAt is not null || instance.State == InstanceState.Initialised;
+        // Modules are no longer a first-run requirement; keep HasModules true once licence is chosen for API compat.
+        var hasModules = hasLicence || instance.ModulesAcknowledgedAt is not null || instance.State == InstanceState.Initialised;
+        var hasMembers = instance.MembersAcknowledgedAt is not null ||
+                         store.ListMemberships().Count(m => m.Status == MembershipStatus.Active) > 1 ||
+                         store.ListInvitations().Count > 0;
+        var hasProjects = projects.Count != 0;
+        var hasFirstProject = instance.ProjectAcknowledgedAt is not null || hasProjects;
         var hasRepositories = projects.Any(project => store.ListRepositories(project.Id).Count != 0);
+        var setupCompleted = instance.SetupCompletedAt is not null;
         var opts = bootstrapOptions.Value;
-        var moduleSteps = ResolveModuleSteps();
-        var steps = BuildSteps(organisation is not null, hasLicence, hasModules, hasOwner, moduleSteps);
+        var steps = BuildSteps(
+            organisation is not null,
+            hasLicence,
+            hasOwner,
+            hasMembers,
+            hasFirstProject,
+            setupCompleted);
 
         return new SetupStatus(
             instance.State == InstanceState.Initialised,
+            setupCompleted,
             organisation?.Name,
             organisation?.Description,
             organisation is not null,
@@ -89,13 +104,15 @@ public sealed class SetupService(
             instance.LicenceMode.ToString(),
             hasModules,
             hasOwner,
-            projects.Count != 0,
+            hasMembers,
+            hasFirstProject,
+            hasProjects,
             hasRepositories,
             instance.BootstrapEnabled && instance.State == InstanceState.Uninitialised,
             opts.IsDevelopmentDefault && string.Equals(opts.Username, "admin", StringComparison.OrdinalIgnoreCase) && opts.Password == "admin",
             instance.InstanceId == Guid.Empty ? null : instance.InstanceId,
             steps,
-            moduleSteps);
+            []);
     }
 
     public string BootstrapLogin(string username, string password)
@@ -211,11 +228,6 @@ public sealed class SetupService(
             throw new InvalidOperationException("Select a licence before creating the owner account.");
         }
 
-        if (instance.ModulesAcknowledgedAt is null)
-        {
-            throw new InvalidOperationException("Choose modules (or skip) before creating the owner account.");
-        }
-
         if (instance.State != InstanceState.Uninitialised)
         {
             throw new InvalidOperationException("This ForgeDeck instance has already been initialised.");
@@ -252,6 +264,7 @@ public sealed class SetupService(
         return user;
     }
 
+    /// <summary>Deprecated: Modules are no longer part of first-run setup.</summary>
     public void AcknowledgeModules()
     {
         EnsureOrganisationExists();
@@ -262,6 +275,22 @@ public sealed class SetupService(
         }
 
         instance.ModulesAcknowledgedAt = DateTimeOffset.UtcNow;
+        store.SaveInstance(instance);
+    }
+
+    public void AcknowledgeMembers()
+    {
+        EnsureOwnerExists();
+        var instance = store.GetInstance();
+        instance.MembersAcknowledgedAt ??= DateTimeOffset.UtcNow;
+        store.SaveInstance(instance);
+    }
+
+    public void AcknowledgeProject()
+    {
+        EnsureOwnerExists();
+        var instance = store.GetInstance();
+        instance.ProjectAcknowledgedAt ??= DateTimeOffset.UtcNow;
         store.SaveInstance(instance);
     }
 
@@ -312,6 +341,9 @@ public sealed class SetupService(
         try { licences?.SelectCommunity(); } catch { /* seed/tests may omit licence service */ }
         var instance = store.GetInstance();
         instance.ModulesAcknowledgedAt ??= DateTimeOffset.UtcNow;
+        instance.MembersAcknowledgedAt ??= DateTimeOffset.UtcNow;
+        instance.ProjectAcknowledgedAt ??= DateTimeOffset.UtcNow;
+        instance.SetupCompletedAt ??= DateTimeOffset.UtcNow;
         store.SaveInstance(instance);
         return user;
     }
@@ -319,6 +351,8 @@ public sealed class SetupService(
     public void MarkSetupCompleted()
     {
         var instance = store.GetInstance();
+        instance.MembersAcknowledgedAt ??= DateTimeOffset.UtcNow;
+        instance.ProjectAcknowledgedAt ??= DateTimeOffset.UtcNow;
         instance.SetupCompletedAt = DateTimeOffset.UtcNow;
         store.SaveInstance(instance);
     }
@@ -331,64 +365,47 @@ public sealed class SetupService(
         }
     }
 
-    private IReadOnlyList<OnboardingStepView> ResolveModuleSteps()
+    private void EnsureOwnerExists()
     {
-        if (contributors is null || services is null)
+        EnsureOrganisationExists();
+        if (!store.ListMemberships().Any(m => m.Role == OrganisationRole.Owner && m.Status == MembershipStatus.Active))
         {
-            return [];
+            throw new InvalidOperationException("Owner account must be created first.");
         }
-
-        var orgId = store.GetOrganisation()?.Id ?? KnownIds.OrganisationId;
-        var list = new List<OnboardingStepView>();
-        foreach (var contributor in contributors.OrderBy(c => c.Order))
-        {
-            var available = contributor.RequiredCapability is null ||
-                (services.GetService(typeof(ICapabilityService)) is ICapabilityService caps
-                    && caps.Has(orgId, contributor.RequiredCapability));
-            var complete = false;
-            try { complete = available && contributor.IsCompleteAsync(services).GetAwaiter().GetResult(); }
-            catch { complete = false; }
-            list.Add(new OnboardingStepView(contributor.Id, contributor.Title, contributor.Order, contributor.IsRequired, complete, available));
-        }
-        return list;
     }
 
     private static IReadOnlyList<SetupStepStatus> BuildSteps(
-        bool hasOrg, bool hasLicence, bool hasModules, bool hasOwner, IReadOnlyList<OnboardingStepView> moduleSteps)
+        bool hasOrg,
+        bool hasLicence,
+        bool hasOwner,
+        bool hasMembers,
+        bool hasFirstProject,
+        bool setupCompleted)
     {
-        // Installation onboarding: Organisation → Licence → Modules → Owner → Finish.
-        // Project creation is a separate post-setup wizard.
-        _ = moduleSteps;
+        // Core-only first-run: Organisation → Licence → Owner → optional Members → optional Project → Finish.
         var steps = new List<(string Id, string Title, bool Complete)>
         {
             ("organisation", "Organisation", hasOrg),
             ("licence", "Licence", hasLicence),
-            ("modules", "Modules", hasModules),
             ("owner", "Owner", hasOwner),
-            ("finish", "Finish", hasOwner)
+            ("members", "Members", hasMembers),
+            ("project", "Project", hasFirstProject),
+            ("finish", "Finish", setupCompleted || (hasOwner && hasMembers && hasFirstProject))
         };
 
         var currentSet = false;
         var result = new List<SetupStepStatus>();
         foreach (var (id, title, complete) in steps)
         {
-            var locked = false;
-            if (id == "licence")
+            var locked = id switch
             {
-                locked = !hasOrg;
-            }
-            else if (id == "modules")
-            {
-                locked = !hasLicence;
-            }
-            else if (id == "owner")
-            {
-                locked = !hasModules;
-            }
-            else if (id == "finish")
-            {
-                locked = !hasOwner;
-            }
+                "licence" => !hasOrg,
+                "owner" => !hasLicence,
+                "members" => !hasOwner,
+                "project" => !hasMembers,
+                "finish" => !(hasOwner && hasMembers && hasFirstProject),
+                _ => false
+            };
 
             var current = !complete && !locked && !currentSet;
             if (current)
@@ -619,9 +636,28 @@ public sealed class ProjectService(ITenancyStore store, ExtensionLifecycleServic
         }
 
         ApplyEnabledModules(project.Id, request.EnabledModuleIds);
+        AcknowledgeFirstProjectIfNeeded();
         return project;
     }
 
+    private void AcknowledgeFirstProjectIfNeeded()
+    {
+        var instance = store.GetInstance();
+        if (instance.State != InstanceState.Initialised || instance.SetupCompletedAt is not null)
+        {
+            return;
+        }
+
+        if (instance.ProjectAcknowledgedAt is not null)
+        {
+            return;
+        }
+
+        instance.ProjectAcknowledgedAt = DateTimeOffset.UtcNow;
+        store.SaveInstance(instance);
+    }
+
+    /// <summary>Deprecated no-op: Projects no longer enable/disable modules.</summary>
     public void SetEnabledModules(Guid projectId, IReadOnlyList<string> enabledExtensionIds)
     {
         if (store.FindProject(projectId) is null)
@@ -629,7 +665,7 @@ public sealed class ProjectService(ITenancyStore store, ExtensionLifecycleServic
             throw new KeyNotFoundException("Project not found.");
         }
 
-        ApplyEnabledModules(projectId, enabledExtensionIds);
+        // Intentionally ignored — module availability is organisation/server scoped.
     }
 
     public IReadOnlyList<object> ListModuleAvailability(Guid projectId)
@@ -642,80 +678,24 @@ public sealed class ProjectService(ITenancyStore store, ExtensionLifecycleServic
         var orgModules = extensions?.List(ExtensionType.Module)
             .Where(m => m.Installed)
             .ToArray() ?? [];
-        var rows = store.ListProjectModules(projectId);
-        var hasExplicit = rows.Count > 0;
-        return orgModules.Select(m =>
+        // Projects inherit organisation module availability; no per-project Enabled flag.
+        return orgModules.Select(m => (object)new
         {
-            var enabled = !hasExplicit
-                ? m.Enabled
-                : rows.Any(r => string.Equals(r.ExtensionId, m.ExtensionId, StringComparison.OrdinalIgnoreCase) && r.Enabled);
-            return (object)new
-            {
-                extensionId = m.ExtensionId,
-                name = m.Name,
-                runtimeId = m.RuntimeId,
-                organisationEnabled = m.Enabled,
-                enabled,
-                installed = m.Installed
-            };
+            extensionId = m.ExtensionId,
+            name = m.Name,
+            runtimeId = m.RuntimeId,
+            organisationEnabled = m.Enabled,
+            enabled = m.Enabled,
+            installed = m.Installed,
+            configured = false
         }).ToArray();
     }
 
     private void ApplyEnabledModules(Guid projectId, IReadOnlyList<string>? enabledExtensionIds)
     {
-        if (enabledExtensionIds is null)
-        {
-            return;
-        }
-
-        var orgModules = extensions?.List(ExtensionType.Module).ToArray() ?? [];
-        var orgInstalled = orgModules
-            .Where(m => m.Installed)
-            .Select(m => m.ExtensionId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var orgEnabled = orgModules
-            .Where(m => m.Installed && m.Enabled)
-            .Select(m => m.ExtensionId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var selected = enabledExtensionIds
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id.Trim())
-            .Where(id =>
-            {
-                if (orgInstalled.Count == 0)
-                {
-                    return true;
-                }
-                // Project cannot enable a module that is not installed/enabled at organisation level.
-                return orgEnabled.Contains(id);
-            })
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var settings = new List<ProjectModuleSetting>();
-        IEnumerable<string> idsToWrite = orgInstalled.Count == 0 ? selected : orgInstalled;
-        foreach (var id in idsToWrite)
-        {
-            settings.Add(new ProjectModuleSetting
-            {
-                ProjectId = projectId,
-                ExtensionId = id,
-                Enabled = selected.Contains(id, StringComparer.OrdinalIgnoreCase) &&
-                          (orgEnabled.Count == 0 || orgEnabled.Contains(id))
-            });
-        }
-
-        // When catalogue is empty (unit tests without ExtensionLifecycleService), still persist selections.
-        if (settings.Count == 0 && selected.Length > 0)
-        {
-            foreach (var id in selected)
-            {
-                settings.Add(new ProjectModuleSetting { ProjectId = projectId, ExtensionId = id, Enabled = true });
-            }
-        }
-
-        store.ReplaceProjectModules(projectId, settings);
+        // Legacy CreateProjectRequest.EnabledModuleIds is ignored.
+        _ = projectId;
+        _ = enabledExtensionIds;
     }
 
     public IReadOnlyList<Project> ListProjects() => store.ListProjects();

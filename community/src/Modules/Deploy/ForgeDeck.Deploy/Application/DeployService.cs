@@ -11,7 +11,8 @@ public sealed class DeployService(
     IDeployStore store,
     ICapabilityService capabilities,
     PlatformContextStore context,
-    IEventPublisher events)
+    IEventPublisher events,
+    IDeploymentExecutor executor)
 {
     public IReadOnlyList<DeploymentEnvironment> ListEnvironments(Guid? projectId = null) =>
         store.ListEnvironments(projectId);
@@ -78,14 +79,8 @@ public sealed class DeployService(
         store.SaveDeployment(deployment);
         _ = PublishAsync(new DeployQueuedEvent(deployment.Id, resolvedReleaseId, environmentId));
 
-        deployment.Status = DeploymentStatus.InProgress;
-        store.SaveDeployment(deployment);
-        _ = PublishAsync(new DeployStartedEvent(deployment.Id, resolvedReleaseId, environmentId));
-
-        deployment.Status = DeploymentStatus.Succeeded;
-        store.SaveDeployment(deployment);
-        _ = PublishAsync(new DeploySucceededEvent(deployment.Id, resolvedReleaseId, environmentId));
-        return deployment;
+        executor.ExecuteAsync(deployment, resolvedReleaseId).GetAwaiter().GetResult();
+        return store.FindDeployment(deployment.Id) ?? deployment;
     }
 
     public Deployment Rollback(Guid deploymentId, string triggeredBy)
@@ -166,13 +161,15 @@ public sealed class DeployService(
 
     private void EnsureEnvironmentCapacity(Guid projectId)
     {
-        if (capabilities.Has(context.Organisation.Id, KnownCapabilities.Deploy.MultiEnvironment))
+        var limit = SoftLimits.MaxEnvironments(
+            capabilities.Has(context.Organisation.Id, KnownCapabilities.Deploy.MultiEnvironment));
+        if (limit is null)
         {
             return;
         }
 
         var count = store.ListEnvironments(projectId).Count;
-        if (count >= CommunityLimits.DeployMaxEnvironments)
+        if (count >= limit.Value)
         {
             throw new LicenceRequiredException(KnownCapabilities.Deploy.MultiEnvironment);
         }

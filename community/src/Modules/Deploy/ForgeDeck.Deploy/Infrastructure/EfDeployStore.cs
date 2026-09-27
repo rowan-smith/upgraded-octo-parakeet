@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ForgeDeck.Deploy.Application;
 using ForgeDeck.Deploy.Domain;
@@ -88,6 +90,20 @@ public sealed class EfDeployStore : IDeployStore
             .ToList();
     }
 
+    public IReadOnlyList<Deployment> ListPendingDeployments(int take = 50)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var pending = DeploymentStatus.Pending.ToString();
+        return db.Deployments.AsNoTracking()
+            .Where(d => d.Status == pending)
+            .OrderBy(d => d.CreatedAt)
+            .Take(take)
+            .Select(d => d.Payload)
+            .AsEnumerable()
+            .Select(Deserialize<Deployment>)
+            .ToList();
+    }
+
     public Deployment? FindDeployment(Guid id)
     {
         using var db = _dbFactory.CreateDbContext();
@@ -115,6 +131,52 @@ public sealed class EfDeployStore : IDeployStore
         row.Status = deployment.Status.ToString();
         row.Payload = JsonSerializer.Serialize(deployment, Json);
         db.SaveChanges();
+    }
+
+    public IReadOnlyList<DeploymentAgent> ListAgents()
+    {
+        using var db = _dbFactory.CreateDbContext();
+        return db.Agents.AsNoTracking()
+            .OrderBy(a => a.Name)
+            .Select(a => a.Payload)
+            .AsEnumerable()
+            .Select(Deserialize<DeploymentAgent>)
+            .ToList();
+    }
+
+    public DeploymentAgent? FindAgent(Guid id)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var payload = db.Agents.AsNoTracking().Where(a => a.Id == id.ToString()).Select(a => a.Payload).FirstOrDefault();
+        return payload is null ? null : Deserialize<DeploymentAgent>(payload);
+    }
+
+    public void SaveAgent(DeploymentAgent agent)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var id = agent.Id.ToString();
+        var row = db.Agents.FirstOrDefault(a => a.Id == id);
+        if (row is null)
+        {
+            row = new DeployAgentRow
+            {
+                Id = id,
+                CreatedAt = agent.CreatedAt.ToString("O")
+            };
+            db.Agents.Add(row);
+        }
+
+        row.Name = agent.Name;
+        row.TokenHash = agent.TokenHash;
+        row.Status = agent.Status.ToString();
+        row.Payload = JsonSerializer.Serialize(agent, Json);
+        db.SaveChanges();
+    }
+
+    public void RevokeAgent(Guid id)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        db.Agents.Where(a => a.Id == id.ToString()).ExecuteDelete();
     }
 
     public void SaveBuildRunReference(Guid runId, string pipelineName, string commitSha, Guid? changeId)
@@ -191,6 +253,12 @@ public sealed class EfDeployStore : IDeployStore
             .AsEnumerable()
             .Select(Deserialize<DeployArtifactReference>)
             .ToList();
+    }
+
+    public static string HashToken(string token)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     private void EnsureSchema()

@@ -195,10 +195,10 @@ public sealed class ApiRouteMatrixTests : IClassFixture<WebApplicationFactory<Pr
 
     [Theory]
     [InlineData("Full", "review", true)]
-    [InlineData("Full", "pipelines", true)]
+    [InlineData("Full", "build", true)]
     [InlineData("Full", "deploy", true)]
     [InlineData("ReviewOnly", "review", true)]
-    [InlineData("ReviewOnly", "pipelines", false)]
+    [InlineData("ReviewOnly", "build", false)]
     [InlineData("Disabled", "review", false)]
     public async Task Environment_enables_expected_modules(string environment, string moduleId, bool expectedPresent)
     {
@@ -223,12 +223,12 @@ public sealed class ApiRouteMatrixTests : IClassFixture<WebApplicationFactory<Pr
             {
                 case "Disabled":
                     builder.UseSetting("Modules:review:Enabled", "false");
-                    builder.UseSetting("Modules:pipelines:Enabled", "false");
+                    builder.UseSetting("Modules:build:Enabled", "false");
                     builder.UseSetting("Modules:deploy:Enabled", "false");
                     break;
                 case "ReviewOnly":
                     builder.UseSetting("Modules:review:Enabled", "true");
-                    builder.UseSetting("Modules:pipelines:Enabled", "false");
+                    builder.UseSetting("Modules:build:Enabled", "false");
                     builder.UseSetting("Modules:deploy:Enabled", "false");
                     break;
                 default:

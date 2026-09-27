@@ -72,6 +72,8 @@ public sealed class EfExtensionRegistry : IExtensionRegistry
             existing.UpdatedAt = installation.UpdatedAt;
             existing.LastError = installation.LastError;
             existing.RestartRequired = installation.RestartRequired;
+            existing.InstalledFrom = installation.InstalledFrom;
+            existing.PackageDigest = installation.PackageDigest;
         }
 
         db.SaveChanges();

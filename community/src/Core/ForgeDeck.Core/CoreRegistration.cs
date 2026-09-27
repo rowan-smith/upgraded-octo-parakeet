@@ -56,11 +56,16 @@ public static class CoreRegistration
         var keyPath = Path.GetFullPath(configuration["Data:ProtectionKeysPath"] ?? "data/keys");
         Directory.CreateDirectory(keyPath);
         services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyPath)).SetApplicationName("ForgeDeck");
-        services.AddDbContextFactory<PlatformDbContext>(options => PlatformDbContext.Configure(options, connectionString));
-        services.AddForgeDeckMessaging(configuration, connectionString);
+        services.AddDbContextFactory<PlatformDbContext>(options =>
+            DatabaseProvider.Configure(options, configuration, connectionString));
+        services.AddForgeDeckMessaging(
+            configuration,
+            connectionString,
+            options => DatabaseProvider.Configure(options, configuration, connectionString));
         services.AddSingleton<ITenancyStore, EfTenancyStore>();
         services.AddSingleton<IExtensionRegistry, EfExtensionRegistry>();
         services.AddSingleton<IExtensionPackageVerifier, SignedExtensionPackageVerifier>();
+        services.AddSingleton<ExtensionPackageInstaller>();
         services.AddSingleton<ExtensionLifecycleService>();
         services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddSingleton<SetupService>();

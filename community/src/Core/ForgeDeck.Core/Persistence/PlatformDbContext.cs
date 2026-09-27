@@ -5,6 +5,7 @@ using ForgeDeck.Core.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.Extensions.Configuration;
 
 namespace ForgeDeck.Core.Persistence;
 
@@ -42,6 +43,10 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     public static void Configure(DbContextOptionsBuilder options, string connectionString) =>
         options.UseSqlite(connectionString);
 
+    /// <summary>Prefer <see cref="DatabaseProvider.Configure"/>; retained for callers that only have a connection string.</summary>
+    public static void Configure(DbContextOptionsBuilder options, IConfiguration configuration, string? connectionString) =>
+        DatabaseProvider.Configure(options, configuration, connectionString);
+
     public static void EnsureCreated(PlatformDbContext db)
     {
         db.Database.EnsureCreated();
@@ -51,7 +56,59 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             db.SaveChanges();
         }
 
+        EnsureInstanceSchema(db);
         SchemaBootstrap.Record(db, "platform", SchemaBootstrap.PlatformSchemaVersion);
+    }
+
+    /// <summary>
+    /// Additive SQLite column upgrades for existing EnsureCreated databases (no EF migrations yet).
+    /// </summary>
+    private static void EnsureInstanceSchema(PlatformDbContext db)
+    {
+        TryAddInstanceColumn(db, "members_acknowledged_at");
+        TryAddInstanceColumn(db, "project_acknowledged_at");
+        TryAddColumn(db, "ALTER TABLE core_extensions ADD COLUMN installed_from TEXT NULL");
+        TryAddColumn(db, "ALTER TABLE core_extensions ADD COLUMN package_digest TEXT NULL");
+
+        // Legacy installs finished the old Modules→Owner wizard before optional Members/Project steps existed.
+        db.Database.ExecuteSqlRaw("""
+            UPDATE core_instance
+            SET setup_completed_at = COALESCE(setup_completed_at, initialised_at, CURRENT_TIMESTAMP),
+                members_acknowledged_at = COALESCE(members_acknowledged_at, initialised_at, CURRENT_TIMESTAMP),
+                project_acknowledged_at = COALESCE(project_acknowledged_at, initialised_at, CURRENT_TIMESTAMP)
+            WHERE state = 'Initialised'
+              AND setup_completed_at IS NULL
+              AND modules_acknowledged_at IS NOT NULL
+            """);
+
+        // Migrate legacy Build module runtime id.
+        db.Database.ExecuteSqlRaw("""
+            UPDATE core_extensions SET runtime_id='build' WHERE runtime_id='pipelines'
+            """);
+    }
+
+    private static void TryAddInstanceColumn(PlatformDbContext db, string column)
+    {
+        // Columns are fixed literals from EnsureInstanceSchema callers only.
+        var sql = column switch
+        {
+            "members_acknowledged_at" => "ALTER TABLE core_instance ADD COLUMN members_acknowledged_at TEXT NULL",
+            "project_acknowledged_at" => "ALTER TABLE core_instance ADD COLUMN project_acknowledged_at TEXT NULL",
+            _ => throw new ArgumentOutOfRangeException(nameof(column))
+        };
+        TryAddColumn(db, sql);
+    }
+
+    private static void TryAddColumn(PlatformDbContext db, string sql)
+    {
+        try
+        {
+            db.Database.ExecuteSqlRaw(sql);
+        }
+        catch
+        {
+            // Column already exists.
+        }
     }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -102,6 +159,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             e.Property(x => x.BootstrapEnabled).HasColumnName("bootstrap_enabled").IsRequired();
             e.Property(x => x.SetupCompletedAt).HasColumnName("setup_completed_at");
             e.Property(x => x.ModulesAcknowledgedAt).HasColumnName("modules_acknowledged_at");
+            e.Property(x => x.MembersAcknowledgedAt).HasColumnName("members_acknowledged_at");
+            e.Property(x => x.ProjectAcknowledgedAt).HasColumnName("project_acknowledged_at");
             e.HasData(new InstanceRow
             {
                 Singleton = 1,
@@ -524,6 +583,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
             e.Property(x => x.LastError).HasColumnName("last_error");
             e.Property(x => x.RestartRequired).HasColumnName("restart_required").IsRequired();
+            e.Property(x => x.InstalledFrom).HasColumnName("installed_from").HasConversion<string>();
+            e.Property(x => x.PackageDigest).HasColumnName("package_digest");
         });
     }
 

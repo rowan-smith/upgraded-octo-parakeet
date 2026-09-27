@@ -1,0 +1,37 @@
+# Optional PostgreSQL profile for ForgeDeck.
+# Usage: docker compose -f compose.yaml -f compose.postgres.yaml up --build
+#
+# SQLite remains the default when this overlay is not used.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: forgedeck
+      POSTGRES_PASSWORD: forgedeck
+      POSTGRES_DB: forgedeck
+    ports:
+      - "5432:5432"
+    volumes:
+      - forgedeck-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgedeck -d forgedeck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  platform:
+    environment:
+      Database__Provider: PostgreSql
+      ConnectionStrings__Platform: "Host=postgres;Port=5432;Database=forgedeck;Username=forgedeck;Password=forgedeck"
+      ConnectionStrings__Git: "Host=postgres;Port=5432;Database=forgedeck;Username=forgedeck;Password=forgedeck"
+      ConnectionStrings__Review: "Host=postgres;Port=5432;Database=forgedeck;Username=forgedeck;Password=forgedeck"
+      ConnectionStrings__Build: "Host=postgres;Port=5432;Database=forgedeck;Username=forgedeck;Password=forgedeck"
+      ConnectionStrings__Deploy: "Host=postgres;Port=5432;Database=forgedeck;Username=forgedeck;Password=forgedeck"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  forgedeck-postgres:

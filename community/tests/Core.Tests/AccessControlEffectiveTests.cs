@@ -158,7 +158,7 @@ public sealed class AccessControlEffectiveTests(EffectivePermissionMatrixFixture
 
         var effective = matrix.ViaTeamRole(OrganisationRole.Member, SystemAccessRoles.Reader);
         Assert.Contains("review.read", effective);
-        Assert.Contains("pipelines.read", effective);
+        Assert.Contains("build.read", effective);
         Assert.DoesNotContain("review.merge", effective);
         Assert.DoesNotContain("deploy.execute", effective);
         Assert.DoesNotContain(OrganisationPermissions.UsersManage, effective);
@@ -174,8 +174,8 @@ public sealed class AccessControlEffectiveTests(EffectivePermissionMatrixFixture
         }
 
         var effective = matrix.ViaTeamRole(OrganisationRole.Member, SystemAccessRoles.Builder);
-        Assert.Contains("pipelines.manage", effective);
-        Assert.Contains("pipelines.run", effective);
+        Assert.Contains("build.manage", effective);
+        Assert.Contains("build.run", effective);
         Assert.DoesNotContain("deploy.execute", effective);
         Assert.DoesNotContain("review.merge", effective);
     }
@@ -278,7 +278,7 @@ public sealed class AccessControlEffectiveEdgeTests
 
         var effective = world.Effective.ForUser(member.Id, project.Id);
         Assert.Contains("review.approve", effective);
-        Assert.Contains("pipelines.run", effective);
+        Assert.Contains("build.run", effective);
         Assert.DoesNotContain("review.merge", effective);
     }
 

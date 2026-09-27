@@ -1,14 +1,12 @@
 using ForgeDeck.Core.Application;
 using ForgeDeck.Core.Domain;
-using ForgeDeck.Core.Identity;
-using Microsoft.Extensions.Options;
 
 namespace Core.Tests;
 
 public sealed class StagedOnboardingTests
 {
     [Fact]
-    public void Staged_flow_organisation_community_modules_owner()
+    public void Staged_flow_organisation_licence_owner_without_modules()
     {
         using var fixture = new TenancyFixture();
         var token = fixture.Setup.BootstrapLogin("admin", "admin");
@@ -31,11 +29,9 @@ public sealed class StagedOnboardingTests
             LicenceId = "community"
         });
 
-        Assert.False(fixture.Setup.GetStatus().HasModules);
-        Assert.Contains(fixture.Setup.GetStatus().Steps, s => s.Id == "modules" && s.Current);
-
-        fixture.Setup.AcknowledgeModules();
-        Assert.True(fixture.Setup.GetStatus().HasModules);
+        var statusAfterLicence = fixture.Setup.GetStatus();
+        Assert.DoesNotContain(statusAfterLicence.Steps, s => s.Id == "modules");
+        Assert.Contains(statusAfterLicence.Steps, s => s.Id == "owner" && s.Current);
 
         var owner = fixture.Setup.CreateOwner(new OwnerSetupRequest("Rowan Smith", "rowan", "rowan@example.com", "password123"));
         Assert.Equal(OrganisationRole.Owner, fixture.Store.GetMembership(owner.Id)!.Role);
@@ -43,12 +39,28 @@ public sealed class StagedOnboardingTests
         Assert.False(fixture.Store.GetInstance().BootstrapEnabled);
         Assert.False(fixture.Setup.IsBootstrapTokenValid(token));
         Assert.Throws<InvalidOperationException>(() => fixture.Setup.BootstrapLogin("admin", "admin"));
+
+        var afterOwner = fixture.Setup.GetStatus();
+        Assert.False(afterOwner.SetupCompleted);
+        Assert.False(afterOwner.HasMembers);
+        Assert.False(afterOwner.HasFirstProject);
+        Assert.Contains(afterOwner.Steps, s => s.Id == "members" && s.Current);
+        Assert.Contains(afterOwner.Steps, s => s.Id == "project");
+
+        fixture.Setup.AcknowledgeMembers();
+        Assert.True(fixture.Setup.GetStatus().HasMembers);
+        Assert.Contains(fixture.Setup.GetStatus().Steps, s => s.Id == "project" && s.Current);
+
+        fixture.Setup.AcknowledgeProject();
+        Assert.True(fixture.Setup.GetStatus().HasFirstProject);
         Assert.False(fixture.Setup.GetStatus().HasProjects);
-        Assert.DoesNotContain(fixture.Setup.GetStatus().Steps, s => s.Id == "project");
+
+        fixture.Setup.MarkSetupCompleted();
+        Assert.True(fixture.Setup.GetStatus().SetupCompleted);
     }
 
     [Fact]
-    public void Project_modules_default_enabled_until_explicitly_configured()
+    public void Project_modules_are_always_available_when_organisation_enabled()
     {
         using var fixture = new TenancyFixture();
         var owner = fixture.Bootstrap();
@@ -57,9 +69,10 @@ public sealed class StagedOnboardingTests
             owner.Id);
         Assert.True(fixture.Store.IsProjectModuleEnabled(project.Id, "forgedeck.review"));
 
+        // Legacy per-project enablement is ignored.
         fixture.Projects.SetEnabledModules(project.Id, ["forgedeck.code"]);
+        Assert.True(fixture.Store.IsProjectModuleEnabled(project.Id, "forgedeck.review"));
         Assert.True(fixture.Store.IsProjectModuleEnabled(project.Id, "forgedeck.code"));
-        Assert.False(fixture.Store.IsProjectModuleEnabled(project.Id, "forgedeck.review"));
     }
 
     [Fact]

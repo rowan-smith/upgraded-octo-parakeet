@@ -191,7 +191,9 @@ public sealed class DeployServiceTests
 
         var capabilities = new CapabilityService(modules, new SignedLicenceEntitlementStore(entitlement));
         var context = new PlatformContextStore();
-        var service = new DeployService(store, capabilities, context, new NoopPublisher());
+        var publisher = new NoopPublisher();
+        var executor = new ImmediateDeploymentExecutor(store, publisher);
+        var service = new DeployService(store, capabilities, context, publisher, executor);
         return new Harness(path, service);
     }
 

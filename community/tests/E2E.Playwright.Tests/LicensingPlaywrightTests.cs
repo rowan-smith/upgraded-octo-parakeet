@@ -29,7 +29,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
             .ToContainTextAsync(KnownCapabilities.Review.BasicApproval);
         await Assertions.Expect(page.Locator("[data-module-id='review'] [data-capabilities]"))
             .Not.ToContainTextAsync(KnownCapabilities.Review.MultiApproval);
-        await Assertions.Expect(page.Locator("[data-module-id='pipelines']")).ToHaveAttributeAsync("data-edition", "Community");
+        await Assertions.Expect(page.Locator("[data-module-id='build']")).ToHaveAttributeAsync("data-edition", "Community");
 
         var policy = await GetJsonAsync(page, "/api/review/policy");
         Assert.False(policy.GetProperty("multiApprovalLicensed").GetBoolean());

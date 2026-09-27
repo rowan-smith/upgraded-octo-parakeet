@@ -31,9 +31,10 @@ public sealed class ProviderCatalogue : IProviderCatalogue
 
         foreach (var check in checks)
         {
-            var owner = GuessOwner(check.GetType().Name, check.GetType().Name, moduleIds, "pipelines", "checks-demo");
+            var owner = GuessOwner(check.GetType().Name, check.GetType().Name, moduleIds, "build", "pipelines", "checks-demo");
             list.Add(new(owner, check.GetType().Name, ProviderKind.Check, nameof(ICheckProvider)));
-            if (owner.Equals("pipelines", StringComparison.OrdinalIgnoreCase))
+            if (owner.Equals("build", StringComparison.OrdinalIgnoreCase)
+                || owner.Equals("pipelines", StringComparison.OrdinalIgnoreCase))
             {
                 list.Add(new(owner, check.GetType().Name, ProviderKind.BuildExecution, nameof(ICheckProvider)));
             }
