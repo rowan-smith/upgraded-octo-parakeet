@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ForgeDeck.Contracts.Audit;
 using ForgeDeck.Contracts.Capabilities;
 using ForgeDeck.Contracts.Extensions;
@@ -20,13 +21,14 @@ public sealed class ExtensionLifecycleService(
     IServiceProvider? services = null,
     ExtensionPackageInstaller? packages = null)
 {
-    private static readonly HashSet<string> LoadedRuntimeIds = new(StringComparer.OrdinalIgnoreCase);
+    // Concurrent: WebApplicationFactory hosts call RememberLoaded in parallel during tests.
+    private static readonly ConcurrentDictionary<string, byte> LoadedRuntimeIds = new(StringComparer.OrdinalIgnoreCase);
 
     public static void RememberLoaded(IEnumerable<IPlatformModule> loaded)
     {
         foreach (var module in loaded)
         {
-            LoadedRuntimeIds.Add(module.Manifest.Id);
+            LoadedRuntimeIds.TryAdd(module.Manifest.Id, 0);
         }
     }
 
@@ -653,7 +655,7 @@ public sealed class ExtensionLifecycleService(
     private static bool IsRuntimeLoaded(ExtensionCatalogueEntry entry) =>
         entry.RuntimeId is null
         || entry.RuntimeId is "github"
-        || LoadedRuntimeIds.Contains(entry.RuntimeId)
+        || LoadedRuntimeIds.ContainsKey(entry.RuntimeId)
         || entry.RuntimeId is "code" or "review" or "build" or "deploy"; // always project-referenced in CE host
 
     private static bool IsProprietaryEdition(string edition) =>
