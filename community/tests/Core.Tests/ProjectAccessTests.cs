@@ -10,7 +10,7 @@ public sealed class ProjectAccessTests
     {
         using var fixture = new TenancyFixture();
         var owner = fixture.Bootstrap();
-        var admin = fixture.Memberships.Add("admin@example.com", "admin", "Admin", "password123", OrganisationRole.Admin, owner.Id);
+        var admin = fixture.Memberships.Add("orgadmin@example.com", "orgadmin", "Org Admin", "password123", OrganisationRole.Admin, owner.Id);
         var project = fixture.Projects.CreateProject(new CreateProjectRequest("Secret", "secret", null, null, ProjectVisibility.Private), owner.Id);
 
         Assert.True(fixture.Access.CanAccess(project, owner.Id, OrganisationRole.Owner));

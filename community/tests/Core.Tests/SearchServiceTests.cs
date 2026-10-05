@@ -47,10 +47,10 @@ public sealed class SearchServiceTests
     }
 
     [Theory]
-    [InlineData("maya")]
-    [InlineData("Maya")]
+    [InlineData("admin")]
+    [InlineData("Admin")]
     [InlineData("forgedeck.dev")]
-    [InlineData("Chen")]
+    [InlineData("admin@forgedeck")]
     public void Search_matches_people_by_name_username_or_email(string query)
     {
         using var fixture = new TenancyFixture();
