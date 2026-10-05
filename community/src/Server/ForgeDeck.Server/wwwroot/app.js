@@ -570,14 +570,8 @@ function normalizeRoute(route){
   if(value.startsWith('#'))value=value.slice(1);
   if(!value)return '/home';
   if(!value.startsWith('/'))value=`/${value}`;
-  if(value==='/organisation/licensing'||value==='/licensing')return '/organisation/settings/license';
-  if(value==='/modules')return '/organisation/settings/modules';
-  if(value==='/settings/modules')return '/settings/general';
-  if(value==='/connectors')return '/organisation/settings/connectors';
-  if(value==='/audit')return '/organisation/settings/audit';
   if(value==='/organisation/settings')return '/organisation/settings/general';
   if(value==='/settings')return '/settings/general';
-  if(value==='/runners')return '/organisation/settings/build';
   return value;
 }
 
@@ -1566,7 +1560,7 @@ async function renderPeopleTeams(tabs){
   ]);
   const roleName=id=>(roles||[]).find(r=>r.id===id)?.name;
   const canCreate=can('teams.manage')||can('teams.create');
-  const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator','member'].includes(r.slug));
+  const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['viewer','developer','reviewer','builder','deployer','project-admin','member'].includes(r.slug));
   el('content').innerHTML=`<div class="list-page-header"><div><h1>Teams</h1><p>Group people and own or access projects.</p></div>
     ${canCreate?'<button class="button primary" id="createTeam">New team</button>':''}</div>${tabs}
     <div class="card table-wrap"><table class="data-table">
@@ -1838,7 +1832,7 @@ async function renderTeamDetail(teamId){
     body=`<div class="card"><div class="card-body"><p class="description">Team administration is granted through Team Lead / custom team roles and direct grants.</p>
       <button class="button" data-route="/organisation/settings/permissions">Open permission settings</button></div></div>`;
   }else{
-    const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator','member'].includes(r.slug));
+    const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['viewer','developer','reviewer','builder','deployer','project-admin','member'].includes(r.slug));
     body=`<div class="card"><div class="card-body settings-form">
       <label class="form-label">Name</label><input class="field" id="teamSettingsName" value="${esc(team.name)}" ${can('teams.manage')?'':'disabled'}>
       <label class="form-label">Description</label><input class="field" id="teamSettingsDesc" value="${esc(team.description||'')}" ${can('teams.manage')?'':'disabled'}>
@@ -3165,7 +3159,7 @@ async function renderOrgEventDiagnostics(){
       <p class="description">Community soft limits · pipelines ${esc(String(instance.softLimits?.communityMaxConcurrentPipelines??'—'))} · environments ${esc(String(instance.softLimits?.communityMaxEnvironments??'—'))}</p>
     </div></div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h2>Event failures</h2>
-      <div class="header-actions"><span class="pill">${esc(String(diag?.events?.failureCount??failures.length||0))} failures · ${esc(String(diag?.events?.backlogCount??0))} backlog</span></div>
+      <div class="header-actions"><span class="pill">${esc(String(diag?.events?.failureCount??failures.length??0))} failures · ${esc(String(diag?.events?.backlogCount??0))} backlog</span></div>
     </div>
     <div class="card-body">${failureRows}</div></div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h2>Extension health & provenance</h2></div>
@@ -3284,7 +3278,7 @@ async function renderProjectMembersSettings(){
     api('/api/teams').catch(()=>[]),
     api('/api/access/roles').catch(()=>[])
   ]);
-  const projectRoles=(roles||[]).filter(r=>!r.scopeType||r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator'].includes(r.slug));
+  const projectRoles=(roles||[]).filter(r=>!r.scopeType||r.scopeType==='Project'||['viewer','developer','reviewer','builder','deployer','project-admin'].includes(r.slug));
   const roleOptions=`<option value="">Select a project role</option>${projectRoles.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}`;
   const roleLabel=grant=>grant.roleName?esc(grant.roleName):(grant.roles||[]).join(' + ')||'Access only';
   const canManage=canAny('projects.manage','project.members.manage');
@@ -3373,7 +3367,7 @@ async function renderProjectMembersSettings(){
 
 async function renderProjectRolesSettings(){
   const roles=await api('/api/access/roles').catch(()=>[]);
-  const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['reader','viewer','developer','reviewer','builder','deployer','project-admin','deploy-operator'].includes(r.slug));
+  const projectRoles=(roles||[]).filter(r=>r.scopeType==='Project'||['viewer','developer','reviewer','builder','deployer','project-admin'].includes(r.slug));
   renderSettingsShell('project','/settings/roles','Roles','Project roles and their permissions. Module permissions appear when the module is enabled.',`
     <div class="card">${projectRoles.map(role=>`<div class="module-card">
       <div><h3>${esc(role.name)}</h3><p>${role.isSystem?'System':'Custom'} · ${role.permissions?.length||0} permissions</p>
@@ -3536,7 +3530,7 @@ async function renderAudit(){
 async function renderModules(){
   const catalogue=await api('/api/platform/extensions/modules');
   const moduleOrder={code:1,git:2,review:3,build:4,deploy:5};
-  const isTierClone=id=>/\.(team|enterprise|commercial)$/i.test(id||'');
+  const isTierClone=id=>/\.(team|enterprise)$/i.test(id||'');
   const rank=item=>{
     const id=(item.runtimeId||item.extensionId||'').toLowerCase();
     for(const [key,value] of Object.entries(moduleOrder)){

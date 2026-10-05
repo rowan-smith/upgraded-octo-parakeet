@@ -39,7 +39,6 @@ public sealed class ExtensionLifecycleService(
 
         return BuiltinExtensionCatalogue.All
             .Where(entry => type is null || entry.Type == type)
-            .Where(entry => !IsDeprecatedAlias(entry) || installed.ContainsKey(entry.ExtensionId))
             .Where(entry => !IsUnlistedTierClone(entry) || installed.ContainsKey(entry.ExtensionId))
             .Select(entry => ToStatus(entry, installed.GetValueOrDefault(entry.ExtensionId), packageRuntimeIds, orgId))
             .ToArray();
@@ -616,11 +615,8 @@ public sealed class ExtensionLifecycleService(
         enabled = status.Enabled
     };
 
-    private static bool IsDeprecatedAlias(ExtensionCatalogueEntry entry) =>
-        entry.ExtensionId.EndsWith(".commercial", StringComparison.OrdinalIgnoreCase);
-
     /// <summary>
-    /// Team/Enterprise/Commercial catalogue rows are package install targets, not separate Available cards.
+    /// Team/Enterprise catalogue rows are package install targets, not separate Available cards.
     /// Hide them unless already installed; edition is licence-driven on the base module.
     /// </summary>
     public static bool IsUnlistedTierClone(ExtensionCatalogueEntry entry)
@@ -632,8 +628,7 @@ public sealed class ExtensionLifecycleService(
 
         var id = entry.ExtensionId;
         return id.EndsWith(".team", StringComparison.OrdinalIgnoreCase)
-               || id.EndsWith(".enterprise", StringComparison.OrdinalIgnoreCase)
-               || id.EndsWith(".commercial", StringComparison.OrdinalIgnoreCase);
+               || id.EndsWith(".enterprise", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string CatalogueEdition(ExtensionCatalogueEntry entry)
@@ -644,8 +639,7 @@ public sealed class ExtensionLifecycleService(
             return "Enterprise";
         }
 
-        if (id.EndsWith(".team", StringComparison.OrdinalIgnoreCase)
-            || id.EndsWith(".commercial", StringComparison.OrdinalIgnoreCase))
+        if (id.EndsWith(".team", StringComparison.OrdinalIgnoreCase))
         {
             return "Team";
         }

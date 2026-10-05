@@ -14,18 +14,12 @@ public static class PlatformModules
 
     public static string Normalize(string moduleId)
     {
-        foreach (var suffix in new[] { "-commercial", "-enterprise", "-team" })
+        foreach (var suffix in new[] { "-enterprise", "-team" })
         {
             if (moduleId.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
             {
                 return moduleId[..^suffix.Length].ToLowerInvariant();
             }
-        }
-
-        // Host runtime id "pipelines" is the Build module (licence id remains "build").
-        if (moduleId.Equals("pipelines", StringComparison.OrdinalIgnoreCase))
-        {
-            return Build;
         }
 
         return moduleId.ToLowerInvariant();

@@ -37,7 +37,7 @@ public sealed class LicensingPlaywrightTests(PlaywrightBrowserFixture browser)
     }
 
     [Fact]
-    public async Task Commercial_licence_during_setup_unlocks_review_commercial_visibility()
+    public async Task Commercial_licence_during_setup_unlocks_review_team_visibility()
     {
         using var licences = new TestLicenceFactory();
         await using var host = ForgeDeckHost.StartEmptyWithLicenceKey(licences.PublicKeyPem);

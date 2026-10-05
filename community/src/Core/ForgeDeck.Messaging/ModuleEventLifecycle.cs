@@ -52,6 +52,5 @@ public sealed class ModuleEventLifecycle(
         }
     }
 
-    private static string Normalize(string runtimeId) =>
-        runtimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase) ? "build" : runtimeId.ToLowerInvariant();
+    private static string Normalize(string runtimeId) => runtimeId.ToLowerInvariant();
 }

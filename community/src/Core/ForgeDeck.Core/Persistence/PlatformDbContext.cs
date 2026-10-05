@@ -70,21 +70,6 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
         TryAddColumn(db, "ALTER TABLE core_extensions ADD COLUMN installed_from TEXT NULL");
         TryAddColumn(db, "ALTER TABLE core_extensions ADD COLUMN package_digest TEXT NULL");
 
-        // Legacy installs finished the old Modules→Owner wizard before optional Members/Project steps existed.
-        db.Database.ExecuteSqlRaw("""
-            UPDATE core_instance
-            SET setup_completed_at = COALESCE(setup_completed_at, initialised_at, CURRENT_TIMESTAMP),
-                members_acknowledged_at = COALESCE(members_acknowledged_at, initialised_at, CURRENT_TIMESTAMP),
-                project_acknowledged_at = COALESCE(project_acknowledged_at, initialised_at, CURRENT_TIMESTAMP)
-            WHERE state = 'Initialised'
-              AND setup_completed_at IS NULL
-              AND modules_acknowledged_at IS NOT NULL
-            """);
-
-        // Migrate legacy Build module runtime id.
-        db.Database.ExecuteSqlRaw("""
-            UPDATE core_extensions SET runtime_id='build' WHERE runtime_id='pipelines'
-            """);
     }
 
     private static void TryAddInstanceColumn(PlatformDbContext db, string column)

@@ -280,7 +280,7 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
     }
 
     [Fact]
-    public async Task Org_and_project_settings_trees_and_legacy_aliases()
+    public async Task Org_and_project_settings_trees()
     {
         await using var host = ForgeDeckHost.StartSeeded();
         await using var session = await host.NewPageAsync(browser.Browser);
@@ -296,16 +296,10 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.ExpectVisible(page, "h1", "License");
         await Assertions.Expect(page.Locator("#licensingMode")).ToBeVisibleAsync();
 
-        await page.GotoAsync("/#/licensing");
-        await Ui.WaitForAppIdleAsync(page);
-        await Ui.ExpectVisible(page, "h1", "License");
-
-        await page.GotoAsync("/#/modules");
-        await Ui.WaitForAppIdleAsync(page);
+        await Ui.NavigateAsync(page, "/organisation/settings/modules");
         await Ui.ExpectVisible(page, "h1", "Modules");
 
-        await page.GotoAsync("/#/audit");
-        await Ui.WaitForAppIdleAsync(page);
+        await Ui.NavigateAsync(page, "/organisation/settings/audit");
         await Ui.ExpectVisible(page, "h1", "Audit log");
 
         await Ui.GoToHashAsync(page, "/settings/general");

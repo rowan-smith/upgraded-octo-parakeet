@@ -37,7 +37,6 @@ public sealed class ModulesEditionPlaywrightTests(PlaywrightBrowserFixture brows
     [Theory]
     [InlineData("forgedeck.review.team")]
     [InlineData("forgedeck.review.enterprise")]
-    [InlineData("forgedeck.review.commercial")]
     [InlineData("forgedeck.build.team")]
     [InlineData("forgedeck.build.enterprise")]
     [InlineData("forgedeck.deploy.team")]

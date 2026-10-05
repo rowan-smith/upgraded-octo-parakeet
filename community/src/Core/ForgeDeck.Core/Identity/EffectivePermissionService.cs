@@ -34,19 +34,4 @@ public sealed class EffectivePermissionService
         _permissions.Has(userId, permission, projectId);
 
     public PermissionService Service => _permissions;
-
-    [Obsolete("Additive RBAC no longer intersects organisation ceilings with grant roles.")]
-    public static IReadOnlySet<string> Intersect(IReadOnlySet<string> ceiling, IEnumerable<string> granted)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var permission in granted)
-        {
-            if (ceiling.Contains(permission))
-            {
-                result.Add(permission);
-            }
-        }
-
-        return result;
-    }
 }

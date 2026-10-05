@@ -24,9 +24,7 @@ public static class EntitlementLevelParser
         {
             return EntitlementLevel.Enterprise;
         }
-        // Legacy "Commercial" maps to Team (historical open-core wording).
-        if (value.Equals("team", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("commercial", StringComparison.OrdinalIgnoreCase))
+        if (value.Equals("team", StringComparison.OrdinalIgnoreCase))
         {
             return EntitlementLevel.Team;
         }

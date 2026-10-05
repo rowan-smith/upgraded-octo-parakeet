@@ -19,7 +19,6 @@ public sealed class ExtensionCatalogueTests
     {
         Assert.Equal("forgedeck.review", BuiltinExtensionCatalogue.ExtensionIdForRuntime("review"));
         Assert.Equal("forgedeck.build", BuiltinExtensionCatalogue.ExtensionIdForRuntime("build"));
-        Assert.Equal("forgedeck.build", BuiltinExtensionCatalogue.ExtensionIdForRuntime("pipelines"));
         Assert.Equal("forgedeck.code", BuiltinExtensionCatalogue.ExtensionIdForRuntime("code"));
     }
 }

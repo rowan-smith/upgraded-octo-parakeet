@@ -9,7 +9,7 @@ namespace Integration.Tests;
 
 /// <summary>
 /// One Core-only install with the Build module added, a single project, and two clients: the owner (holds
-/// pipelines.manage) and a member narrowed to the built-in Reader role on that project (does not).
+/// build.manage) and a member narrowed to the built-in Viewer role on that project (does not).
 /// </summary>
 public sealed class PipelineYamlHostFixture : IAsyncLifetime
 {
@@ -93,7 +93,7 @@ public sealed class PipelineYamlHostFixture : IAsyncLifetime
 
         var roles = await Owner.GetFromJsonAsync<JsonElement>("/api/access/roles");
         var readerRoleId = roles.EnumerateArray()
-            .First(role => role.GetProperty("slug").GetString() == "reader")
+            .First(role => role.GetProperty("slug").GetString() == "viewer")
             .GetProperty("id")
             .GetGuid();
 
