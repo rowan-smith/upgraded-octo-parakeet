@@ -134,10 +134,7 @@ public sealed class RunnerPlaywrightTests(PlaywrightBrowserFixture browser)
 
     private static async Task RegisterRunnerViaApiAsync(ForgeDeckHost host, string name)
     {
-        using var login = await host.Api.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" });
-        login.EnsureSuccessStatusCode();
-        using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
-        var bearer = loginDoc.RootElement.GetProperty("token").GetString()!;
+        var bearer = await SeededAuth.LoginAsync(host.Api);
 
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "/api/pipelines/runners/registration-tokens")
         {

@@ -16,7 +16,7 @@ public sealed class PlatformContextStore
     {
         Organisation = new(KnownIds.OrganisationId, "ForgeDeck", "forgedeck");
         Project = new(KnownIds.AtlasProjectId, KnownIds.OrganisationId, "ForgeDeck", "FD", "github.com/rowan-smith/upgraded-octo-parakeet");
-        User = new(KnownIds.MayaUserId, "Maya Chen", "maya@forgedeck.dev", BootstrapPermissions);
+        User = new(KnownIds.DefaultOwnerId, DefaultInstallCredentials.DisplayName, DefaultInstallCredentials.Email, BootstrapPermissions);
     }
 
     public PlatformContextStore(ITenancyStore store) : this()

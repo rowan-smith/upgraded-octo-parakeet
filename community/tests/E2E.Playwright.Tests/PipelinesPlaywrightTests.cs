@@ -172,10 +172,7 @@ public sealed class PipelinesPlaywrightTests(PlaywrightBrowserFixture browser)
 
     private static async Task<Guid> StartRunViaApiAsync(ForgeDeckHost host)
     {
-        using var login = await host.Api.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" });
-        login.EnsureSuccessStatusCode();
-        using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
-        var token = loginDoc.RootElement.GetProperty("token").GetString()!;
+        var token = await SeededAuth.LoginAsync(host.Api);
 
         using var defsRequest = new HttpRequestMessage(HttpMethod.Get, "/api/pipelines/definitions");
         defsRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -203,10 +200,7 @@ public sealed class PipelinesPlaywrightTests(PlaywrightBrowserFixture browser)
 
     private static async Task WaitForApiRunTerminalAsync(ForgeDeckHost host, Guid runId, int timeoutMs = 45000)
     {
-        using var login = await host.Api.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" });
-        login.EnsureSuccessStatusCode();
-        using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
-        var token = loginDoc.RootElement.GetProperty("token").GetString()!;
+        var token = await SeededAuth.LoginAsync(host.Api);
 
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)
@@ -382,10 +376,7 @@ internal static class PipelinesPlaywrightTestsHelpers
 {
     public static async Task<Guid> StartRunViaApiAsync(ForgeDeckHost host)
     {
-        using var login = await host.Api.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" });
-        login.EnsureSuccessStatusCode();
-        using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
-        var token = loginDoc.RootElement.GetProperty("token").GetString()!;
+        var token = await SeededAuth.LoginAsync(host.Api);
 
         using var defsRequest = new HttpRequestMessage(HttpMethod.Get, "/api/pipelines/definitions");
         defsRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);

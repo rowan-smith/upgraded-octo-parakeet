@@ -167,6 +167,21 @@ internal static class Ui
         await page.Locator("#loginEmail").FillAsync(email);
         await page.Locator("#loginPassword").FillAsync(password);
         await page.Locator("#loginSubmit").ClickAsync();
+
+        // Default install credentials force a password change before the workspace loads.
+        if (await page.Locator("#changePasswordSubmit").CountAsync() > 0)
+        {
+            await ExpectVisible(page, "h1", "Change password");
+            if (string.IsNullOrEmpty(await page.Locator("#changeCurrentPassword").InputValueAsync()))
+            {
+                await page.Locator("#changeCurrentPassword").FillAsync(password);
+            }
+
+            await page.Locator("#changeNewPassword").FillAsync(SeededAuth.WorkingPassword);
+            await page.Locator("#changeConfirmPassword").FillAsync(SeededAuth.WorkingPassword);
+            await page.Locator("#changePasswordSubmit").ClickAsync();
+        }
+
         await page.WaitForFunctionAsync("() => document.getElementById('appSidebar')?.style.display !== 'none'");
     }
 

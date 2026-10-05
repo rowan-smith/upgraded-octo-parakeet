@@ -607,7 +607,8 @@ pre.diff span{display:block;padding:0 16px;white-space:pre}
 .app-shell.setup-mode{display:flex;flex-direction:column}
 .app-shell.setup-mode .shell-body{display:block}
 .app-shell.setup-mode .workspace{min-height:100vh}
-.app-shell.setup-mode .topbar{display:none}
+.app-shell.setup-mode .topbar,
+.app-shell.setup-mode .sidebar{display:none!important}
 .setup-shell{min-height:calc(100vh - 120px);display:grid;place-items:center;padding:24px}
 .setup-card{
   width:min(560px,100%);padding:28px;border:1px solid var(--line);border-radius:16px;

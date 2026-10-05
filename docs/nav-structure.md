@@ -2892,17 +2892,17 @@ Administrators install Git, Code, Review, Build, and Deploy only when they want 
 
 # 94. Bootstrap Login
 
-Development:
+Singular default (Development / fresh install):
 
 ```text
 admin / admin
 ```
 
-may be supported.
+Email for the seeded owner: `admin@forgedeck.dev` (username `admin` also works on the sign-in form).
 
-Production should prefer generated/environment-provided bootstrap credentials.
+The default password must be changed on first login. Production should prefer generated/environment-provided bootstrap credentials (`Bootstrap:Password` via env), with `Bootstrap:IsDevelopmentDefault=false`.
 
-Bootstrap identity exists only to establish the first real Owner.
+Bootstrap identity exists only to establish the first real Owner when demo seed is off.
 
 ---
 

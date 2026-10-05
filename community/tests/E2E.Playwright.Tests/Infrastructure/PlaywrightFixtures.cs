@@ -42,11 +42,13 @@ public sealed class ForgeDeckHost : IAsyncDisposable
 {
     private readonly WebApplicationFactory<Program> _factory;
     private readonly string _databasePath;
+    private readonly bool _seeded;
 
-    private ForgeDeckHost(WebApplicationFactory<Program> factory, string databasePath, Uri baseAddress, HttpClient api)
+    private ForgeDeckHost(WebApplicationFactory<Program> factory, string databasePath, Uri baseAddress, HttpClient api, bool seeded)
     {
         _factory = factory;
         _databasePath = databasePath;
+        _seeded = seeded;
         BaseAddress = baseAddress;
         Api = api;
     }
@@ -91,8 +93,7 @@ public sealed class ForgeDeckHost : IAsyncDisposable
                 builder.UseSetting("Data:ProtectionKeysPath", keys);
                 builder.UseSetting("Core:SeedDemoOnEmpty", seedDemo ? "true" : "false");
                 builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
-                builder.UseSetting("Bootstrap:Username", "admin");
-                builder.UseSetting("Bootstrap:Password", "admin");
+                builder.UseSetting("Bootstrap:IsDevelopmentDefault", "true");
                 if (!string.IsNullOrWhiteSpace(publicKeyPem))
                 {
                     builder.ConfigureAppConfiguration((_, config) =>
@@ -108,7 +109,7 @@ public sealed class ForgeDeckHost : IAsyncDisposable
             factory.StartServer();
 
             var baseAddress = ResolveBaseAddress(factory);
-            return new ForgeDeckHost(factory, databasePath, baseAddress, factory.CreateClient());
+            return new ForgeDeckHost(factory, databasePath, baseAddress, factory.CreateClient(), seedDemo);
         }
     }
 
@@ -147,8 +148,16 @@ public sealed class ForgeDeckHost : IAsyncDisposable
         if (clearStorage)
         {
             await page.EvaluateAsync("() => localStorage.clear()");
-            await page.GotoAsync("/");
         }
+
+        if (_seeded)
+        {
+            // Complete forced password change for the default install user, then inject the session.
+            var token = await SeededAuth.LoginAsync(Api);
+            await page.EvaluateAsync("(value) => localStorage.setItem('forgedeck.token', value)", token);
+        }
+
+        await page.GotoAsync("/");
         await page.WaitForFunctionAsync("() => document.getElementById('app')?.getAttribute('aria-busy') === 'false'");
         return new PageSession(context, page);
     }

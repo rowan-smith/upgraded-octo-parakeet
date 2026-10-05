@@ -9,10 +9,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/app.css?v=rbac-ui-4">
+  <link rel="stylesheet" href="/app.css?v=auth-boot-2">
 </head>
 <body>
-  <div id="app" class="app-shell" aria-busy="true">
+  <div id="app" class="app-shell setup-mode" aria-busy="true">
     <header class="topbar">
       <button class="mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button>
       <div class="topbar-leading">
@@ -54,7 +54,7 @@
     </header>
 
     <div class="shell-body">
-      <aside class="sidebar" id="appSidebar">
+      <aside class="sidebar" id="appSidebar" style="display:none">
         <button class="context-card" id="contextButton" aria-label="Switch project">
           <span class="context-avatar" id="projectAvatar">A</span>
           <span class="context-copy"><small id="orgLabel">Organisation</small><strong id="projectLabel">Project</strong></span>
@@ -64,7 +64,7 @@
       </aside>
 
       <div class="workspace">
-        <main id="content" class="content"><div class="loading"><span></span>Loading workspace...</div></main>
+        <main id="content" class="content"><div class="loading"><span></span>Loading...</div></main>
       </div>
     </div>
   </div>
@@ -80,6 +80,6 @@
     </div>
   </aside>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=rbac-ui-4" defer></script>
+  <script src="/app.js?v=auth-boot-2" defer></script>
 </body>
 </html>

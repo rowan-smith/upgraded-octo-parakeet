@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -29,11 +28,7 @@ public sealed class GitHubSmokeTests : IClassFixture<WebApplicationFactory<Progr
         var name = Environment.GetEnvironmentVariable("FORGEDECK_GITHUB_REPO") ?? "upgraded-octo-parakeet";
 
         using var client = _factory.CreateClient();
-        var login = await client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" });
-        login.EnsureSuccessStatusCode();
-        using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
-        var sessionToken = loginDoc.RootElement.GetProperty("token").GetString();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken);
+        await SeededAuth.AuthenticateClientAsync(client);
 
         var credential = await client.PutAsJsonAsync("/api/core/integrations/github", new { token });
         credential.EnsureSuccessStatusCode();

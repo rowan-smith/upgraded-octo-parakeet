@@ -46,7 +46,10 @@ internal sealed class TenancyFixture : IDisposable
     public AccessRole SystemRole(string slug) =>
         Roles.FindBySlug(slug) ?? throw new InvalidOperationException($"System role '{slug}' was not seeded.");
 
-    public UserAccount Bootstrap(string email = "maya@forgedeck.dev", string username = "maya", string name = "Maya Chen") =>
+    public UserAccount Bootstrap(
+        string email = DefaultInstallCredentials.Email,
+        string username = DefaultInstallCredentials.Username,
+        string name = DefaultInstallCredentials.DisplayName) =>
         Setup.Bootstrap(new SetupRequest("Northstar Labs", "Engineering", name, username, email, "password123"));
 
     public void Dispose()

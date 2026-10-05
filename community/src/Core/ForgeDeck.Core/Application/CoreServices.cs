@@ -34,9 +34,10 @@ public sealed record SetupStatus(
     bool HasRepositories,
     bool BootstrapEnabled,
     bool DevelopmentBootstrapWarning,
+    bool RequireStrongPasswords,
     Guid? InstanceId,
     IReadOnlyList<SetupStepStatus> Steps);
-public sealed record LoginResult(string Token, UserAccount User, UserProfile? Profile);
+public sealed record LoginResult(string Token, UserAccount User, UserProfile? Profile, bool MustChangePassword);
 public sealed record CreateProjectRequest(
     string Name,
     string? Slug,
@@ -63,6 +64,7 @@ public sealed class SetupService(
     ITenancyStore store,
     IPasswordHasher<UserAccount> passwords,
     IOptions<BootstrapOptions> bootstrapOptions,
+    IOptions<AuthOptions>? authOptions = null,
     IHostEnvironment? hostEnvironment = null,
     LicenceService? licences = null)
 {
@@ -107,7 +109,8 @@ public sealed class SetupService(
             hasProjects,
             hasRepositories,
             instance.BootstrapEnabled && instance.State == InstanceState.Uninitialised,
-            opts.IsDevelopmentDefault && string.Equals(opts.Username, "admin", StringComparison.OrdinalIgnoreCase) && opts.Password == "admin",
+            opts.UsesDevelopmentDefaults,
+            authOptions?.Value.RequireStrongPasswords ?? PasswordPolicy.RequireStrongPasswords,
             instance.InstanceId == Guid.Empty ? null : instance.InstanceId,
             steps);
     }
@@ -128,8 +131,8 @@ public sealed class SetupService(
             throw new InvalidOperationException("Bootstrap with development defaults is not allowed in Production.");
         }
 
-        if (!string.Equals(username?.Trim(), opts.Username, StringComparison.Ordinal) ||
-            !string.Equals(password, opts.Password, StringComparison.Ordinal))
+        if (!string.Equals(username?.Trim(), opts.EffectiveUsername, StringComparison.Ordinal) ||
+            !string.Equals(password, opts.EffectivePassword, StringComparison.Ordinal))
         {
             throw new UnauthorizedAccessException("Invalid bootstrap credentials.");
         }
@@ -245,9 +248,8 @@ public sealed class SetupService(
         var now = DateTimeOffset.UtcNow;
         var user = new UserAccount
         {
-            Id = request.Email.Equals("maya@forgedeck.dev", StringComparison.OrdinalIgnoreCase)
-                 || request.Email.Equals("maya@northstar.dev", StringComparison.OrdinalIgnoreCase)
-                ? KnownIds.MayaUserId : Guid.NewGuid(),
+            Id = request.Email.Equals(DefaultInstallCredentials.Email, StringComparison.OrdinalIgnoreCase)
+                ? KnownIds.DefaultOwnerId : Guid.NewGuid(),
             Email = request.Email.Trim(),
             Username = request.Username.Trim(),
             PasswordHash = "",
@@ -322,9 +324,8 @@ public sealed class SetupService(
         };
         var user = new UserAccount
         {
-            Id = request.Email.Equals("maya@forgedeck.dev", StringComparison.OrdinalIgnoreCase)
-                 || request.Email.Equals("maya@northstar.dev", StringComparison.OrdinalIgnoreCase)
-                ? KnownIds.MayaUserId : Guid.NewGuid(),
+            Id = request.Email.Equals(DefaultInstallCredentials.Email, StringComparison.OrdinalIgnoreCase)
+                ? KnownIds.DefaultOwnerId : Guid.NewGuid(),
             Email = request.Email.Trim(),
             Username = request.Username.Trim(),
             PasswordHash = "",
@@ -421,15 +422,15 @@ public sealed class AuthService(ITenancyStore store, IPasswordHasher<UserAccount
     private readonly ConcurrentDictionary<string, (int Failures, DateTimeOffset? LockoutUntil)> _attempts =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public LoginResult? Login(string email, string password)
+    public LoginResult? Login(string emailOrUsername, string password)
     {
-        var key = (email ?? string.Empty).Trim();
+        var key = (emailOrUsername ?? string.Empty).Trim();
         if (_attempts.TryGetValue(key, out var state) && state.LockoutUntil is { } until && until > DateTimeOffset.UtcNow)
         {
             throw new InvalidOperationException("Account temporarily locked. Try again later.");
         }
 
-        var user = store.FindUserByEmail(key);
+        var user = store.FindUserByEmail(key) ?? store.FindUserByUsername(key);
         if (user is null || user.Status != UserStatus.Active ||
             passwords.VerifyHashedPassword(user, user.PasswordHash, password) == PasswordVerificationResult.Failed)
         {
@@ -448,7 +449,27 @@ public sealed class AuthService(ITenancyStore store, IPasswordHasher<UserAccount
         user.LastLoginAt = DateTimeOffset.UtcNow;
         user.UpdatedAt = DateTimeOffset.UtcNow;
         store.SaveUser(user);
-        return new(rawToken, user, store.GetProfile(user.Id));
+        return new(rawToken, user, store.GetProfile(user.Id), user.MustChangePassword);
+    }
+
+    public void ChangePassword(Guid userId, string currentPassword, string newPassword)
+    {
+        var user = store.FindUser(userId) ?? throw new InvalidOperationException("User not found.");
+        if (passwords.VerifyHashedPassword(user, user.PasswordHash, currentPassword) == PasswordVerificationResult.Failed)
+        {
+            throw new UnauthorizedAccessException("Current password is incorrect.");
+        }
+
+        if (string.Equals(currentPassword, newPassword, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("New password must be different from the current password.");
+        }
+
+        PasswordPolicy.Validate(newPassword);
+        user.PasswordHash = passwords.HashPassword(user, newPassword);
+        user.MustChangePassword = false;
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+        store.SaveUser(user);
     }
 
     private void RecordFailure(string key)

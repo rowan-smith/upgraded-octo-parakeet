@@ -11,7 +11,7 @@ async function api(path,options={}){
   const headers={...(state.token?{Authorization:`Bearer ${state.token}`}:{}),...(options.headers||{})};
   if(options.body!=null && !headers['Content-Type'])headers['Content-Type']='application/json';
   const response=await fetch(path,{...options,headers});
-  if(!response.ok){const data=await response.json().catch(()=>({}));const error=new Error(data.error||data.detail||data.title||`Request failed (${response.status})`);error.kind=data.title;error.status=response.status;throw error}
+  if(!response.ok){const data=await response.json().catch(()=>({}));const error=new Error(data.error||data.detail||data.title||`Request failed (${response.status})`);error.kind=data.title;error.status=response.status;error.mustChangePassword=!!data.mustChangePassword;throw error}
   return response.status===204?null:response.json();
 }
 
@@ -49,9 +49,23 @@ async function boot(){
       el('app').setAttribute('aria-busy','false');
       return renderLogin();
     }
-    await loadWorkspace();
+    try{
+      await loadWorkspace();
+    }catch(error){
+      if(error.status===403 && error.mustChangePassword){
+        el('appSidebar').style.display='none';
+        document.querySelector('.app-shell')?.classList.add('setup-mode');
+        el('app').setAttribute('aria-busy','false');
+        return renderChangePassword({required:true});
+      }
+      throw error;
+    }
   }catch(error){
-    if(error.status===401){localStorage.removeItem(TOKEN_KEY);state.token=null;return renderLogin()}
+    if(error.status===401){
+      localStorage.removeItem(TOKEN_KEY);
+      state.token=null;
+      return renderLogin();
+    }
     renderError(error);
   }
 }
@@ -75,13 +89,13 @@ async function setThemePreference(theme){
 }
 
 async function loadWorkspace(){
-  el('appSidebar').style.display='';
-  document.querySelector('.app-shell')?.classList.remove('setup-mode');
   const [platform,context,connections,local,projects,me,starred]=await Promise.all([
     api('/api/platform/modules'),api('/api/core/context'),api('/api/source/repositories'),
     api('/api/projects/current/local-repository'),api('/api/projects'),api('/api/users/me'),
     api('/api/users/me/starred-projects').catch(()=>[])
   ]);
+  el('appSidebar').style.display='';
+  document.querySelector('.app-shell')?.classList.remove('setup-mode');
   state.modules=platform.modules;state.context=context;state.connections=connections;state.local=local;state.projects=projects;state.me=me;state.starredProjects=starred||[];
   state.permissions=me?.permissions||[];
   applyTheme(me?.profile?.theme||'system');
@@ -259,14 +273,45 @@ function renderLogin(){
   el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
     <h1>Sign in</h1>
     <p class="description">Access ${esc(state.setup?.organisationName||'your organisation')}.</p>
-    <label class="form-label">Email</label><input class="field" id="loginEmail" type="email" value="" autocomplete="username">
+    <label class="form-label">Email or username</label><input class="field" id="loginEmail" type="text" value="" autocomplete="username">
     <label class="form-label">Password</label><input class="field" id="loginPassword" type="password" value="" autocomplete="current-password">
     <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="loginSubmit">Sign in</button></div>
   </div></div>`;
   el('loginSubmit').onclick=async()=>{
     try{
       const login=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:el('loginEmail').value,password:el('loginPassword').value})});
-      state.token=login.token;localStorage.setItem(TOKEN_KEY,state.token);await loadWorkspace();
+      state.token=login.token;localStorage.setItem(TOKEN_KEY,state.token);
+      if(login.mustChangePassword){
+        return renderChangePassword({required:true, currentPassword:el('loginPassword').value});
+      }
+      await loadWorkspace();
+    }catch(error){showToast(error.message,true)}
+  };
+}
+
+function renderChangePassword({required=false, currentPassword=''}={}){
+  el('appSidebar').style.display='none';
+  document.querySelector('.app-shell')?.classList.add('setup-mode');
+  crumbs(required?'Change password':'Change password');
+  el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
+    <h1>Change password</h1>
+    <p class="description">${required?'You are using the default install password. Choose a new password to continue.':'Update your account password.'}</p>
+    ${required?`<div class="setup-warning">Default credentials must be changed before using ForgeDeck.</div>`:''}
+    <label class="form-label">Current password</label><input class="field" id="changeCurrentPassword" type="password" value="${esc(currentPassword)}" autocomplete="current-password">
+    <label class="form-label">New password</label><input class="field" id="changeNewPassword" type="password" value="" autocomplete="new-password">
+    <label class="form-label">Confirm new password</label><input class="field" id="changeConfirmPassword" type="password" value="" autocomplete="new-password">
+    <p class="description" style="margin-top:10px">${state.setup?.requireStrongPasswords===false?'Any non-empty password is allowed in this environment.':'At least 10 characters, including letters and digits.'}</p>
+    <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="changePasswordSubmit">Save password</button></div>
+  </div></div>`;
+  el('changePasswordSubmit').onclick=async()=>{
+    const current=el('changeCurrentPassword').value;
+    const next=el('changeNewPassword').value;
+    const confirm=el('changeConfirmPassword').value;
+    if(next!==confirm){showToast('New passwords do not match',true);return}
+    try{
+      await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:current,newPassword:next})});
+      showToast('Password updated');
+      await loadWorkspace();
     }catch(error){showToast(error.message,true)}
   };
 }
@@ -325,13 +370,15 @@ function renderBootstrapLogin(){
   crumbs('Initial Setup');
   const warn=state.setup?.developmentBootstrapWarning
     ?`<div class="setup-warning" id="bootstrapWarning">Development credentials are active. Complete setup to secure this installation.</div>`:'';
+  const defaultUser=state.setup?.developmentBootstrapWarning?'admin':'';
+  const defaultPass=state.setup?.developmentBootstrapWarning?'admin':'';
   el('content').innerHTML=`<div class="setup-shell"><div class="setup-card">
     <p class="eyebrow"><span class="repo-mark">ForgeDeck</span></p>
     <h1>Initial Setup</h1>
     <p class="description">Sign in with the installation credentials to configure this server.</p>
     ${warn}
-    <label class="form-label">Username</label><input class="field" id="bootstrapUser" value="" autocomplete="username">
-    <label class="form-label">Password</label><input class="field" id="bootstrapPass" type="password" value="" autocomplete="current-password">
+    <label class="form-label">Username</label><input class="field" id="bootstrapUser" value="${esc(defaultUser)}" autocomplete="username">
+    <label class="form-label">Password</label><input class="field" id="bootstrapPass" type="password" value="${esc(defaultPass)}" autocomplete="current-password">
     <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="bootstrapSignIn">Sign In</button></div>
   </div></div>`;
   el('bootstrapSignIn').onclick=async()=>{
@@ -441,6 +488,7 @@ function renderSetupOwner(){
     <label class="form-label">Email</label><input class="field" id="setupEmail" type="email" value="rowan@example.com">
     <label class="form-label">Password</label><input class="field" id="setupPassword" type="password" value="" autocomplete="new-password">
     <label class="form-label">Confirm Password</label><input class="field" id="setupPassword2" type="password" value="" autocomplete="new-password">
+    <p class="description" style="margin-top:10px">${state.setup?.requireStrongPasswords===false?'Any non-empty password is allowed in this environment.':'At least 10 characters, including letters and digits.'}</p>
     <div class="modal-actions" style="margin-top:22px"><button class="button primary" id="setupCreateOwner">Create Owner</button></div>
   `);
   el('setupCreateOwner').onclick=async()=>{

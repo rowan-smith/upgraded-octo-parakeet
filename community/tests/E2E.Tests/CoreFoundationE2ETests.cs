@@ -314,11 +314,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/app.css")).StatusCode);
 
         // Seeded host is unauthenticated by default for static assets; API needs the dogfood owner token.
-        using var login = await client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" });
-        login.EnsureSuccessStatusCode();
-        using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", loginDoc.RootElement.GetProperty("token").GetString());
+        await SeededAuth.AuthenticateClientAsync(client);
 
         var modules = await client.GetStringAsync("/api/platform/modules");
         Assert.Contains("\"id\":\"review\"", modules);
@@ -409,11 +405,7 @@ public sealed class CoreFoundationE2ETests : IClassFixture<WebApplicationFactory
             builder.UseSetting("Pipelines:ExecutionMode", "Simulated");
         });
         var client = factory.CreateClient();
-        var response = client.PostAsJsonAsync("/api/auth/login", new { email = "maya@forgedeck.dev", password = "demo" }).GetAwaiter().GetResult();
-        response.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
-        var token = doc.RootElement.GetProperty("token").GetString();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        SeededAuth.AuthenticateClientAsync(client).GetAwaiter().GetResult();
         return client;
     }
 

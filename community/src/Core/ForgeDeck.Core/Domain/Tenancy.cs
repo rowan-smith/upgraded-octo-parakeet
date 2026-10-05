@@ -15,7 +15,11 @@ public static class KnownIds
 {
     public static readonly Guid OrganisationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     public static readonly Guid AtlasProjectId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-    public static readonly Guid MayaUserId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    /// <summary>Default seeded owner (admin). Stable GUID for dogfood continuity.</summary>
+    public static readonly Guid DefaultOwnerId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+
+    [Obsolete("Use DefaultOwnerId")]
+    public static readonly Guid MayaUserId = DefaultOwnerId;
 }
 
 // Compatibility projections used by PlatformContextStore and feature modules.
@@ -100,6 +104,8 @@ public sealed class UserAccount
     public required string Username { get; set; }
     public required string PasswordHash { get; set; }
     public UserStatus Status { get; set; } = UserStatus.Active;
+    /// <summary>When true, the session may only change password or log out until a new password is set.</summary>
+    public bool MustChangePassword { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }

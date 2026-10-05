@@ -36,6 +36,13 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
             return;
         }
 
+        if (user.MustChangePassword && !AllowsWhileMustChangePassword(context.Request.Path))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "Password change required", mustChangePassword = true });
+            return;
+        }
+
         var profile = store.GetProfile(user.Id);
         var membership = store.GetMembership(user.Id);
         if (membership is null || !membership.IsEffectivelyActive())
@@ -55,8 +62,16 @@ public sealed class MvpAuthenticationMiddleware(RequestDelegate next)
         var permissions = effectivePermissions.ForUser(user.Id, project?.Id);
         platformContext.SetUser(PlatformContextStore.ToPlatformUser(user, profile, permissions));
         context.Items["user"] = platformContext.User;
+        context.Items["account"] = user;
         context.Items["session-token"] = token;
         await next(context);
+    }
+
+    private static bool AllowsWhileMustChangePassword(PathString path)
+    {
+        var value = path.Value ?? "";
+        return value.Equals("/api/auth/change-password", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("/api/auth/logout", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool RequiresAuthentication(PathString path)

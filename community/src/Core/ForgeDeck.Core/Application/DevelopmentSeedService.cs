@@ -2,6 +2,7 @@ using ForgeDeck.Contracts.Extensions;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Extensions;
+using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
@@ -10,6 +11,7 @@ namespace ForgeDeck.Core.Application;
 
 /// <summary>
 /// Development dogfood seeder: boots a ForgeDeck organisation working on the ForgeDeck product itself.
+/// Uses the singular install default (<see cref="DefaultInstallCredentials"/>); password must be changed on first login.
 /// </summary>
 public sealed class DevelopmentSeedService(
     IConfiguration configuration,
@@ -38,18 +40,19 @@ public sealed class DevelopmentSeedService(
         };
         var user = new UserAccount
         {
-            Id = KnownIds.MayaUserId,
-            Email = "maya@forgedeck.dev",
-            Username = "maya",
+            Id = KnownIds.DefaultOwnerId,
+            Email = DefaultInstallCredentials.Email,
+            Username = DefaultInstallCredentials.Username,
             PasswordHash = "",
+            MustChangePassword = true,
             CreatedAt = now,
             UpdatedAt = now
         };
-        user.PasswordHash = passwords.HashPassword(user, "demo");
+        user.PasswordHash = passwords.HashPassword(user, DefaultInstallCredentials.Password);
         var profile = new UserProfile
         {
             UserId = user.Id,
-            DisplayName = "Maya Chen",
+            DisplayName = DefaultInstallCredentials.DisplayName,
             DefaultProjectId = KnownIds.AtlasProjectId,
             Theme = "system"
         };

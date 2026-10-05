@@ -69,7 +69,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
         TryAddInstanceColumn(db, "project_acknowledged_at");
         TryAddColumn(db, "ALTER TABLE core_extensions ADD COLUMN installed_from TEXT NULL");
         TryAddColumn(db, "ALTER TABLE core_extensions ADD COLUMN package_digest TEXT NULL");
-
+        TryAddColumn(db, "ALTER TABLE core_users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
     }
 
     private static void TryAddInstanceColumn(PlatformDbContext db, string column)
@@ -184,6 +184,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             e.Property(x => x.Username).HasColumnName("username").IsRequired().UseCollation("NOCASE");
             e.Property(x => x.PasswordHash).HasColumnName("password_hash").IsRequired();
             e.Property(x => x.Status).HasColumnName("status").HasConversion<string>().IsRequired();
+            e.Property(x => x.MustChangePassword).HasColumnName("must_change_password").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
             e.Property(x => x.LastLoginAt).HasColumnName("last_login_at");

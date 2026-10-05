@@ -12,6 +12,7 @@ using ForgeDeck.Contracts.Pipelines;
 using ForgeDeck.Core.Capabilities;
 using ForgeDeck.Core.Context;
 using ForgeDeck.Core.Domain;
+using ForgeDeck.Core.Identity;
 using ForgeDeck.Core.Licensing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -308,7 +309,7 @@ public sealed class RunnerServiceTests
 
     private static (Guid RunnerId, string Token) Register(Harness harness, IReadOnlyList<string> capabilities, int concurrency = 1)
     {
-        var (raw, _) = harness.Runners.CreateRegistrationToken("maya@forgedeck.dev");
+        var (raw, _) = harness.Runners.CreateRegistrationToken(DefaultInstallCredentials.Email);
         var response = harness.Runners.Register(new RunnerRegistrationRequest(
             "test-runner", raw, "linux", capabilities, concurrency, "1.0.0"));
         return (response.RunnerId, response.RunnerToken);

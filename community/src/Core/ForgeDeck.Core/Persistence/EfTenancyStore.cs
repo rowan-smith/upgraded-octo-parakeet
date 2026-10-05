@@ -223,6 +223,7 @@ public sealed class EfTenancyStore : ITenancyStore
             existing.Username = value.Username;
             existing.PasswordHash = value.PasswordHash;
             existing.Status = value.Status;
+            existing.MustChangePassword = value.MustChangePassword;
             existing.UpdatedAt = value.UpdatedAt;
             existing.LastLoginAt = value.LastLoginAt;
             existing.OnboardingDismissedAt = value.OnboardingDismissedAt;

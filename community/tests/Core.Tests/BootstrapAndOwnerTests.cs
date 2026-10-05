@@ -1,5 +1,6 @@
 using ForgeDeck.Core.Application;
 using ForgeDeck.Core.Domain;
+using ForgeDeck.Core.Identity;
 
 namespace Core.Tests;
 
@@ -17,7 +18,7 @@ public sealed class BootstrapAndOwnerTests
         Assert.Equal("Northstar Labs", fixture.Store.GetOrganisation()!.Name);
         Assert.Equal(OrganisationRole.Owner, fixture.Store.GetMembership(user.Id)!.Role);
         Assert.Equal(MembershipStatus.Active, fixture.Store.GetMembership(user.Id)!.Status);
-        Assert.Equal("Maya Chen", fixture.Store.GetProfile(user.Id)!.DisplayName);
+        Assert.Equal(DefaultInstallCredentials.DisplayName, fixture.Store.GetProfile(user.Id)!.DisplayName);
         Assert.True(fixture.Setup.GetStatus().Initialised);
         Assert.False(fixture.Setup.GetStatus().HasProjects);
     }
@@ -98,7 +99,7 @@ public sealed class BootstrapAndOwnerTests
         using var fixture = new TenancyFixture();
         fixture.Bootstrap();
 
-        var login = fixture.Auth.Login("maya@forgedeck.dev", "password123");
+        var login = fixture.Auth.Login(DefaultInstallCredentials.Email, "password123");
         Assert.NotNull(login);
         Assert.NotNull(fixture.Auth.GetUserBySessionToken(login.Token));
 
@@ -111,10 +112,10 @@ public sealed class BootstrapAndOwnerTests
     {
         using var fixture = new TenancyFixture();
         var owner = fixture.Bootstrap();
-        Assert.Null(fixture.Auth.Login("maya@forgedeck.dev", "wrong-password"));
+        Assert.Null(fixture.Auth.Login(DefaultInstallCredentials.Email, "wrong-password"));
 
         fixture.Memberships.Add("bob@example.com", "bob", "Bob", "password123", OrganisationRole.Owner, owner.Id);
         fixture.Memberships.ChangeStatus(owner.Id, MembershipStatus.Suspended);
-        Assert.Null(fixture.Auth.Login("maya@forgedeck.dev", "password123"));
+        Assert.Null(fixture.Auth.Login(DefaultInstallCredentials.Email, "password123"));
     }
 }

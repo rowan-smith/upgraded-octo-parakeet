@@ -106,9 +106,9 @@ public sealed class SearchApiTests
         {
             organisationName = "Search Org",
             organisationDescription = "Search tests",
-            displayName = "Maya Owner",
-            username = "maya",
-            email = "maya@forgedeck.dev",
+            displayName = "Search Owner",
+            username = "searchowner",
+            email = "search-owner@forgedeck.dev",
             password = "password123"
         });
         setup.EnsureSuccessStatusCode();

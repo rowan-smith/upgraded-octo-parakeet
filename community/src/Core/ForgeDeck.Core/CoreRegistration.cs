@@ -37,6 +37,8 @@ public static class CoreRegistration
         ExtensionLifecycleService.RememberLoaded(modules);
         services.Configure<LicensingOptions>(configuration.GetSection(LicensingOptions.SectionName));
         services.Configure<BootstrapOptions>(configuration.GetSection(BootstrapOptions.SectionName));
+        services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+        PasswordPolicy.Configure(configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>());
         services.AddSingleton<ManagedLicenceEntitlementStore>();
         services.AddSingleton<ILicenceEntitlementStore>(sp => sp.GetRequiredService<ManagedLicenceEntitlementStore>());
         services.AddSingleton<LicenceService>();

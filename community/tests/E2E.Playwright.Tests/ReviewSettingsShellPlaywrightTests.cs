@@ -1,3 +1,4 @@
+using ForgeDeck.Core.Identity;
 using Microsoft.Playwright;
 
 namespace E2E.Playwright.Tests;
@@ -324,7 +325,7 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
         await Ui.ClickAsync(page.Locator("#userMenu"));
         await Assertions.Expect(page.Locator("#userMenuDropdown:not([hidden]) button[value='signout']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#userMenuDropdown")).ToContainTextAsync("Profile");
-        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@admin");
         await page.Keyboard.PressAsync("Escape");
         await Assertions.Expect(page.Locator("#userMenuDropdown")).ToBeHiddenAsync();
     }
@@ -336,13 +337,13 @@ public sealed class ShellPlaywrightTests(PlaywrightBrowserFixture browser)
         await using var session = await host.NewPageAsync(browser.Browser);
         var page = session.Page;
 
-        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@admin");
         await Ui.ClickAsync(page.Locator("#userMenu"));
         await Ui.ClickAsync(page.Locator("#userMenuDropdown button[value='signout']"));
         await Ui.ExpectVisible(page, "h1", "Sign in");
 
-        await Ui.SignInAsync(page, "maya@forgedeck.dev", "demo");
-        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await Ui.SignInAsync(page, DefaultInstallCredentials.Email, SeededAuth.WorkingPassword);
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@admin");
         await Assertions.Expect(page.Locator("#projectLabel")).ToContainTextAsync("ForgeDeck");
     }
 }

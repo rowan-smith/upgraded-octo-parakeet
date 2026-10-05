@@ -17,7 +17,7 @@ public sealed class SeededNavigationPlaywrightTests(PlaywrightBrowserFixture bro
 
         await Assertions.Expect(page.Locator("#orgLabel")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("#projectLabel")).ToContainTextAsync("ForgeDeck");
-        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@maya");
+        await Assertions.Expect(page.Locator("#userHandle")).ToContainTextAsync("@admin");
         await Assertions.Expect(page.Locator("#primaryNav")).ToBeVisibleAsync();
     }
 
