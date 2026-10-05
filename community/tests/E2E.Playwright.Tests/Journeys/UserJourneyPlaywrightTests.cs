@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Playwright;
 
 namespace E2E.Playwright.Tests;
@@ -92,18 +91,12 @@ public sealed class UserJourneyPlaywrightTests(PlaywrightBrowserFixture browser,
         await Assertions.Expect(page.Locator(".sidebar-footer")).ToHaveCountAsync(0);
     }
 
-    // ── Legacy aliases (8) ────────────────────────────────────────────────
+    // ── Settings default routes ───────────────────────────────────────────
 
     [Theory]
-    [InlineData("/licensing", "License")]
-    [InlineData("/organisation/licensing", "License")]
-    [InlineData("/modules", "Modules")]
-    [InlineData("/connectors", "Connectors")]
-    [InlineData("/audit", "Audit log")]
-    [InlineData("/runners", "Runners")]
     [InlineData("/organisation/settings", "Overview")]
     [InlineData("/settings", "Project settings")]
-    public async Task Legacy_alias_lands_on_expected_page(string route, string heading)
+    public async Task Settings_defaults_land_on_expected_page(string route, string heading)
     {
         await using var session = await NewSessionAsync();
         var page = session.Page;
@@ -254,7 +247,7 @@ public sealed class UserJourneyPlaywrightTests(PlaywrightBrowserFixture browser,
     }
 
     [Fact]
-    public async Task Modules_catalogue_lists_core_and_hides_commercial_alias()
+    public async Task Modules_catalogue_lists_core_and_hides_tier_clones()
     {
         await using var session = await NewSessionAsync();
         var page = session.Page;
@@ -264,8 +257,6 @@ public sealed class UserJourneyPlaywrightTests(PlaywrightBrowserFixture browser,
         Assert.Contains("Code", installed);
         Assert.Contains("Review", installed);
         Assert.Contains("Build", installed);
-
-        await Assertions.Expect(page.Locator("[data-extension-id='forgedeck.review.commercial']")).ToHaveCountAsync(0);
 
         var team = page.Locator("[data-extension-id='forgedeck.review.team']");
         if (await team.CountAsync() > 0)

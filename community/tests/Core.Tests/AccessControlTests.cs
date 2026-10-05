@@ -53,8 +53,6 @@ internal static class AccessMatrix
         "git.repository.read", "build.read", "deploy.read"
     ];
 
-    public static readonly string[] Reader = Viewer;
-
     public static readonly string[] Developer =
     [
         ..Viewer,
@@ -72,8 +70,6 @@ internal static class AccessMatrix
     ];
 
     public static readonly string[] Deployer = [..Viewer, "deploy.execute", "deploy.manage", "deploy.approve"];
-
-    public static readonly string[] DeployOperator = Deployer;
 
     public static readonly string[] ProjectAdmin =
     [
@@ -104,13 +100,11 @@ internal static class AccessMatrix
         [SystemAccessRoles.TeamLead] = TeamLead,
         [SystemAccessRoles.TeamMember] = TeamMember,
         [SystemAccessRoles.ProjectAdmin] = ProjectAdmin,
-        [SystemAccessRoles.Reader] = Reader,
         [SystemAccessRoles.Viewer] = Viewer,
         [SystemAccessRoles.Developer] = Developer,
         [SystemAccessRoles.Reviewer] = Reviewer,
         [SystemAccessRoles.Builder] = Builder,
-        [SystemAccessRoles.Deployer] = Deployer,
-        [SystemAccessRoles.DeployOperator] = DeployOperator
+        [SystemAccessRoles.Deployer] = Deployer
     };
 
     public static IReadOnlySet<string> Expected(string slug) =>
@@ -126,13 +120,6 @@ internal static class AccessMatrix
         }
 
         return result;
-    }
-
-    [Obsolete("Additive RBAC replaces ceiling intersection.")]
-    public static IReadOnlySet<string> Intersection(string slug, string[] ceiling)
-    {
-        var limit = new HashSet<string>(ceiling, StringComparer.OrdinalIgnoreCase);
-        return new HashSet<string>(Roles[slug].Where(limit.Contains), StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Every (role, permission) pair with the answer the role is expected to give.</summary>
@@ -188,7 +175,7 @@ public sealed class SystemAccessRoleMatrixTests
         Assert.Equal(SystemAccessRoles.Owner, SystemAccessRoles.Find(slug)!.Slug);
 
     [Fact]
-    public void Thirteen_system_roles_are_defined() => Assert.Equal(13, SystemAccessRoles.Definitions.Count);
+    public void Eleven_system_roles_are_defined() => Assert.Equal(11, SystemAccessRoles.Definitions.Count);
 
     [Fact]
     public void Unknown_system_role_slug_is_rejected() =>
@@ -205,7 +192,6 @@ public sealed class SystemAccessRoleMatrixTests
     }
 
     [Theory]
-    [InlineData(SystemAccessRoles.Reader)]
     [InlineData(SystemAccessRoles.Developer)]
     [InlineData(SystemAccessRoles.Reviewer)]
     [InlineData(SystemAccessRoles.Builder)]
@@ -220,9 +206,9 @@ public sealed class SystemAccessRoleMatrixTests
                 permission));
 
     [Theory]
-    [InlineData(SystemAccessRoles.Reader, "deploy.execute")]
-    [InlineData(SystemAccessRoles.Reader, "review.merge")]
-    [InlineData(SystemAccessRoles.Reader, "build.run")]
+    [InlineData(SystemAccessRoles.Viewer, "deploy.execute")]
+    [InlineData(SystemAccessRoles.Viewer, "review.merge")]
+    [InlineData(SystemAccessRoles.Viewer, "build.run")]
     [InlineData(SystemAccessRoles.Developer, "deploy.execute")]
     [InlineData(SystemAccessRoles.Developer, "deploy.manage")]
     [InlineData(SystemAccessRoles.Reviewer, "review.merge")]
@@ -293,7 +279,7 @@ public sealed class PermissionCatalogueTests
     [InlineData("Organisation.Read")]
     [InlineData("deploy.EXECUTE")]
     [InlineData(" review.read ")]
-    [InlineData("Pipelines.Runner.Manage")]
+    [InlineData("Build.Runner.Manage")]
     public void Known_permissions_are_matched_case_insensitively_and_trimmed(string permission) =>
         Assert.True(PermissionCatalogue.IsKnown(permission));
 
@@ -303,7 +289,8 @@ public sealed class PermissionCatalogueTests
     [InlineData("deploy")]
     [InlineData("*")]
     [InlineData("admin")]
-    [InlineData("pipelines.*")]
+    [InlineData("build.*")]
+    [InlineData("pipelines.read")]
     public void Unknown_permissions_are_not_recognised(string permission) =>
         Assert.False(PermissionCatalogue.IsKnown(permission));
 
@@ -633,7 +620,7 @@ public sealed class AccessRoleServiceTests
     {
         using var fixture = new TenancyFixture();
         fixture.Bootstrap();
-        var reader = fixture.SystemRole(SystemAccessRoles.Reader);
+        var reader = fixture.SystemRole(SystemAccessRoles.Viewer);
 
         Assert.Null(fixture.Roles.Require(null));
         Assert.Equal(reader.Id, fixture.Roles.Require(reader.Id));
@@ -675,7 +662,7 @@ public sealed class TeamAndGrantRoleTests
     {
         using var fixture = new TenancyFixture();
         fixture.Bootstrap();
-        var reader = fixture.SystemRole(SystemAccessRoles.Reader);
+        var reader = fixture.SystemRole(SystemAccessRoles.Viewer);
         var team = fixture.Teams.Create("Backend", "backend", null, reader.Id);
 
         fixture.Roles.AssignTeamRole(team.Id, null);
@@ -688,7 +675,7 @@ public sealed class TeamAndGrantRoleTests
     {
         using var fixture = new TenancyFixture();
         fixture.Bootstrap();
-        var reader = fixture.SystemRole(SystemAccessRoles.Reader);
+        var reader = fixture.SystemRole(SystemAccessRoles.Viewer);
         var team = fixture.Teams.Create("Backend", "backend", null, reader.Id);
 
         Assert.Equal(reader.Id, fixture.Teams.Update(team.Id, "Backend Team", null, null).RoleId);
@@ -716,7 +703,7 @@ public sealed class TeamAndGrantRoleTests
     {
         using var fixture = new TenancyFixture();
         fixture.Bootstrap();
-        var reader = fixture.SystemRole(SystemAccessRoles.Reader);
+        var reader = fixture.SystemRole(SystemAccessRoles.Viewer);
 
         Assert.Throws<KeyNotFoundException>(() => fixture.Roles.AssignTeamRole(Guid.NewGuid(), reader.Id));
     }
@@ -758,7 +745,7 @@ public sealed class TeamAndGrantRoleTests
         var owner = fixture.Bootstrap();
         var bob = fixture.Memberships.Add("bob@example.com", "bob", "Bob", "password123", OrganisationRole.Member, owner.Id);
         var project = fixture.Projects.CreateProject(new CreateProjectRequest("Atlas", "atlas", null, null), owner.Id);
-        var reader = fixture.SystemRole(SystemAccessRoles.Reader);
+        var reader = fixture.SystemRole(SystemAccessRoles.Viewer);
         var builder = fixture.SystemRole(SystemAccessRoles.Builder);
 
         fixture.Projects.GrantUser(project.Id, bob.Id, reader.Id);

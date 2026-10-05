@@ -96,7 +96,6 @@ public sealed class ModuleCatalogueFilterTests
     [Theory]
     [InlineData("forgedeck.review.team", true)]
     [InlineData("forgedeck.review.enterprise", true)]
-    [InlineData("forgedeck.review.commercial", true)]
     [InlineData("forgedeck.build.team", true)]
     [InlineData("forgedeck.build.enterprise", true)]
     [InlineData("forgedeck.deploy.team", true)]

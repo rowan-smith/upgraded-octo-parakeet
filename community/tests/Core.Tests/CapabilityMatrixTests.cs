@@ -193,15 +193,12 @@ public sealed class LicenceSkuMatrixTests
 public sealed class PlatformModulesNormalizeTests
 {
     [Theory]
-    [InlineData("pipelines", "build")]
-    [InlineData("PIPELINES", "build")]
     [InlineData("build", "build")]
     [InlineData("build-team", "build")]
     [InlineData("build-enterprise", "build")]
     [InlineData("review", "review")]
     [InlineData("review-team", "review")]
     [InlineData("review-enterprise", "review")]
-    [InlineData("review-commercial", "review")]
     [InlineData("deploy", "deploy")]
     [InlineData("deploy-team", "deploy")]
     [InlineData("deploy-enterprise", "deploy")]
@@ -267,8 +264,8 @@ public sealed class OrganisationDeployPermissionTests
             yield return [role, "deploy.read", expected];
             yield return [role, "deploy.execute", expected];
             yield return [role, "deploy.manage", expected];
-            yield return [role, "pipelines.read", expected];
-            yield return [role, "pipelines.run", expected];
+            yield return [role, "build.read", expected];
+            yield return [role, "build.run", expected];
         }
     }
 

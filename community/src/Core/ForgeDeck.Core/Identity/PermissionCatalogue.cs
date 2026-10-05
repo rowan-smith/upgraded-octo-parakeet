@@ -87,13 +87,6 @@ public static class PermissionCatalogue
         new("build.manage", "Build", "Manage pipelines", "Create, edit, and delete pipeline definitions.", Project, "forgedeck.build"),
         new("build.runner.read", "Build", "Read runners", "View registered build runners and their status.", OrgOrProject, "forgedeck.build"),
         new("build.runner.manage", "Build", "Manage runners", "Register and revoke build runners.", OrgOrProject, "forgedeck.build"),
-        // Legacy aliases kept Known during build.* transition.
-        new("pipelines.read", "Build", "Read pipelines", "View pipelines, runs, and job logs.", Project, "forgedeck.build"),
-        new("pipelines.run", "Build", "Run pipelines", "Queue pipeline runs.", Project, "forgedeck.build"),
-        new("pipelines.cancel", "Build", "Cancel pipeline runs", "Cancel queued or running pipeline runs.", Project, "forgedeck.build"),
-        new("pipelines.manage", "Build", "Manage pipelines", "Create, edit, and delete pipeline definitions.", Project, "forgedeck.build"),
-        new("pipelines.runner.read", "Build", "Read runners", "View registered build runners and their status.", OrgOrProject, "forgedeck.build"),
-        new("pipelines.runner.manage", "Build", "Manage runners", "Register and revoke build runners.", OrgOrProject, "forgedeck.build"),
 
         new("deploy.read", "Deploy", "Read deployments", "View environments, releases, and deployment history.", Project, "forgedeck.deploy"),
         new("deploy.execute", "Deploy", "Execute deployments", "Trigger deployments to environments.", Project, "forgedeck.deploy"),

@@ -139,7 +139,7 @@ public sealed class ArchitectureTests
             .Concat(Directory.GetFiles(Path.Combine(root, "sdk"), "*.cs", SearchOption.AllDirectories));
 
         // Manifest / catalogue construction of runtime id "pipelines" is forbidden.
-        // Nav route ids like NavigationItem("pipelines", ...) and permission aliases remain allowed.
+        // Nav route ids like NavigationItem("pipelines", ...) remain allowed.
         var forbidden = new Regex(
             """(?i)(?:RuntimeId\s*[:=]\s*"pipelines"|new\s+ModuleManifest\s*\(\s*"pipelines"|Manifest\s*\{[^}]*Id\s*=\s*"pipelines")""",
             RegexOptions.Compiled);
@@ -147,16 +147,6 @@ public sealed class ArchitectureTests
         foreach (var path in sources)
         {
             var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
-            // Legacy alias helpers may still mention the string for migration.
-            if (relative.Contains("LegacyRuntimeAlias", StringComparison.OrdinalIgnoreCase) ||
-                relative.Contains("PermissionAliases", StringComparison.OrdinalIgnoreCase) ||
-                relative.Contains("ModuleEventLifecycle", StringComparison.OrdinalIgnoreCase) ||
-                relative.Contains("BuiltinExtensionCatalogue", StringComparison.OrdinalIgnoreCase) ||
-                relative.Contains("PlatformDbContext", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             var text = File.ReadAllText(path);
             Assert.False(forbidden.IsMatch(text), $"Forbidden pipelines runtime id assignment in {relative}");
         }

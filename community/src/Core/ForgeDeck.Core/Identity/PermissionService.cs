@@ -29,7 +29,7 @@ public sealed class PermissionService(
     public Task<bool> HasPermissionAsync(Guid userId, string permission, ResourceScope scope, CancellationToken cancellationToken = default)
     {
         var set = Resolve(userId, scope);
-        return Task.FromResult(PermissionAliases.Expand(permission).Any(set.Contains));
+        return Task.FromResult(set.Contains(permission));
     }
 
     public Task<EffectivePermissionSet> GetEffectivePermissionsAsync(Guid userId, ResourceScope scope, CancellationToken cancellationToken = default) =>
@@ -55,8 +55,7 @@ public sealed class PermissionService(
 
     public bool Has(Guid userId, string permission, Guid? projectId = null)
     {
-        var granted = ForUser(userId, projectId);
-        return PermissionAliases.Expand(permission).Any(granted.Contains);
+        return ForUser(userId, projectId).Contains(permission);
     }
 
     private EffectivePermissionSet Resolve(Guid userId, ResourceScope scope)

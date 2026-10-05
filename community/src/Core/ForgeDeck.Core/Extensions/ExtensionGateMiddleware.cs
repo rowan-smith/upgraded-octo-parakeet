@@ -30,15 +30,7 @@ public sealed class ExtensionGateMiddleware(RequestDelegate next)
                 continue;
             }
 
-            if (registry.IsRuntimeEnabled(runtimeId) ||
-                registry.IsRuntimeEnabled(LegacyRuntimeAlias.Normalize(runtimeId)))
-            {
-                break;
-            }
-
-            // Also accept legacy pipelines runtime rows during migration.
-            if (runtimeId.Equals("build", StringComparison.OrdinalIgnoreCase) &&
-                registry.IsRuntimeEnabled("pipelines"))
+            if (registry.IsRuntimeEnabled(runtimeId))
             {
                 break;
             }
@@ -106,14 +98,4 @@ public static class ExtensionGateMiddlewareExtensions
 {
     public static IApplicationBuilder UseExtensionGates(this IApplicationBuilder app) =>
         app.UseMiddleware<ExtensionGateMiddleware>();
-}
-
-/// <summary>Maps legacy runtime ids during one upgrade window.</summary>
-public static class LegacyRuntimeAlias
-{
-    public static string Normalize(string runtimeId) =>
-        runtimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase) ? "build" : runtimeId;
-
-    public static bool EqualsCanonical(string runtimeId, string canonical) =>
-        string.Equals(Normalize(runtimeId), canonical, StringComparison.OrdinalIgnoreCase);
 }

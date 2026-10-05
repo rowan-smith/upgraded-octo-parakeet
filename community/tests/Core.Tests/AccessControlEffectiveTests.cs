@@ -156,7 +156,7 @@ public sealed class AccessControlEffectiveTests(EffectivePermissionMatrixFixture
             return;
         }
 
-        var effective = matrix.ViaTeamRole(OrganisationRole.Member, SystemAccessRoles.Reader);
+        var effective = matrix.ViaTeamRole(OrganisationRole.Member, SystemAccessRoles.Viewer);
         Assert.Contains("review.read", effective);
         Assert.Contains("build.read", effective);
         Assert.DoesNotContain("review.merge", effective);
@@ -319,7 +319,7 @@ public sealed class AccessControlEffectiveEdgeTests
         using var world = new World();
         var member = world.AddMember("case", OrganisationRole.Member);
         var project = world.CreateProject("case");
-        world.Tenancy.Projects.GrantUser(project.Id, member.Id, world.Tenancy.SystemRole(SystemAccessRoles.Reader).Id);
+        world.Tenancy.Projects.GrantUser(project.Id, member.Id, world.Tenancy.SystemRole(SystemAccessRoles.Viewer).Id);
         Assert.Equal(expected, world.Effective.Has(member.Id, permission, project.Id));
     }
 

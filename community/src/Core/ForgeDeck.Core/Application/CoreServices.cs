@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using ForgeDeck.Contracts.Extensions;
-using ForgeDeck.Contracts.Onboarding;
 using ForgeDeck.Contracts.SourceControl;
 using ForgeDeck.Core.Domain;
 using ForgeDeck.Core.Extensions;
@@ -36,8 +35,7 @@ public sealed record SetupStatus(
     bool BootstrapEnabled,
     bool DevelopmentBootstrapWarning,
     Guid? InstanceId,
-    IReadOnlyList<SetupStepStatus> Steps,
-    IReadOnlyList<OnboardingStepView> ModuleSteps);
+    IReadOnlyList<SetupStepStatus> Steps);
 public sealed record LoginResult(string Token, UserAccount User, UserProfile? Profile);
 public sealed record CreateProjectRequest(
     string Name,
@@ -111,8 +109,7 @@ public sealed class SetupService(
             instance.BootstrapEnabled && instance.State == InstanceState.Uninitialised,
             opts.IsDevelopmentDefault && string.Equals(opts.Username, "admin", StringComparison.OrdinalIgnoreCase) && opts.Password == "admin",
             instance.InstanceId == Guid.Empty ? null : instance.InstanceId,
-            steps,
-            []);
+            steps);
     }
 
     public string BootstrapLogin(string username, string password)

@@ -27,7 +27,7 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
     [InlineData("Owner")]
     [InlineData("Admin")]
     [InlineData("Member")]
-    [InlineData("Reader")]
+    [InlineData("Viewer")]
     [InlineData("Developer")]
     [InlineData("Reviewer")]
     [InlineData("Builder")]
@@ -80,10 +80,10 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
     [InlineData("review.approve")]
     [InlineData("review.merge")]
     [InlineData("git.repository.push")]
-    [InlineData("pipelines.read")]
-    [InlineData("pipelines.run")]
-    [InlineData("pipelines.manage")]
-    [InlineData("pipelines.runner.manage")]
+    [InlineData("build.read")]
+    [InlineData("build.run")]
+    [InlineData("build.manage")]
+    [InlineData("build.runner.manage")]
     [InlineData("deploy.read")]
     [InlineData("deploy.execute")]
     [InlineData("deploy.manage")]
@@ -143,7 +143,7 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
         var page = session.Page;
         await OpenPermissionsAsync(page);
 
-        await CreateRoleAsync(page, $"Release Captain {suffix}", $"release-captain-{suffix}", "pipelines.run", "deploy.execute");
+        await CreateRoleAsync(page, $"Release Captain {suffix}", $"release-captain-{suffix}", "build.run", "deploy.execute");
 
         await Ui.ExpectToastAsync(page, "Role saved");
         var card = page.Locator("#accessRolesList .module-card").Filter(new() { HasText = $"Release Captain {suffix}" });
@@ -188,7 +188,7 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
         await using var session = await NewSessionAsync();
         var page = session.Page;
         await OpenPermissionsAsync(page);
-        await CreateRoleAsync(page, $"Preselect {suffix}", $"preselect-{suffix}", "pipelines.read", "pipelines.run", "deploy.read");
+        await CreateRoleAsync(page, $"Preselect {suffix}", $"preselect-{suffix}", "build.read", "build.run", "deploy.read");
         await Ui.ExpectToastAsync(page, "Role saved");
 
         await Ui.ClickAsync(page.Locator("#accessRolesList .module-card")
@@ -207,14 +207,14 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
         await using var session = await NewSessionAsync();
         var page = session.Page;
         await OpenPermissionsAsync(page);
-        await CreateRoleAsync(page, $"Before {suffix}", $"before-{suffix}", "pipelines.read");
+        await CreateRoleAsync(page, $"Before {suffix}", $"before-{suffix}", "build.read");
         await Ui.ExpectToastAsync(page, "Role saved");
 
         await Ui.ClickAsync(page.Locator("#accessRolesList .module-card")
             .Filter(new() { HasText = $"Before {suffix}" })
             .Locator("[data-edit-role]"));
         await page.Locator("#roleName").FillAsync($"After {suffix}");
-        await Ui.ClickAsync(page.Locator("[data-role-perm='pipelines.cancel']"));
+        await Ui.ClickAsync(page.Locator("[data-role-perm='build.cancel']"));
         await Ui.ClickAsync(page.Locator("#modal[open] button[value='submit']"));
 
         await Ui.ExpectToastAsync(page, "Role saved");
@@ -247,7 +247,7 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
     [InlineData("owner")]
     [InlineData("admin")]
     [InlineData("member")]
-    [InlineData("reader")]
+    [InlineData("viewer")]
     [InlineData("developer")]
     [InlineData("reviewer")]
     [InlineData("builder")]
@@ -310,7 +310,7 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
     }
 
     [Theory]
-    [InlineData("Reader")]
+    [InlineData("Viewer")]
     [InlineData("Developer")]
     [InlineData("Builder")]
     [InlineData("Deployer")]
@@ -409,13 +409,13 @@ public sealed class AccessControlPlaywrightTests(PlaywrightBrowserFixture browse
         var suffix = Suffix();
         await using var session = await NewSessionAsync();
         var page = session.Page;
-        await CreateTeamAsync(page, $"Settings Crew {suffix}", $"settings-crew-{suffix}", "Reader");
+        await CreateTeamAsync(page, $"Settings Crew {suffix}", $"settings-crew-{suffix}", "Viewer");
 
         await Ui.GoToHashAsync(page, "/organisation/settings/users");
         await Ui.ClickAsync(page.Locator("#peopleTeams"));
 
         await Assertions.Expect(page.Locator(".module-card").Filter(new() { HasText = $"Settings Crew {suffix}" }))
-            .ToContainTextAsync("role: Reader");
+            .ToContainTextAsync("role: Viewer");
     }
 
     [Fact]

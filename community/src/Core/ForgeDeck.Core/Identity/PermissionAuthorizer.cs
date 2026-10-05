@@ -11,15 +11,7 @@ public sealed class PermissionAuthorizer
             return false;
         }
 
-        foreach (var key in PermissionAliases.Expand(permission))
-        {
-            if (user.Permissions.Contains(key))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return user.Permissions.Contains(permission);
     }
 
     public static IResult Forbidden() => Results.Json(new { error = "Forbidden", title = "Permission Error" }, statusCode: StatusCodes.Status403Forbidden);

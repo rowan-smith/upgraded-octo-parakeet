@@ -11,7 +11,6 @@ public sealed class EffectivePermissionScenario : IDisposable
 {
     private static readonly string[] ProjectRoleSlugs =
     [
-        SystemAccessRoles.Reader,
         SystemAccessRoles.Viewer,
         SystemAccessRoles.Developer,
         SystemAccessRoles.Reviewer,
@@ -70,7 +69,7 @@ public sealed class EffectivePermissionScenario : IDisposable
         _fixture.Projects.GrantUser(Private, SuspendedMember);
         _fixture.Memberships.ChangeStatus(SuspendedMember, MembershipStatus.Suspended);
 
-        var readerRole = _fixture.SystemRole(SystemAccessRoles.Reader).Id;
+        var readerRole = _fixture.SystemRole(SystemAccessRoles.Viewer).Id;
         var ownerTeam = _fixture.Teams.Create("Owner Readers", "owner-readers", null, readerRole);
         _fixture.Teams.AddMember(ownerTeam.Id, Owner, assignDefaultTeamRole: false);
         _fixture.Projects.GrantTeam(Private, ownerTeam.Id);
@@ -122,7 +121,6 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     public static IEnumerable<object[]> ProjectRoles() =>
         new[]
         {
-            SystemAccessRoles.Reader,
             SystemAccessRoles.Viewer,
             SystemAccessRoles.Developer,
             SystemAccessRoles.Reviewer,
@@ -135,7 +133,7 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     {
         foreach (var slug in new[]
                  {
-                     SystemAccessRoles.Reader, SystemAccessRoles.Viewer, SystemAccessRoles.Developer,
+                     SystemAccessRoles.Viewer, SystemAccessRoles.Developer,
                      SystemAccessRoles.Reviewer, SystemAccessRoles.Builder, SystemAccessRoles.Deployer,
                      SystemAccessRoles.ProjectAdmin
                  })
@@ -152,7 +150,7 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     {
         foreach (var slug in new[]
                  {
-                     SystemAccessRoles.Reader, SystemAccessRoles.Viewer, SystemAccessRoles.Developer,
+                     SystemAccessRoles.Viewer, SystemAccessRoles.Developer,
                      SystemAccessRoles.Reviewer, SystemAccessRoles.Builder, SystemAccessRoles.Deployer,
                      SystemAccessRoles.ProjectAdmin
                  })
@@ -189,7 +187,7 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     [MemberData(nameof(AccessMatrix.Permissions), MemberType = typeof(AccessMatrix))]
     public void Owner_keeps_full_owner_permissions_even_when_in_a_reader_team(string permission)
     {
-        var expected = AccessMatrix.Union(SystemAccessRoles.Owner, SystemAccessRoles.Reader).Contains(permission);
+        var expected = AccessMatrix.Union(SystemAccessRoles.Owner, SystemAccessRoles.Viewer).Contains(permission);
         Assert.Equal(expected, scenario.Effective.Has(scenario.Owner, permission, scenario.Private));
     }
 
@@ -245,7 +243,7 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     [MemberData(nameof(AccessMatrix.Permissions), MemberType = typeof(AccessMatrix))]
     public void Role_on_the_grant_replaces_the_role_on_the_group(string permission) =>
         Assert.Equal(
-            AccessMatrix.Union(SystemAccessRoles.Member, SystemAccessRoles.Reader).Contains(permission),
+            AccessMatrix.Union(SystemAccessRoles.Member, SystemAccessRoles.Viewer).Contains(permission),
             scenario.Effective.Has(scenario.OverrideMember, permission, scenario.Private));
 
     [Theory]
@@ -265,7 +263,7 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     [InlineData("Review.Read")]
     [InlineData("deploy.READ")]
     public void Effective_permission_checks_ignore_casing(string permission) =>
-        Assert.True(scenario.Effective.Has(scenario.TeamGrantUser(SystemAccessRoles.Reader), permission, scenario.Private));
+        Assert.True(scenario.Effective.Has(scenario.TeamGrantUser(SystemAccessRoles.Viewer), permission, scenario.Private));
 
     [Fact]
     public void Unknown_project_context_falls_back_to_organisation_permissions() =>
@@ -285,7 +283,7 @@ public sealed class EffectivePermissionMatrixTests(EffectivePermissionScenario s
     public void Reader_grant_still_grants_project_access() =>
         Assert.True(scenario.Access.CanAccess(
             scenario.PrivateProject,
-            scenario.DirectGrantUser(SystemAccessRoles.Reader),
+            scenario.DirectGrantUser(SystemAccessRoles.Viewer),
             OrganisationRole.Member));
 }
 
@@ -298,7 +296,7 @@ public sealed class EffectivePermissionResolutionTests
         var owner = fixture.Bootstrap();
         var bob = fixture.Memberships.Add("bob@example.com", "bob", "Bob", "password123", OrganisationRole.Member, owner.Id);
         var project = fixture.Projects.CreateProject(new CreateProjectRequest("Atlas", "atlas", null, null), owner.Id);
-        var reader = fixture.SystemRole(SystemAccessRoles.Reader);
+        var reader = fixture.SystemRole(SystemAccessRoles.Viewer);
 
         fixture.Projects.GrantUser(project.Id, bob.Id, reader.Id);
         Assert.True(fixture.Effective.Has(bob.Id, "review.read", project.Id));
@@ -348,7 +346,7 @@ public sealed class EffectivePermissionResolutionTests
         var owner = fixture.Bootstrap();
         var bob = fixture.Memberships.Add("bob@example.com", "bob", "Bob", "password123", OrganisationRole.Member, owner.Id);
         var project = fixture.Projects.CreateProject(new CreateProjectRequest("Atlas", "atlas", null, null), owner.Id);
-        var team = fixture.Teams.Create("Readers", "readers", null, fixture.SystemRole(SystemAccessRoles.Reader).Id);
+        var team = fixture.Teams.Create("Readers", "readers", null, fixture.SystemRole(SystemAccessRoles.Viewer).Id);
         fixture.Teams.AddMember(team.Id, bob.Id);
         fixture.Projects.GrantTeam(project.Id, team.Id);
 
@@ -366,7 +364,7 @@ public sealed class EffectivePermissionResolutionTests
         var bob = fixture.Memberships.Add("bob@example.com", "bob", "Bob", "password123", OrganisationRole.Member, owner.Id);
         var narrowed = fixture.Projects.CreateProject(new CreateProjectRequest("Atlas", "atlas", null, null), owner.Id);
         var open = fixture.Projects.CreateProject(new CreateProjectRequest("Shared", "shared", null, null, ProjectVisibility.Organisation), owner.Id);
-        fixture.Projects.GrantUser(narrowed.Id, bob.Id, fixture.SystemRole(SystemAccessRoles.Reader).Id);
+        fixture.Projects.GrantUser(narrowed.Id, bob.Id, fixture.SystemRole(SystemAccessRoles.Viewer).Id);
 
         Assert.True(fixture.Effective.Has(bob.Id, "review.read", narrowed.Id));
         Assert.False(fixture.Effective.Has(bob.Id, "review.read", open.Id));
@@ -416,10 +414,10 @@ public sealed class EffectivePermissionResolutionTests
         fixture.Teams.AddMember(team.Id, alice.Id, expiresAt: DateTimeOffset.UtcNow.AddDays(-1));
         fixture.Projects.GrantTeam(project.Id, team.Id, fixture.SystemRole(SystemAccessRoles.Developer).Id);
 
-        Assert.False(fixture.Effective.Has(alice.Id, "pipelines.run", project.Id));
+        Assert.False(fixture.Effective.Has(alice.Id, "build.run", project.Id));
         fixture.Projects.GrantUser(project.Id, alice.Id, fixture.SystemRole(SystemAccessRoles.Viewer).Id);
         Assert.True(fixture.Effective.Has(alice.Id, "review.read", project.Id));
-        Assert.False(fixture.Effective.Has(alice.Id, "pipelines.run", project.Id));
+        Assert.False(fixture.Effective.Has(alice.Id, "build.run", project.Id));
     }
 
     [Fact]

@@ -42,7 +42,7 @@ internal sealed class TenancyFixture : IDisposable
     public EffectivePermissionService Effective { get; }
     public PermissionService Permissions { get; }
 
-    /// <summary>Resolves a seeded system role by slug (for example "reader").</summary>
+    /// <summary>Resolves a seeded system role by slug (for example "viewer").</summary>
     public AccessRole SystemRole(string slug) =>
         Roles.FindBySlug(slug) ?? throw new InvalidOperationException($"System role '{slug}' was not seeded.");
 

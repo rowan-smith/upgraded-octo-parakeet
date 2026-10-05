@@ -21,7 +21,6 @@ internal sealed class ProcessExecutor(ILogger<ProcessExecutor> logger)
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
-            Arguments = arguments,
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -30,6 +29,12 @@ internal sealed class ProcessExecutor(ILogger<ProcessExecutor> logger)
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+
+        foreach (var argument in arguments)
+        {
+            psi.ArgumentList.Add(argument);
+        }
+
         foreach (var pair in environment)
         {
             psi.Environment[pair.Key] = pair.Value;
@@ -62,35 +67,35 @@ internal sealed class ProcessExecutor(ILogger<ProcessExecutor> logger)
         return new ProcessResult(process.ExitCode, stdout.ToString(), stderr.ToString());
     }
 
-    private static (string FileName, string Arguments) ResolveShell(string shell, string command)
+    private static (string FileName, string[] Arguments) ResolveShell(string shell, string command)
     {
         var requested = string.IsNullOrWhiteSpace(shell) ? null : shell.Trim().ToLowerInvariant();
         if (requested is "cmd" && OperatingSystem.IsWindows())
         {
-            return ("cmd.exe", $"/c {command}");
+            return ("cmd.exe", ["/c", command]);
         }
 
         if (requested is "bash" || (!OperatingSystem.IsWindows() && requested is null or "sh"))
         {
-            return ("bash", $"-lc {EscapeBash(command)}");
+            return ("bash", ["-lc", command]);
         }
 
         if (requested is "pwsh" or "powershell" || (requested is null && OperatingSystem.IsWindows()))
         {
             if (FindOnPath("pwsh") is { } pwsh)
             {
-                return (pwsh, $"-NoLogo -NoProfile -Command {EscapePowerShell(command)}");
+                return (pwsh, ["-NoLogo", "-NoProfile", "-Command", command]);
             }
 
             if (FindOnPath("powershell") is { } windowsPowerShell)
             {
-                return (windowsPowerShell, $"-NoLogo -NoProfile -Command {EscapePowerShell(command)}");
+                return (windowsPowerShell, ["-NoLogo", "-NoProfile", "-Command", command]);
             }
 
-            return ("cmd.exe", $"/c {command}");
+            return ("cmd.exe", ["/c", command]);
         }
 
-        return ("bash", $"-lc {EscapeBash(command)}");
+        return ("bash", ["-lc", command]);
     }
 
     private static string? FindOnPath(string fileName)
@@ -115,12 +120,6 @@ internal sealed class ProcessExecutor(ILogger<ProcessExecutor> logger)
         }
         return null;
     }
-
-    private static string EscapePowerShell(string command) =>
-        $"\"{command.Replace("\"", "`\"")}\"";
-
-    private static string EscapeBash(string command) =>
-        $"'{command.Replace("'", "'\\''")}'";
 
     private static async Task PumpAsync(
         StreamReader reader,

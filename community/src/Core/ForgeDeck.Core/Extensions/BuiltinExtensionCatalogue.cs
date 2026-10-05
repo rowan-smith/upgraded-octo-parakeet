@@ -32,18 +32,11 @@ public static class BuiltinExtensionCatalogue
             "Enterprise review governance: path policies, SoD, and compliance evidence.",
             ["Path Policies", "Separation of Duties", "Compliance Export"],
             "review-enterprise", ["review-enterprise"], ["review", "review-team"], [], Bundled: false),
-        // Migration alias for former review-commercial runtime id (maps to Team package).
-        // Hidden from catalogue UI; kept for install-id compatibility only.
-        new(
-            "forgedeck.review.commercial", "Review Commercial (alias)", ExtensionType.Module, "0.1.0", "ForgeDeck",
-            "Deprecated alias of Review Team. Prefer forgedeck.review.team.",
-            ["Multiple Approvals", "Team Approval"],
-            "review-team", ["review-commercial", "review-team"], ["review"], [], Bundled: false),
         new(
             "forgedeck.build", "Build", ExtensionType.Module, "0.2.0", "ForgeDeck",
             "CI pipelines, runs, jobs, tests, artifacts, and runners.",
             ["Pipelines", "Runs", "Jobs", "Tests", "Artifacts", "Runners"],
-            "build", ["check-provider", "build", "pipelines"], [], [], Bundled: true),
+            "build", ["check-provider", "build"], [], [], Bundled: true),
         new(
             "forgedeck.build.team", "Build Team", ExtensionType.Module, "0.1.0", "ForgeDeck",
             "Team build: concurrent pipelines, schedules, shared runners, protected secrets.",
@@ -111,8 +104,7 @@ public static class BuiltinExtensionCatalogue
 
     /// <summary>Map IPlatformModule.Manifest.Id to catalogue extension id.</summary>
     public static string? ExtensionIdForModule(ModuleManifest manifest) =>
-        FindByRuntimeId(manifest.Id)?.ExtensionId
-        ?? FindByRuntimeId(LegacyRuntimeAlias.Normalize(manifest.Id))?.ExtensionId;
+        FindByRuntimeId(manifest.Id)?.ExtensionId;
 
     /// <summary>Default API prefixes owned by a catalogue extension (used when modules list is empty or for virtual modules).</summary>
     public static IReadOnlyList<string> ApiPrefixesFor(string extensionId) =>
@@ -126,15 +118,9 @@ public static class BuiltinExtensionCatalogue
             _ => []
         };
 
-    public static ExtensionCatalogueEntry? FindByRuntimeId(string runtimeId)
-    {
-        var normalized = LegacyRuntimeAlias.Normalize(runtimeId);
-        return All.FirstOrDefault(e => e.RuntimeId is not null &&
-            (e.RuntimeId.Equals(runtimeId, StringComparison.OrdinalIgnoreCase) ||
-             e.RuntimeId.Equals(normalized, StringComparison.OrdinalIgnoreCase) ||
-             (normalized.Equals("build", StringComparison.OrdinalIgnoreCase) &&
-              e.RuntimeId.Equals("pipelines", StringComparison.OrdinalIgnoreCase))));
-    }
+    public static ExtensionCatalogueEntry? FindByRuntimeId(string runtimeId) =>
+        All.FirstOrDefault(e => e.RuntimeId is not null &&
+            e.RuntimeId.Equals(runtimeId, StringComparison.OrdinalIgnoreCase));
 
     public static string? ExtensionIdForRuntime(string runtimeId) => FindByRuntimeId(runtimeId)?.ExtensionId;
 }

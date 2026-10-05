@@ -20,13 +20,11 @@ public static class SystemAccessRoles
     public const string Owner = "owner";
     public const string Admin = "admin";
     public const string Member = "member";
-    public const string Reader = "reader";
     public const string Viewer = "viewer";
     public const string Developer = "developer";
     public const string Reviewer = "reviewer";
     public const string Builder = "builder";
     public const string Deployer = "deployer";
-    public const string DeployOperator = "deploy-operator";
     public const string ProjectAdmin = "project-admin";
     public const string TeamLead = "team-lead";
     public const string TeamMember = "team-member";
@@ -112,13 +110,9 @@ public static class SystemAccessRoles
             ScopeType.Project, ReviewerPermissions),
         new(Viewer, "Viewer", "Read-only visibility across project modules.",
             ScopeType.Project, ViewerPermissions),
-        new(Reader, "Reader", "Alias of Viewer for backwards compatibility.",
-            ScopeType.Project, ViewerPermissions),
         new(Builder, "Builder", "Run and manage pipelines.",
             ScopeType.Project, BuilderPermissions),
         new(Deployer, "Deployer", "Execute and manage deployments.",
-            ScopeType.Project, DeployerPermissions),
-        new(DeployOperator, "Deploy Operator", "Execute deployments with approval where required.",
             ScopeType.Project, DeployerPermissions)
     ];
 

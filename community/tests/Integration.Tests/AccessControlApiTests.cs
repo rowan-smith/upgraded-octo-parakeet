@@ -18,7 +18,7 @@ public sealed class AccessControlApiTests
             .Select(path => new object[] { path });
 
     public static IEnumerable<object[]> SystemRoleSlugs() =>
-        new[] { "owner", "admin", "member", "reader", "developer", "reviewer", "builder", "deployer" }
+        new[] { "owner", "admin", "member", "viewer", "developer", "reviewer", "builder", "deployer" }
             .Select(slug => new object[] { slug });
 
     public static IEnumerable<object[]> CataloguePermissions() =>
@@ -27,7 +27,7 @@ public sealed class AccessControlApiTests
             "organisation.read", "organisation.manage", "organisation.destroy", "users.read", "users.manage",
             "teams.manage", "projects.create", "projects.manage", "audit.read", "licensing.manage",
             "source.repository.read", "review.read", "review.merge", "git.repository.push",
-            "pipelines.run", "pipelines.runner.manage", "deploy.read", "deploy.execute", "deploy.manage"
+            "build.run", "build.runner.manage", "deploy.read", "deploy.execute", "deploy.manage"
         }.Select(permission => new object[] { permission });
 
     [Theory]
@@ -175,7 +175,7 @@ public sealed class AccessControlApiTests
     {
         await using var host = CreateHost();
         using var owner = await SignInOwnerAsync(host);
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
 
         var patched = await owner.PatchAsJsonAsync($"/api/access/roles/{reader}", new { name = "Renamed" });
         var deleted = await owner.DeleteAsync($"/api/access/roles/{reader}");
@@ -207,7 +207,7 @@ public sealed class AccessControlApiTests
 
         var list = await member.GetAsync("/api/access/roles");
         var create = await member.PostAsJsonAsync("/api/access/roles", new { name = "Sneaky", permissions = new[] { "review.read" } });
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
         var delete = await member.DeleteAsync($"/api/access/roles/{reader}");
 
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
@@ -250,7 +250,7 @@ public sealed class AccessControlApiTests
         await using var host = CreateHost();
         using var owner = await SignInOwnerAsync(host);
         var team = await CreateTeamAsync(owner, "Backend", "backend");
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
         (await owner.PatchAsJsonAsync($"/api/teams/{team}/role", new { roleId = reader })).EnsureSuccessStatusCode();
 
         (await owner.PatchAsJsonAsync($"/api/teams/{team}/role", new { roleId = (Guid?)null })).EnsureSuccessStatusCode();
@@ -265,7 +265,7 @@ public sealed class AccessControlApiTests
     {
         await using var host = CreateHost();
         using var owner = await SignInOwnerAsync(host);
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
 
         var created = await owner.PostAsJsonAsync("/api/teams", new { name = "Readers", slug = "readers", roleId = reader });
         created.EnsureSuccessStatusCode();
@@ -280,7 +280,7 @@ public sealed class AccessControlApiTests
         await using var host = CreateHost();
         using var owner = await SignInOwnerAsync(host);
         var team = await CreateTeamAsync(owner, "Backend", "backend");
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
 
         Assert.Equal(
             HttpStatusCode.NotFound,
@@ -297,7 +297,7 @@ public sealed class AccessControlApiTests
         using var owner = await SignInOwnerAsync(host);
         using var member = await AddMemberAndSignInAsync(host, owner, "Member");
         var team = await CreateTeamAsync(owner, "Backend", "backend");
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
 
         var response = await member.PatchAsJsonAsync($"/api/teams/{team}/role", new { roleId = reader });
 
@@ -312,7 +312,7 @@ public sealed class AccessControlApiTests
         using var member = await AddMemberAndSignInAsync(host, owner, "Member");
         var project = await CreateProjectAsync(owner, "Atlas", "atlas");
         var memberId = await FindMemberIdAsync(owner, MemberEmail);
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
 
         var granted = await owner.PostAsJsonAsync($"/api/projects/{project}/members", new { userId = memberId, roleId = reader });
         granted.EnsureSuccessStatusCode();
@@ -320,7 +320,7 @@ public sealed class AccessControlApiTests
         var members = await owner.GetFromJsonAsync<JsonElement>($"/api/projects/{project}/members");
         var grant = members.EnumerateArray().Single(entry => entry.GetProperty("userId").GetGuid() == memberId);
         Assert.Equal(reader, grant.GetProperty("roleId").GetGuid());
-        Assert.Equal("Reader", grant.GetProperty("roleName").GetString());
+        Assert.Equal("Viewer", grant.GetProperty("roleName").GetString());
     }
 
     [Fact]
@@ -416,7 +416,7 @@ public sealed class AccessControlApiTests
         using var member = await AddMemberAndSignInAsync(host, owner, "Member");
         var memberId = await FindMemberIdAsync(owner, MemberEmail);
         var project = await CreateProjectAsync(owner, "Atlas", "atlas");
-        var reader = await FindRoleAsync(owner, "reader");
+        var reader = await FindRoleAsync(owner, "viewer");
         (await owner.PostAsJsonAsync($"/api/projects/{project}/members", new { userId = memberId, roleId = reader })).EnsureSuccessStatusCode();
         (await member.PostAsJsonAsync("/api/core/context/project", new { projectId = project })).EnsureSuccessStatusCode();
 
