@@ -46,8 +46,9 @@ public sealed class SearchApiTests
     }
 
     [Theory]
-    [InlineData("maya")]
-    [InlineData("Maya")]
+    [InlineData("searchowner")]
+    [InlineData("Search")]
+    [InlineData("search-owner")]
     public async Task Search_returns_person_hits(string query)
     {
         await using var host = CreateEmptyHost();

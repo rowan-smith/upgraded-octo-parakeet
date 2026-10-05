@@ -202,7 +202,12 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
         Assert.True(approved.RootElement.GetProperty("canMerge").GetBoolean());
 
         var merge = await client.PostAsJsonAsync($"/api/review/changes/{changeId}/merge", new { });
-        merge.EnsureSuccessStatusCode();
+        if (!merge.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Merge failed with {(int)merge.StatusCode} ({merge.StatusCode}): {await merge.Content.ReadAsStringAsync()}");
+        }
+
         Assert.Contains("Merged", await merge.Content.ReadAsStringAsync());
     }
 
