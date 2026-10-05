@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Playwright;
 
 namespace E2E.Playwright.Tests;

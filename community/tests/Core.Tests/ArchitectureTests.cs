@@ -263,18 +263,25 @@ public sealed class ArchitectureTests
         var root = FindRepoRoot();
         Assert.True(File.Exists(Path.Combine(root, "licenses", "AGPL-3.0.txt")));
         Assert.True(File.Exists(Path.Combine(root, "LICENSE.enterprise")));
-        Assert.True(File.Exists(Path.Combine(root, "commercial", "LICENSE")));
         Assert.True(File.Exists(Path.Combine(root, "community", "LICENSE")));
         Assert.True(File.Exists(Path.Combine(root, "sdk", "LICENSE")));
         Assert.True(Directory.Exists(Path.Combine(root, "community")));
-        Assert.True(Directory.Exists(Path.Combine(root, "commercial")));
         Assert.True(Directory.Exists(Path.Combine(root, "sdk")));
 
         var rootLicense = File.ReadAllText(Path.Combine(root, "LICENSE"));
         Assert.Contains("GNU AFFERO GENERAL PUBLIC LICENSE", rootLicense, StringComparison.OrdinalIgnoreCase);
 
-        var commercialLicense = File.ReadAllText(Path.Combine(root, "commercial", "LICENSE"));
-        Assert.Contains("Enterprise Edition", commercialLicense, StringComparison.OrdinalIgnoreCase);
+        // Root EE licence text must remain even when commercial/ is stripped (community CI).
+        var enterpriseLicense = File.ReadAllText(Path.Combine(root, "LICENSE.enterprise"));
+        Assert.Contains("Enterprise Edition", enterpriseLicense, StringComparison.OrdinalIgnoreCase);
+
+        var commercialRoot = Path.Combine(root, "commercial");
+        if (Directory.Exists(commercialRoot))
+        {
+            Assert.True(File.Exists(Path.Combine(commercialRoot, "LICENSE")));
+            var commercialLicense = File.ReadAllText(Path.Combine(commercialRoot, "LICENSE"));
+            Assert.Contains("Enterprise Edition", commercialLicense, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
