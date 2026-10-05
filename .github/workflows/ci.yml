@@ -65,8 +65,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+      # -m:1 avoids intermittent GenerateDepsFile file-lock races on shared
+      # projects (e.g. ForgeDeck.Contracts.deps.json) under .NET 10 SDK parallel MSBuild.
+      # See https://github.com/dotnet/sdk/issues/52477
       - name: Build
-        run: dotnet build ForgeDeck.slnx -c Release
+        run: dotnet build ForgeDeck.slnx -c Release -m:1
       - name: Test (exclude Playwright)
         run: dotnet test ForgeDeck.slnx -c Release --no-build --filter "FullyQualifiedName!~Playwright"
 

@@ -31,6 +31,8 @@
     <Project Path="community/src/Modules/Build/ForgeDeck.Build/ForgeDeck.Build.csproj" />
     <Project Path="community/src/Modules/Deploy/ForgeDeck.Deploy.Contracts/ForgeDeck.Deploy.Contracts.csproj" />
     <Project Path="community/src/Modules/Deploy/ForgeDeck.Deploy/ForgeDeck.Deploy.csproj" />
+    <Project Path="community/src/Modules/Code/ForgeDeck.Code.Contracts/ForgeDeck.Code.Contracts.csproj" />
+    <Project Path="community/src/Modules/Code/ForgeDeck.Code/ForgeDeck.Code.csproj" />
     <Project Path="community/src/Modules/ChecksDemo/ForgeDeck.ChecksDemo/ForgeDeck.ChecksDemo.csproj" />
   </Folder>
   <Folder Name="/Community/Connectors/">
