@@ -15,14 +15,8 @@ public sealed class PipelineActivityHandler(IChangeRepository repository) : IEve
             return Task.CompletedTask;
         }
 
-        var change = repository.Find(changeId);
-        if (change is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        change.RecordActivity("PipelineStarted", "Pipelines", $"{domainEvent.PipelineName} started for {Short(domainEvent.CommitSha)}.");
-        repository.Update(change);
+        repository.Mutate(changeId, change =>
+            change.RecordActivity("PipelineStarted", "Pipelines", $"{domainEvent.PipelineName} started for {Short(domainEvent.CommitSha)}."));
         return Task.CompletedTask;
     }
 
@@ -41,14 +35,8 @@ public sealed class PipelineSucceededActivityHandler(IChangeRepository repositor
             return Task.CompletedTask;
         }
 
-        var change = repository.Find(changeId);
-        if (change is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        change.RecordActivity("PipelinePassed", "Pipelines", $"{e.PipelineName} passed for {Short(e.CommitSha)}.");
-        repository.Update(change);
+        repository.Mutate(changeId, change =>
+            change.RecordActivity("PipelinePassed", "Pipelines", $"{e.PipelineName} passed for {Short(e.CommitSha)}."));
         return Task.CompletedTask;
     }
 
@@ -67,14 +55,8 @@ public sealed class PipelineFailedActivityHandler(IChangeRepository repository) 
             return Task.CompletedTask;
         }
 
-        var change = repository.Find(changeId);
-        if (change is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        change.RecordActivity("PipelineFailed", "Pipelines", $"{e.PipelineName} failed for {Short(e.CommitSha)}.");
-        repository.Update(change);
+        repository.Mutate(changeId, change =>
+            change.RecordActivity("PipelineFailed", "Pipelines", $"{e.PipelineName} failed for {Short(e.CommitSha)}."));
         return Task.CompletedTask;
     }
 
@@ -93,14 +75,8 @@ public sealed class PipelineCancelledActivityHandler(IChangeRepository repositor
             return Task.CompletedTask;
         }
 
-        var change = repository.Find(changeId);
-        if (change is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        change.RecordActivity("PipelineCancelled", "Pipelines", $"{e.PipelineName} cancelled for {Short(e.CommitSha)}.");
-        repository.Update(change);
+        repository.Mutate(changeId, change =>
+            change.RecordActivity("PipelineCancelled", "Pipelines", $"{e.PipelineName} cancelled for {Short(e.CommitSha)}."));
         return Task.CompletedTask;
     }
 

@@ -260,6 +260,7 @@ public sealed class ReviewModuleTests
     private sealed class InMemoryChangeRepository : IChangeRepository
     {
         private readonly Dictionary<Guid, Change> _items = new();
+        private readonly object _gate = new();
         public IReadOnlyList<Change> List() => _items.Values.ToArray();
         public Change? Find(Guid id) => _items.GetValueOrDefault(id);
         public Change? Find(string owner, string name, string externalId) =>
@@ -267,6 +268,20 @@ public sealed class ReviewModuleTests
                 c.Repository.Owner == owner && c.Repository.Name == name && c.ExternalId == externalId);
         public void Add(Change change) => _items[change.Id] = change;
         public void Update(Change change) => _items[change.Id] = change;
+        public Change? Mutate(Guid id, Action<Change> mutation)
+        {
+            lock (_gate)
+            {
+                if (!_items.TryGetValue(id, out var change))
+                {
+                    return null;
+                }
+
+                mutation(change);
+                _items[id] = change;
+                return change;
+            }
+        }
     }
 
     private sealed class InMemorySourceConnectionStore : ISourceConnectionStore

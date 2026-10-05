@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using ForgeDeck.Review.Application;
 using ForgeDeck.Review.Domain;
@@ -9,6 +10,7 @@ public sealed class EfChangeRepository : IChangeRepository
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly IDbContextFactory<ReviewDbContext> _dbFactory;
+    private readonly ConcurrentDictionary<Guid, object> _gates = new();
     private readonly object _schemaGate = new();
     private bool _schemaReady;
 
@@ -48,7 +50,31 @@ public sealed class EfChangeRepository : IChangeRepository
     }
 
     public void Add(Change change) => Save(change);
-    public void Update(Change change) => Save(change);
+    public void Update(Change change)
+    {
+        var gate = _gates.GetOrAdd(change.Id, static _ => new object());
+        lock (gate)
+        {
+            Save(change);
+        }
+    }
+
+    public Change? Mutate(Guid id, Action<Change> mutation)
+    {
+        var gate = _gates.GetOrAdd(id, static _ => new object());
+        lock (gate)
+        {
+            var change = Find(id);
+            if (change is null)
+            {
+                return null;
+            }
+
+            mutation(change);
+            Save(change);
+            return change;
+        }
+    }
 
     private void Save(Change change)
     {

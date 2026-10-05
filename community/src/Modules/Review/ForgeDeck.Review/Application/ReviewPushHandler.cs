@@ -20,27 +20,37 @@ public sealed class ReviewPushHandler(IChangeRepository repository, IEventPublis
                         && string.Equals(c.SourceBranch, push.Branch, StringComparison.OrdinalIgnoreCase)
                         && ($"{c.Repository.Owner}/{c.Repository.Name}".Equals(push.Repository, StringComparison.OrdinalIgnoreCase)
                             || c.Repository.Name.Equals(push.Repository, StringComparison.OrdinalIgnoreCase)))
+            .Select(c => c.Id)
             .ToArray();
 
-        foreach (var change in matches)
+        foreach (var changeId in matches)
         {
-            var previous = change.HeadCommit;
-            if (string.Equals(previous, push.CommitSha, StringComparison.OrdinalIgnoreCase))
+            string? previous = null;
+            var updated = repository.Mutate(changeId, change =>
+            {
+                previous = change.HeadCommit;
+                if (string.Equals(previous, push.CommitSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    previous = null;
+                    return;
+                }
+
+                change.RecordActivity("RevisionUpdated", "Git", $"Head moved {Short(previous)} → {Short(push.CommitSha)}.");
+                change.HeadCommit = push.CommitSha;
+            });
+
+            if (updated is null || previous is null)
             {
                 continue;
             }
 
-            change.RecordActivity("RevisionUpdated", "Git", $"Head moved {Short(previous)} → {Short(push.CommitSha)}.");
-            change.HeadCommit = push.CommitSha;
-            repository.Update(change);
-
             await events.PublishAsync(
                 new ReviewRevisionUpdatedEvent(
-                    change.Id,
+                    changeId,
                     push.ProjectKey,
                     push.Repository,
-                    change.SourceBranch,
-                    change.TargetBranch,
+                    updated.SourceBranch,
+                    updated.TargetBranch,
                     push.CommitSha,
                     previous),
                 new PublishOptions

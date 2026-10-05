@@ -130,20 +130,16 @@ public sealed class ReviewService(
     public Change? SetDiscussionResolution(Guid id, Guid discussionId, string actor, bool resolved) => Mutate(id, change => change.SetDiscussionResolution(discussionId, actor, resolved));
     public Change? AddReviewer(Guid id, string actor, string name) => Mutate(id, change => change.AddReviewer(actor, name));
     public Change? RemoveReviewer(Guid id, string actor, string name) => Mutate(id, change => change.RemoveReviewer(actor, name));
-    public Change? SubmitReview(Guid id, string reviewer, string state, string? body)
-    {
-        var change = repository.Find(id); if (change is null)
+    public Change? SubmitReview(Guid id, string reviewer, string state, string? body) =>
+        Mutate(id, change =>
         {
-            return null;
-        }
+            if (!AllowSelfReview && change.Author.Equals(reviewer, StringComparison.OrdinalIgnoreCase) && state is "Approved" or "ChangesRequested")
+            {
+                throw new InvalidOperationException("Self-review is disabled for this project.");
+            }
 
-        if (!AllowSelfReview && change.Author.Equals(reviewer, StringComparison.OrdinalIgnoreCase) && state is "Approved" or "ChangesRequested")
-        {
-            throw new InvalidOperationException("Self-review is disabled for this project.");
-        }
-
-        change.SubmitReview(reviewer, state, body, policies.Resolve()); repository.Update(change); return change;
-    }
+            change.SubmitReview(reviewer, state, body, policies.Resolve());
+        });
     public Change? Approve(Guid id, string reviewer) => SubmitReview(id, reviewer, "Approved", null);
     public Change? RequestChanges(Guid id, string reviewer, string body) => SubmitReview(id, reviewer, "ChangesRequested", body);
 
@@ -176,7 +172,7 @@ public sealed class ReviewService(
         var mergePolicy = await EvaluateMergeAsync(change, token);
         if (!mergePolicy.Satisfied)
         {
-            throw new InvalidOperationException("Approval policy is not satisfied for merge.");
+            throw new InvalidOperationException(DescribeMergeFailure(mergePolicy));
         }
 
         var policy = policies.Resolve();
@@ -186,7 +182,7 @@ public sealed class ReviewService(
             throw new SourceProviderException(SourceProviderErrorKind.Conflict, result.Message);
         }
 
-        change.MarkMerged(actor, result.CommitSha, policy); repository.Update(change); return change;
+        return Mutate(id, merged => merged.MarkMerged(actor, result.CommitSha, policy));
     }
 
     public async Task<Change?> CloseAsync(Guid id, string actor, CancellationToken token = default)
@@ -197,26 +193,27 @@ public sealed class ReviewService(
         }
 
         await providers.Changes(change.Repository.Provider).CloseChangeAsync(change.Repository.Id, change.ExternalId, token);
-        change.MarkClosed(actor); repository.Update(change); return change;
+        return Mutate(id, closed => closed.MarkClosed(actor));
     }
 
     private async Task<Change> RefreshAsync(Change change, CancellationToken token)
     {
         var previousCommitSha = change.HeadCommit;
         var external = await providers.Changes(change.Repository.Provider).GetChangeAsync(change.Repository.Id, change.ExternalId, token);
-        change.Synchronize(external); repository.Update(change);
-        if (!string.Equals(previousCommitSha, change.HeadCommit, StringComparison.OrdinalIgnoreCase))
+        var updated = Mutate(change.Id, current => current.Synchronize(external))
+            ?? throw new InvalidOperationException("Change was removed while refreshing.");
+        if (!string.Equals(previousCommitSha, updated.HeadCommit, StringComparison.OrdinalIgnoreCase))
         {
             await events.PublishAsync(
                 new ReviewRevisionUpdatedEvent(
-                    change.Id,
+                    updated.Id,
                     context.Project.Key,
-                    $"{change.Repository.Owner}/{change.Repository.Name}",
-                    change.SourceBranch,
-                    change.TargetBranch,
-                    change.HeadCommit,
+                    $"{updated.Repository.Owner}/{updated.Repository.Name}",
+                    updated.SourceBranch,
+                    updated.TargetBranch,
+                    updated.HeadCommit,
                     previousCommitSha,
-                    ResolveCloneUrl(change.Repository)),
+                    ResolveCloneUrl(updated.Repository)),
                 new PublishOptions
                 {
                     Actor = new EventActor(ActorType.System, "forgedeck.review", "Review"),
@@ -226,7 +223,7 @@ public sealed class ReviewService(
                 },
                 token);
         }
-        return change;
+        return updated;
     }
 
     private static string? ResolveCloneUrl(SourceRepository repository)
@@ -244,13 +241,30 @@ public sealed class ReviewService(
         return null;
     }
 
-    private Change? Mutate(Guid id, Action<Change> mutation)
+    private static string DescribeMergeFailure(ApprovalPolicyResult policy)
     {
-        var change = repository.Find(id); if (change is null)
+        if (!policy.HasApproval)
         {
-            return null;
+            return "Approval policy is not satisfied for merge.";
         }
 
-        mutation(change); repository.Update(change); return change;
+        if (policy.HasBlockingReview)
+        {
+            return "Changes have been requested; resolve them before merge.";
+        }
+
+        if (!policy.ProviderMergeable)
+        {
+            return "The source provider reports this change is not mergeable.";
+        }
+
+        if (!policy.ChecksSatisfied)
+        {
+            return "Required checks are not satisfied for merge.";
+        }
+
+        return "Merge policy is not satisfied.";
     }
+
+    private Change? Mutate(Guid id, Action<Change> mutation) => repository.Mutate(id, mutation);
 }

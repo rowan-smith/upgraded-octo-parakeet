@@ -191,7 +191,7 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
             line = 3,
             commitSha = changeDoc.RootElement.GetProperty("headCommit").GetString()
         })).EnsureSuccessStatusCode();
-        (await client.PostAsJsonAsync($"/api/review/changes/{changeId}/reviewers", new { name = "Maya Chen" })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"/api/review/changes/{changeId}/reviewers", new { name = "Alex Reviewer" })).EnsureSuccessStatusCode();
 
         // Full environment requires pipeline checks; wait for simulated runner to finish.
         await WaitForChecksAsync(client, changeId, "Passed");
@@ -211,17 +211,18 @@ public sealed class ModuleCompositionTests : IClassFixture<WebApplicationFactory
         Assert.Contains("Merged", await merge.Content.ReadAsStringAsync());
     }
 
-    private static async Task WaitForChecksAsync(HttpClient client, Guid changeId, string expectedStatus, int timeoutMs = 10000)
+    private static async Task WaitForChecksAsync(HttpClient client, Guid changeId, string expectedStatus, int timeoutMs = 15000)
     {
+        string[] required = ["Build", "Unit Tests", "Integration Tests", "E2E Tests"];
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)
         {
             var checks = await client.GetStringAsync($"/api/review/changes/{changeId}/checks");
-            if (checks.Contains(expectedStatus, StringComparison.OrdinalIgnoreCase)
-                && checks.Contains("Build", StringComparison.OrdinalIgnoreCase)
-                && checks.Contains("E2E Tests", StringComparison.OrdinalIgnoreCase)
+            if (required.All(name => checks.Contains(name, StringComparison.OrdinalIgnoreCase))
+                && checks.Contains(expectedStatus, StringComparison.OrdinalIgnoreCase)
                 && !checks.Contains("\"status\":\"Queued\"", StringComparison.OrdinalIgnoreCase)
-                && !checks.Contains("\"status\":\"Running\"", StringComparison.OrdinalIgnoreCase))
+                && !checks.Contains("\"status\":\"Running\"", StringComparison.OrdinalIgnoreCase)
+                && !checks.Contains("\"status\":\"Failed\"", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }

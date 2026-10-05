@@ -19,25 +19,20 @@ public sealed class CheckProjectionHandler(IChangeRepository repository) : IEven
             return Task.CompletedTask;
         }
 
-        var change = repository.Find(changeId);
-        if (change is null)
+        repository.Mutate(changeId, change =>
         {
-            return Task.CompletedTask;
-        }
+            // Associate with the revision SHA carried on the event; never claim current head for a stale commit.
+            if (!string.Equals(change.HeadCommit, e.CommitSha, StringComparison.OrdinalIgnoreCase))
+            {
+                change.RecordActivity(
+                    "CheckUpdatedStale",
+                    e.Provider,
+                    $"{e.Name}={e.Status} for {Short(e.CommitSha)} (current {Short(change.HeadCommit)}).");
+                return;
+            }
 
-        // Associate with the revision SHA carried on the event; never claim current head for a stale commit.
-        if (!string.Equals(change.HeadCommit, e.CommitSha, StringComparison.OrdinalIgnoreCase))
-        {
-            change.RecordActivity(
-                "CheckUpdatedStale",
-                e.Provider,
-                $"{e.Name}={e.Status} for {Short(e.CommitSha)} (current {Short(change.HeadCommit)}).");
-            repository.Update(change);
-            return Task.CompletedTask;
-        }
-
-        change.RecordActivity("CheckUpdated", e.Provider, $"{e.Name}={e.Status} for {Short(e.CommitSha)}.");
-        repository.Update(change);
+            change.RecordActivity("CheckUpdated", e.Provider, $"{e.Name}={e.Status} for {Short(e.CommitSha)}.");
+        });
         return Task.CompletedTask;
     }
 
